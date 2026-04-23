@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ciii Codex Helper
 // @namespace    https://codex.ciii.club/
-// @version      0.17.0
-// @description  全站跟随浏览器主题同步；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时。
+// @version      0.20.0
+// @description  全站跟随浏览器主题同步；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        https://codex.ciii.club/*
 // @grant        GM_deleteValue
 // @grant        GM_getValue
@@ -13,9 +13,11 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.17.0';
+  const SCRIPT_VERSION = '0.20.0';
   const DATE_RANGE_STORAGE_KEY = 'ciii-codex-usage-date-range';
+  const DASHBOARD_DATE_RANGE_STORAGE_KEY = 'ciii-codex-dashboard-date-range';
   const PAGE_SIZE_STORAGE_KEY = 'ciii-codex-usage-page-size';
+  const DASHBOARD_GRANULARITY_STORAGE_KEY = 'ciii-codex-dashboard-granularity';
   const AUTO_REFRESH_STORAGE_KEY = 'ciii-codex-auto-refresh-ms';
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
@@ -44,7 +46,9 @@
   };
   const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100', '200', '500'];
 
-  let restoreAttempted = false;
+  let rangeRestoreInFlight = false;
+  let rangeRestoreToken = 0;
+  let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;
   let autoRefreshButton = null;
@@ -58,6 +62,8 @@
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
   let lastObservedPageSizeValue = null;
+  let dashboardGranularitySelectionActiveUntil = 0;
+  let lastObservedDashboardGranularityValue = null;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
   let foregroundWatcherInstalled = false;
@@ -120,6 +126,144 @@
     return location.pathname.startsWith('/usage');
   }
 
+  function isDashboardPage() {
+    return location.pathname.startsWith('/dashboard');
+  }
+
+  function getActiveDateRangeStorageKey() {
+    if (isUsagePage()) {
+      return DATE_RANGE_STORAGE_KEY;
+    }
+    if (isDashboardPage()) {
+      return DASHBOARD_DATE_RANGE_STORAGE_KEY;
+    }
+    return null;
+  }
+
+  function getSavedRangeForCurrentPage() {
+    const storageKey = getActiveDateRangeStorageKey();
+    if (!storageKey) {
+      return null;
+    }
+    return storage.get(storageKey, null);
+  }
+
+  function formatIsoDateFromParts({ year, month, day }) {
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+
+  function getDatePartsInTimeZone(date, timeZone) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      day: '2-digit',
+      month: '2-digit',
+      timeZone,
+      year: 'numeric',
+    });
+    const parts = Object.fromEntries(
+      formatter
+        .formatToParts(date)
+        .filter((part) => part.type !== 'literal')
+        .map((part) => [part.type, Number(part.value)]),
+    );
+
+    return {
+      day: parts.day,
+      month: parts.month,
+      year: parts.year,
+    };
+  }
+
+  function getTodayIsoDate(timeZone) {
+    return formatIsoDateFromParts(getDatePartsInTimeZone(new Date(), timeZone));
+  }
+
+  function shiftIsoDate(dateText, offsetDays) {
+    const [year, month, day] = String(dateText || '')
+      .split('-')
+      .map(Number);
+    if (!year || !month || !day) {
+      return '';
+    }
+
+    const shiftedDate = new Date(Date.UTC(year, month - 1, day));
+    shiftedDate.setUTCDate(shiftedDate.getUTCDate() + offsetDays);
+    return shiftedDate.toISOString().slice(0, 10);
+  }
+
+  function getStartOfMonthIsoDate(dateText) {
+    const [year, month] = String(dateText || '')
+      .split('-')
+      .map(Number);
+    if (!year || !month) {
+      return '';
+    }
+    return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-01`;
+  }
+
+  function getEndOfPreviousMonthIsoDate(dateText) {
+    const firstDayOfMonth = getStartOfMonthIsoDate(dateText);
+    if (!firstDayOfMonth) {
+      return '';
+    }
+    return shiftIsoDate(firstDayOfMonth, -1);
+  }
+
+  function resolvePresetRange(label, timeZone) {
+    const today = getTodayIsoDate(timeZone);
+    if (!today) {
+      return null;
+    }
+
+    switch (String(label || '').trim()) {
+      case '今天':
+        return { start: today, end: today };
+      case '昨天': {
+        const yesterday = shiftIsoDate(today, -1);
+        return { start: yesterday, end: yesterday };
+      }
+      case '近24小时':
+        return { start: shiftIsoDate(today, -1), end: today };
+      case '近 7 天':
+        return { start: shiftIsoDate(today, -6), end: today };
+      case '近 14 天':
+        return { start: shiftIsoDate(today, -13), end: today };
+      case '近 30 天':
+        return { start: shiftIsoDate(today, -29), end: today };
+      case '本月':
+        return { start: getStartOfMonthIsoDate(today), end: today };
+      case '上月': {
+        const previousMonthEnd = getEndOfPreviousMonthIsoDate(today);
+        return {
+          start: getStartOfMonthIsoDate(previousMonthEnd),
+          end: previousMonthEnd,
+        };
+      }
+      default:
+        return null;
+    }
+  }
+
+  function resolveSavedRange(savedRange, timeZone) {
+    if (!savedRange) {
+      return null;
+    }
+
+    if (savedRange.type === 'custom') {
+      return savedRange.start && savedRange.end
+        ? {
+            end: savedRange.end,
+            start: savedRange.start,
+          }
+        : null;
+    }
+
+    if (savedRange.type === 'preset') {
+      return resolvePresetRange(savedRange.label, timeZone);
+    }
+
+    return null;
+  }
+
   function isPageVisible() {
     return document.visibilityState === 'visible';
   }
@@ -174,6 +318,10 @@
     return document.querySelector('.date-picker-trigger');
   }
 
+  function getTriggerValueElement() {
+    return getTrigger()?.querySelector('.date-picker-value') || null;
+  }
+
   function getApplyButton() {
     return document.querySelector('.date-picker-apply') || findButtonByText('应用');
   }
@@ -211,16 +359,24 @@
     );
   }
 
-  function getPageSizeLabel() {
-    return [...document.querySelectorAll('span')].find((element) => element.textContent.trim() === '每页:');
+  function findSpanByText(text) {
+    return [...document.querySelectorAll('span')].find((element) => element.textContent.trim() === text);
   }
 
-  function getPageSizeWrapper() {
-    return getPageSizeLabel()?.closest('div.flex.items-center.space-x-2') || null;
+  function getLabeledSelectButton(labelText) {
+    let current = findSpanByText(labelText)?.parentElement || null;
+    while (current) {
+      const button = current.querySelector('button.select-trigger');
+      if (button) {
+        return button;
+      }
+      current = current.parentElement;
+    }
+    return null;
   }
 
   function getPageSizeButton() {
-    return getPageSizeWrapper()?.querySelector('button.select-trigger') || null;
+    return getLabeledSelectButton('每页:');
   }
 
   function normalizePageSizeValue(value) {
@@ -293,6 +449,78 @@
 
     setSavedPageSizeValue(currentValue);
     pageSizeSelectionActiveUntil = 0;
+  }
+
+  function getDashboardGranularityButton() {
+    return getLabeledSelectButton('粒度:');
+  }
+
+  function normalizeDashboardGranularityValue(value) {
+    const normalizedValue = String(value || '').trim();
+    return normalizedValue || null;
+  }
+
+  function getCurrentDashboardGranularityValue() {
+    return normalizeDashboardGranularityValue(getDashboardGranularityButton()?.textContent.trim());
+  }
+
+  function getSavedDashboardGranularityValue() {
+    const savedValue = storage.get(DASHBOARD_GRANULARITY_STORAGE_KEY, null);
+    return normalizeDashboardGranularityValue(savedValue);
+  }
+
+  function setSavedDashboardGranularityValue(value) {
+    const normalizedValue = normalizeDashboardGranularityValue(value);
+    if (!normalizedValue) {
+      return;
+    }
+    storage.set(DASHBOARD_GRANULARITY_STORAGE_KEY, normalizedValue);
+  }
+
+  function isDashboardGranularityButtonTarget(target) {
+    const granularityButton = getDashboardGranularityButton();
+    return Boolean(granularityButton && granularityButton.contains(target));
+  }
+
+  function markDashboardGranularitySelectionActive() {
+    dashboardGranularitySelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    lastObservedDashboardGranularityValue = getCurrentDashboardGranularityValue();
+  }
+
+  function isDashboardGranularitySelectionActive() {
+    return Date.now() <= dashboardGranularitySelectionActiveUntil;
+  }
+
+  function saveCurrentDashboardGranularitySoon(fallbackValue = null) {
+    const normalizedFallbackValue = normalizeDashboardGranularityValue(fallbackValue);
+    window.setTimeout(() => {
+      const currentValue = getCurrentDashboardGranularityValue();
+      if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
+        setSavedDashboardGranularityValue(currentValue);
+        return;
+      }
+
+      setSavedDashboardGranularityValue(normalizedFallbackValue);
+    }, PAGE_SIZE_SAVE_DELAY_MS);
+  }
+
+  function handleDashboardGranularityValueChange() {
+    if (!isDashboardPage()) {
+      return;
+    }
+
+    const currentValue = getCurrentDashboardGranularityValue();
+    if (!currentValue || currentValue === lastObservedDashboardGranularityValue) {
+      return;
+    }
+
+    lastObservedDashboardGranularityValue = currentValue;
+    if (!isDashboardGranularitySelectionActive()) {
+      return;
+    }
+
+    setSavedDashboardGranularityValue(currentValue);
+    dashboardGranularitySelectionActiveUntil = 0;
   }
 
   function getAutoRefreshOption(value) {
@@ -398,7 +626,49 @@
   }
 
   function currentTriggerText() {
-    return getTrigger()?.textContent.trim() || '';
+    return getTriggerValueElement()?.textContent.trim() || getTrigger()?.textContent.trim() || '';
+  }
+
+  function getSavedRangeDisplayText(savedRange) {
+    if (!savedRange) {
+      return '';
+    }
+
+    if (savedRange.type === 'preset') {
+      return String(savedRange.label || '').trim();
+    }
+
+    if (savedRange.type === 'custom') {
+      return String(savedRange.displayText || buildCustomDisplayText(savedRange.start, savedRange.end)).trim();
+    }
+
+    return '';
+  }
+
+  function syncRangeTriggerText(savedRange) {
+    const expectedText = getSavedRangeDisplayText(savedRange);
+    if (!expectedText) {
+      return false;
+    }
+
+    const trigger = getTrigger();
+    if (!trigger) {
+      return false;
+    }
+
+    const currentText = currentTriggerText();
+    if (currentText === expectedText) {
+      return false;
+    }
+
+    const valueElement = getTriggerValueElement();
+    if (valueElement) {
+      valueElement.textContent = expectedText;
+      return true;
+    }
+
+    trigger.textContent = expectedText;
+    return true;
   }
 
   function isAlreadyApplied(savedRange) {
@@ -419,54 +689,140 @@
   }
 
   async function restoreSavedRange() {
-    if (restoreAttempted) {
-      return;
+    if (rangeRestoreInFlight) {
+      return false;
     }
-    restoreAttempted = true;
 
-    const savedRange = storage.get(DATE_RANGE_STORAGE_KEY, null);
+    const savedRange = getSavedRangeForCurrentPage();
     if (!savedRange) {
-      return;
+      return false;
     }
 
-    const trigger = await waitFor(getTrigger);
+    if (isUsagePage() || isDashboardPage()) {
+      return syncRangeTriggerText(savedRange);
+    }
+
+    const trigger = getTrigger();
     if (!trigger || isAlreadyApplied(savedRange)) {
-      return;
+      return false;
     }
 
-    const opened = await openPicker();
-    if (!opened) {
-      return;
-    }
+    rangeRestoreInFlight = true;
+    const restoreToken = ++rangeRestoreToken;
+    const restorePathname = location.pathname;
 
-    if (savedRange.type === 'preset') {
-      const presetButton = await waitFor(() =>
-        getPresetButtons().find(
-          (button) => button.textContent.trim() === savedRange.label,
-        ),
-      );
-      if (!presetButton) {
-        return;
-      }
-      presetButton.click();
-    } else if (savedRange.type === 'custom') {
-      const inputs = await waitFor(() => {
-        const elements = getDateInputs();
-        return elements.length === 2 ? elements : null;
-      });
-
-      if (!inputs) {
+    try {
+      const opened = await openPicker();
+      if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
         return;
       }
 
-      setNativeInputValue(inputs[0], savedRange.start);
-      setNativeInputValue(inputs[1], savedRange.end);
-    } else {
+      if (savedRange.type === 'preset') {
+        const presetButton = await waitFor(() =>
+          getPresetButtons().find(
+            (button) => button.textContent.trim() === savedRange.label,
+          ),
+        );
+        if (!presetButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return;
+        }
+        presetButton.click();
+      } else if (savedRange.type === 'custom') {
+        const inputs = await waitFor(() => {
+          const elements = getDateInputs();
+          return elements.length === 2 ? elements : null;
+        });
+
+        if (!inputs || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return;
+        }
+
+        setNativeInputValue(inputs[0], savedRange.start);
+        setNativeInputValue(inputs[1], savedRange.end);
+      } else {
+        return;
+      }
+
+      const applyButton = await waitFor(getApplyButton);
+      if (!applyButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+        return false;
+      }
+      applyButton.click();
+      return true;
+    } finally {
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
+    }
+  }
+
+  function rewriteUsageRequestUrl(urlInput) {
+    if ((!isUsagePage() && !isDashboardPage()) || !urlInput) {
+      return urlInput;
+    }
+
+    const savedRange = getSavedRangeForCurrentPage();
+    if (!savedRange) {
+      return urlInput;
+    }
+
+    const requestUrl = new URL(String(urlInput), location.href);
+    if (!requestUrl.pathname.startsWith('/api/v1/usage')) {
+      return urlInput;
+    }
+
+    const timeZone =
+      requestUrl.searchParams.get('timezone') ||
+      Intl.DateTimeFormat().resolvedOptions().timeZone ||
+      'UTC';
+    const resolvedRange = resolveSavedRange(savedRange, timeZone);
+    if (!resolvedRange) {
+      return urlInput;
+    }
+
+    requestUrl.searchParams.set('start_date', resolvedRange.start);
+    requestUrl.searchParams.set('end_date', resolvedRange.end);
+    return requestUrl.toString();
+  }
+
+  function rewriteFetchInput(input) {
+    if (typeof input === 'string' || input instanceof URL) {
+      return rewriteUsageRequestUrl(String(input));
+    }
+
+    if (input && typeof input.url === 'string') {
+      const rewrittenUrl = rewriteUsageRequestUrl(input.url);
+      if (rewrittenUrl === input.url || typeof Request !== 'function') {
+        return input;
+      }
+      return new Request(rewrittenUrl, input);
+    }
+
+    return input;
+  }
+
+  function installUsageRequestRewriter() {
+    if (usageRequestRewriteInstalled) {
       return;
     }
 
-    const applyButton = await waitFor(getApplyButton);
-    applyButton?.click();
+    if (typeof window.fetch === 'function') {
+      const originalFetch = window.fetch.bind(window);
+      const patchedFetch = function patchedFetch(input, init) {
+        return originalFetch(rewriteFetchInput(input), init);
+      };
+      window.fetch = patchedFetch;
+      globalThis.fetch = patchedFetch;
+    }
+
+    if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype?.open) {
+      const originalOpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
+        return originalOpen.call(this, method, rewriteUsageRequestUrl(url), ...rest);
+      };
+    }
+
+    usageRequestRewriteInstalled = true;
   }
 
   async function restoreSavedPageSize() {
@@ -490,6 +846,30 @@
     if (targetOption) {
       targetOption.click();
       setSavedPageSizeValue(savedPageSize);
+    }
+  }
+
+  async function restoreSavedDashboardGranularity() {
+    const savedGranularity = getSavedDashboardGranularityValue();
+    if (!savedGranularity) {
+      return;
+    }
+
+    const granularityButton = await waitFor(getDashboardGranularityButton);
+    if (!granularityButton || getCurrentDashboardGranularityValue() === savedGranularity) {
+      return;
+    }
+
+    granularityButton.click();
+    const targetOption = await waitFor(() =>
+      [...document.querySelectorAll('[role="option"]')].find(
+        (option) => option.textContent.trim() === savedGranularity,
+      ),
+    );
+
+    if (targetOption) {
+      targetOption.click();
+      setSavedDashboardGranularityValue(savedGranularity);
     }
   }
 
@@ -978,13 +1358,34 @@
   async function applyPageEnhancements() {
     await syncPageThemeWithBrowserTheme();
 
-    if (!isUsagePage()) {
+    if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
       return;
     }
 
-    await restoreSavedRange();
+    const rangeRestored = await restoreSavedRange();
+
+    if (isDashboardPage()) {
+      await restoreSavedDashboardGranularity();
+      if (rangeRestored) {
+        const refreshButton = await waitFor(getRefreshButton);
+        if (refreshButton && !refreshButton.disabled) {
+          refreshButton.click();
+        }
+      }
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      return;
+    }
+
+    if (rangeRestored) {
+      const refreshButton = await waitFor(getRefreshButton);
+      if (refreshButton && !refreshButton.disabled) {
+        refreshButton.click();
+      }
+    }
+
     await restoreSavedPageSize();
     const controlReady = await ensureAutoRefreshControl();
     if (controlReady) {
@@ -1005,6 +1406,10 @@
           markPageSizeSelectionActive();
         }
 
+        if (isDashboardGranularityButtonTarget(target)) {
+          markDashboardGranularitySelectionActive();
+        }
+
         const option = target.closest('[role="option"]');
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
         const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
@@ -1012,6 +1417,20 @@
           setSavedPageSizeValue(pageSizeValue);
           saveCurrentPageSizeSoon(pageSizeValue);
           pageSizeSelectionActiveUntil = 0;
+          return;
+        }
+
+        const dashboardGranularityValue = normalizeDashboardGranularityValue(option?.textContent.trim());
+        const dashboardGranularityButtonExpanded =
+          getDashboardGranularityButton()?.getAttribute('aria-expanded') === 'true';
+        if (
+          isDashboardPage() &&
+          dashboardGranularityValue &&
+          (dashboardGranularityButtonExpanded || isDashboardGranularitySelectionActive())
+        ) {
+          setSavedDashboardGranularityValue(dashboardGranularityValue);
+          saveCurrentDashboardGranularitySoon(dashboardGranularityValue);
+          dashboardGranularitySelectionActiveUntil = 0;
           return;
         }
 
@@ -1023,15 +1442,23 @@
         const text = button.textContent.trim();
         if (text === '应用') {
           const draft = readDraftRange();
-          if (draft) {
-            storage.set(DATE_RANGE_STORAGE_KEY, draft);
+          const storageKey = getActiveDateRangeStorageKey();
+          if (draft && storageKey) {
+            storage.set(storageKey, draft);
           }
           return;
         }
 
         if (text === '重置') {
-          storage.delete(DATE_RANGE_STORAGE_KEY);
-          storage.delete(PAGE_SIZE_STORAGE_KEY);
+          if (isUsagePage()) {
+            storage.delete(DATE_RANGE_STORAGE_KEY);
+            storage.delete(PAGE_SIZE_STORAGE_KEY);
+            return;
+          }
+
+          if (isDashboardPage()) {
+            storage.delete(DASHBOARD_DATE_RANGE_STORAGE_KEY);
+          }
         }
       },
       true,
@@ -1127,7 +1554,11 @@
       return;
     }
 
-    const observer = new MutationObserver(handlePageSizeValueChange);
+    const observer = new MutationObserver(() => {
+      restoreSavedRange();
+      handlePageSizeValueChange();
+      handleDashboardGranularityValueChange();
+    });
     observer.observe(document.documentElement, {
       childList: true,
       characterData: true,
@@ -1149,7 +1580,8 @@
       }
 
       lastHref = location.href;
-      restoreAttempted = false;
+      rangeRestoreInFlight = false;
+      rangeRestoreToken += 1;
       applyPageEnhancements();
     });
 
@@ -1161,6 +1593,7 @@
 
   installClickHooks();
   installAutoRefreshMenuCloseHook();
+  installUsageRequestRewriter();
   installBrowserThemeWatcher();
   installPageVisibilityWatcher();
   installForegroundWatcher();
