@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ciii Codex Helper
 // @namespace    https://codex.ciii.club/
-// @version      0.9.0
+// @version      0.17.0
 // @description  全站跟随浏览器主题同步；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时。
 // @match        https://codex.ciii.club/*
 // @grant        GM_deleteValue
@@ -13,6 +13,7 @@
 (function () {
   'use strict';
 
+  const SCRIPT_VERSION = '0.17.0';
   const DATE_RANGE_STORAGE_KEY = 'ciii-codex-usage-date-range';
   const PAGE_SIZE_STORAGE_KEY = 'ciii-codex-usage-page-size';
   const AUTO_REFRESH_STORAGE_KEY = 'ciii-codex-auto-refresh-ms';
@@ -24,6 +25,10 @@
   const THEME_SYNC_RETRY_DELAY_MS = 500;
   const PAGE_SIZE_SELECTION_WINDOW_MS = 5000;
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
+  const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
+  const FOREGROUND_WATCH_INTERVAL_MS = 1000;
+  const FOREGROUND_WATCH_GAP_MS = 2500;
+  const AUTO_REFRESH_DEBUG_EVENT_LIMIT = 8;
   const AUTO_REFRESH_OPTIONS = [
     { value: 'off', label: '关闭', ms: 0 },
     { value: '5000', label: '5s', ms: 5000 },
@@ -31,6 +36,12 @@
     { value: '30000', label: '30s', ms: 30000 },
     { value: '60000', label: '1分钟', ms: 60000 },
   ];
+  const AUTO_REFRESH_STATE = {
+    OFF: 'off',
+    RUNNING: 'running',
+    PAUSED_HIDDEN: 'paused-hidden',
+    RESUMING: 'resuming',
+  };
   const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100', '200', '500'];
 
   let restoreAttempted = false;
@@ -47,6 +58,15 @@
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
   let lastObservedPageSizeValue = null;
+  let autoRefreshState = AUTO_REFRESH_STATE.OFF;
+  let lastForegroundRefreshAt = 0;
+  let foregroundWatcherInstalled = false;
+  let lastKnownForeground = null;
+  let lastForegroundWatchAt = 0;
+  let autoRefreshPausedByBackground = false;
+  let autoRefreshResumeToken = 0;
+  let lastAutoRefreshEvent = 'boot';
+  let autoRefreshDebugEvents = [];
 
   const storage = {
     get(key, fallback = null) {
@@ -102,6 +122,52 @@
 
   function isPageVisible() {
     return document.visibilityState === 'visible';
+  }
+
+  function isPageForeground() {
+    return isUsagePage() && isPageVisible() && document.hasFocus();
+  }
+
+  function updateAutoRefreshDebugAttributes() {
+    if (!autoRefreshButton) {
+      return;
+    }
+
+    const nextRefreshSeconds = getRemainingAutoRefreshSeconds();
+    const debugTitle = [
+      `Ciii Codex Helper v${SCRIPT_VERSION}`,
+      `state: ${autoRefreshState}`,
+      `visible: ${document.visibilityState}`,
+      `focus: ${document.hasFocus()}`,
+      `active: ${activeAutoRefreshValue}`,
+      `pausedByBackground: ${autoRefreshPausedByBackground}`,
+      `next: ${nextRefreshSeconds === null ? '-' : `${nextRefreshSeconds}s`}`,
+      `last: ${lastAutoRefreshEvent}`,
+      ...autoRefreshDebugEvents,
+    ].join('\n');
+    const root = autoRefreshButton.closest('[data-ciii-auto-refresh-root="true"]');
+
+    autoRefreshButton.dataset.ciiiAutoRefreshVersion = SCRIPT_VERSION;
+    autoRefreshButton.dataset.ciiiAutoRefreshState = autoRefreshState;
+    autoRefreshButton.dataset.ciiiAutoRefreshLastEvent = lastAutoRefreshEvent;
+    autoRefreshButton.title = debugTitle;
+
+    if (root) {
+      root.dataset.ciiiAutoRefreshVersion = SCRIPT_VERSION;
+      root.dataset.ciiiAutoRefreshState = autoRefreshState;
+      root.dataset.ciiiAutoRefreshLastEvent = lastAutoRefreshEvent;
+    }
+  }
+
+  function recordAutoRefreshEvent(name, detail = '') {
+    const eventText = detail ? `${name}: ${detail}` : name;
+    const timeText = new Date().toLocaleTimeString();
+    lastAutoRefreshEvent = eventText;
+    autoRefreshDebugEvents = [`${timeText} ${eventText}`, ...autoRefreshDebugEvents].slice(
+      0,
+      AUTO_REFRESH_DEBUG_EVENT_LIMIT,
+    );
+    updateAutoRefreshDebugAttributes();
   }
 
   function getTrigger() {
@@ -255,10 +321,6 @@
 
   function setSavedAutoRefreshValue(value) {
     storage.set(AUTO_REFRESH_STORAGE_KEY, getAutoRefreshOption(value).value);
-  }
-
-  function getAutoRefreshLabel(value) {
-    return getAutoRefreshOption(value).label;
   }
 
   function isPickerOpen() {
@@ -474,15 +536,6 @@
     return Math.max(0, Math.ceil((nextAutoRefreshAt - Date.now()) / 1000));
   }
 
-  function getAutoRefreshButtonText(value) {
-    const option = getAutoRefreshOption(value);
-    if (!option.ms || activeAutoRefreshValue !== option.value || !nextAutoRefreshAt) {
-      return `自动刷新: ${option.label}`;
-    }
-
-    return `自动刷新: ${option.label} (${getRemainingAutoRefreshSeconds()}s)`;
-  }
-
   function ensureAutoRefreshButtonContent() {
     if (!autoRefreshButton) {
       return {};
@@ -534,6 +587,7 @@
       badge.style.display = 'none';
       badge.textContent = '';
       autoRefreshButton.setAttribute('aria-label', label.textContent);
+      updateAutoRefreshDebugAttributes();
       return;
     }
 
@@ -542,6 +596,7 @@
     badge.textContent = `${remainingSeconds}s后`;
     badge.style.display = 'inline-flex';
     autoRefreshButton.setAttribute('aria-label', `${label.textContent} ${badge.textContent}`);
+    updateAutoRefreshDebugAttributes();
   }
 
   function buildAutoRefreshMenu(currentValue, onSelect) {
@@ -658,10 +713,11 @@
 
     root.appendChild(button);
     refreshButton.insertAdjacentElement('afterend', root);
+    recordAutoRefreshEvent('control-installed');
     return true;
   }
 
-  function stopAutoRefresh() {
+  function clearAutoRefreshTimers() {
     if (autoRefreshTimer) {
       clearInterval(autoRefreshTimer);
       autoRefreshTimer = null;
@@ -673,40 +729,97 @@
     nextAutoRefreshAt = null;
   }
 
+  function stopAutoRefresh() {
+    clearAutoRefreshTimers();
+    autoRefreshState = AUTO_REFRESH_STATE.OFF;
+    activeAutoRefreshValue = 'off';
+    autoRefreshPausedByBackground = false;
+    recordAutoRefreshEvent('stop');
+    updateAutoRefreshButtonLabel(activeAutoRefreshValue);
+  }
+
+  function pauseAutoRefreshForHidden(reason = 'hidden') {
+    const option = getAutoRefreshOption(activeAutoRefreshValue);
+    clearAutoRefreshTimers();
+    autoRefreshState = option.ms ? AUTO_REFRESH_STATE.PAUSED_HIDDEN : AUTO_REFRESH_STATE.OFF;
+    autoRefreshPausedByBackground = Boolean(option.ms);
+    lastKnownForeground = false;
+    recordAutoRefreshEvent('pause', reason);
+    updateAutoRefreshButtonLabel(activeAutoRefreshValue);
+  }
+
   function resetAutoRefreshCountdown(ms) {
     nextAutoRefreshAt = Date.now() + ms;
     updateAutoRefreshButtonLabel(activeAutoRefreshValue);
   }
 
-  function triggerRefresh() {
+  function triggerRefresh(reason = 'auto') {
+    if (!isUsagePage() || !isPageVisible()) {
+      recordAutoRefreshEvent('refresh-skip', reason);
+      return false;
+    }
+
     const refreshButton = getRefreshButton();
     if (refreshButton && !refreshButton.disabled) {
       refreshButton.click();
+      recordAutoRefreshEvent('refresh-click', reason);
+      return true;
     }
+
+    recordAutoRefreshEvent('refresh-miss', reason);
+    return false;
   }
 
-  function startAutoRefresh(value) {
+  async function triggerRefreshWhenReady(reason = 'auto') {
+    return Boolean(
+      await waitFor(
+        () => (isPageForeground() ? triggerRefresh(reason) : false),
+        FOREGROUND_REFRESH_WAIT_TIMEOUT_MS,
+      ),
+    );
+  }
+
+  function startAutoRefresh(value, { resetPauseFlag = false, reason = 'start' } = {}) {
     const option = getAutoRefreshOption(value);
     activeAutoRefreshValue = option.value;
-    stopAutoRefresh();
+    clearAutoRefreshTimers();
+    if (resetPauseFlag) {
+      autoRefreshPausedByBackground = false;
+    }
     updateAutoRefreshButtonLabel(option.value);
-    if (!option.ms || !isPageVisible()) {
+    if (!option.ms) {
+      autoRefreshState = AUTO_REFRESH_STATE.OFF;
+      autoRefreshPausedByBackground = false;
+      recordAutoRefreshEvent('start-off', reason);
+      updateAutoRefreshButtonLabel(option.value);
+      return;
+    }
+    if (!isUsagePage() || !isPageVisible()) {
+      autoRefreshState = AUTO_REFRESH_STATE.PAUSED_HIDDEN;
+      autoRefreshPausedByBackground = true;
+      recordAutoRefreshEvent('start-paused', reason);
+      updateAutoRefreshButtonLabel(option.value);
       return;
     }
 
+    autoRefreshState = AUTO_REFRESH_STATE.RUNNING;
+    lastKnownForeground = true;
+    recordAutoRefreshEvent('start-running', reason);
     resetAutoRefreshCountdown(option.ms);
     autoRefreshCountdownTimer = window.setInterval(() => {
-      if (!isUsagePage()) {
+      if (!isUsagePage() || !isPageVisible()) {
+        pauseAutoRefreshForHidden('countdown-hidden');
         return;
       }
       updateAutoRefreshButtonLabel(activeAutoRefreshValue);
     }, AUTO_REFRESH_COUNTDOWN_INTERVAL_MS);
 
     autoRefreshTimer = window.setInterval(() => {
-      if (!isUsagePage()) {
+      if (!isUsagePage() || !isPageVisible()) {
+        pauseAutoRefreshForHidden('interval-hidden');
         return;
       }
-      triggerRefresh();
+      triggerRefresh('interval');
       resetAutoRefreshCountdown(option.ms);
     }, option.ms);
   }
@@ -714,31 +827,139 @@
   function applyAutoRefreshValue(value) {
     const normalizedValue = getAutoRefreshOption(value).value;
     setSavedAutoRefreshValue(normalizedValue);
-    startAutoRefresh(normalizedValue);
+    startAutoRefresh(normalizedValue, { resetPauseFlag: true, reason: 'select' });
   }
 
   function restoreAutoRefresh() {
     const value = getSavedAutoRefreshValue();
     updateAutoRefreshButtonLabel(value);
-    startAutoRefresh(value);
+    startAutoRefresh(value, { resetPauseFlag: true, reason: 'restore' });
   }
 
-  async function resumeAutoRefreshAfterForeground() {
-    if (!isUsagePage() || !isPageVisible()) {
+  async function resumeAutoRefreshAfterForeground({ force = false, reason = 'foreground' } = {}) {
+    if (!isPageForeground() || autoRefreshState === AUTO_REFRESH_STATE.RESUMING) {
+      recordAutoRefreshEvent('resume-skip', reason);
       return;
     }
 
     const value = getSavedAutoRefreshValue();
+    const option = getAutoRefreshOption(value);
+    if (!option.ms) {
+      stopAutoRefresh();
+      return;
+    }
+
+    const shouldRefresh =
+      force ||
+      autoRefreshPausedByBackground ||
+      autoRefreshState === AUTO_REFRESH_STATE.PAUSED_HIDDEN ||
+      !autoRefreshTimer;
+    if (!shouldRefresh && autoRefreshState === AUTO_REFRESH_STATE.RUNNING) {
+      recordAutoRefreshEvent('resume-keep-running', reason);
+      return;
+    }
+
+    const resumeToken = ++autoRefreshResumeToken;
+    clearAutoRefreshTimers();
+    autoRefreshState = AUTO_REFRESH_STATE.RESUMING;
     activeAutoRefreshValue = value;
+    lastKnownForeground = true;
+    recordAutoRefreshEvent('resume-start', reason);
     updateAutoRefreshButtonLabel(value);
 
+    try {
+      const controlReady = await ensureAutoRefreshControl();
+      if (
+        resumeToken !== autoRefreshResumeToken ||
+        autoRefreshState !== AUTO_REFRESH_STATE.RESUMING ||
+        !isPageForeground() ||
+        getSavedAutoRefreshValue() !== value
+      ) {
+        return;
+      }
+
+      const refreshed = controlReady
+        ? await triggerRefreshWhenReady(`foreground-${reason}`)
+        : false;
+      if (resumeToken !== autoRefreshResumeToken || getSavedAutoRefreshValue() !== value) {
+        return;
+      }
+
+      if (!refreshed) {
+        return;
+      }
+
+      lastForegroundRefreshAt = Date.now();
+      startAutoRefresh(value, {
+        resetPauseFlag: true,
+        reason: `foreground-refreshed-${reason}`,
+      });
+    } finally {
+      if (autoRefreshState === AUTO_REFRESH_STATE.RESUMING) {
+        if (!isUsagePage() || !getAutoRefreshOption(getSavedAutoRefreshValue()).ms) {
+          stopAutoRefresh();
+        } else if (!isPageVisible()) {
+          pauseAutoRefreshForHidden('resume-hidden');
+        } else {
+          autoRefreshState = AUTO_REFRESH_STATE.PAUSED_HIDDEN;
+          lastKnownForeground = false;
+          recordAutoRefreshEvent('resume-waiting-refresh', reason);
+          updateAutoRefreshButtonLabel(activeAutoRefreshValue);
+        }
+      }
+    }
+  }
+
+  function handleAutoRefreshBackground(reason = 'background') {
+    if (!isUsagePage()) {
+      return;
+    }
+
+    const value = getSavedAutoRefreshValue();
     if (!getAutoRefreshOption(value).ms) {
       return;
     }
 
-    await ensureAutoRefreshControl();
-    triggerRefresh();
-    startAutoRefresh(value);
+    activeAutoRefreshValue = value;
+    pauseAutoRefreshForHidden(reason);
+  }
+
+  function handleAutoRefreshForeground(reason = 'foreground') {
+    if (!isPageForeground()) {
+      return;
+    }
+
+    syncPageThemeWithBrowserTheme();
+    resumeAutoRefreshAfterForeground({ force: true, reason });
+  }
+
+  function checkAutoRefreshForegroundState() {
+    const now = Date.now();
+    const elapsedSinceLastCheck = lastForegroundWatchAt ? now - lastForegroundWatchAt : 0;
+    lastForegroundWatchAt = now;
+    const isForeground = isPageForeground();
+    if (lastKnownForeground === null) {
+      lastKnownForeground = isForeground;
+      return;
+    }
+
+    const resumedAfterTimerGap =
+      isForeground &&
+      lastKnownForeground &&
+      elapsedSinceLastCheck > FOREGROUND_WATCH_GAP_MS;
+
+    if (!isForeground) {
+      if (lastKnownForeground) {
+        handleAutoRefreshBackground('watch-hidden');
+      }
+      lastKnownForeground = false;
+      return;
+    }
+
+    if (!lastKnownForeground || resumedAfterTimerGap) {
+      handleAutoRefreshForeground(resumedAfterTimerGap ? 'watch-gap' : 'watch-visible');
+    }
+    lastKnownForeground = true;
   }
 
   async function ensureAutoRefreshControl() {
@@ -864,16 +1085,41 @@
       }
 
       if (!isPageVisible()) {
-        stopAutoRefresh();
-        updateAutoRefreshButtonLabel(activeAutoRefreshValue);
+        handleAutoRefreshBackground('visibility-hidden');
         return;
       }
 
-      syncPageThemeWithBrowserTheme();
-      resumeAutoRefreshAfterForeground();
+      handleAutoRefreshForeground('visibility-visible');
+    });
+
+    window.addEventListener('focus', () => {
+      handleAutoRefreshForeground('focus');
+    });
+
+    window.addEventListener('pageshow', () => {
+      handleAutoRefreshForeground('pageshow');
+    });
+
+    window.addEventListener('blur', () => {
+      handleAutoRefreshBackground('blur');
+    });
+
+    window.addEventListener('pagehide', () => {
+      handleAutoRefreshBackground('pagehide');
     });
 
     pageVisibilityWatcherInstalled = true;
+  }
+
+  function installForegroundWatcher() {
+    if (foregroundWatcherInstalled) {
+      return;
+    }
+
+    lastKnownForeground = isPageForeground();
+    lastForegroundWatchAt = Date.now();
+    window.setInterval(checkAutoRefreshForegroundState, FOREGROUND_WATCH_INTERVAL_MS);
+    foregroundWatcherInstalled = true;
   }
 
   function installPageSizeWatcher() {
@@ -917,6 +1163,7 @@
   installAutoRefreshMenuCloseHook();
   installBrowserThemeWatcher();
   installPageVisibilityWatcher();
+  installForegroundWatcher();
   installPageSizeWatcher();
   installUrlWatcher();
   applyPageEnhancements();
