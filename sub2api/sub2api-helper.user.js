@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         Ciii Codex Helper
-// @namespace    https://codex.ciii.club/
-// @version      0.20.0
-// @description  全站跟随浏览器主题同步；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
-// @match        https://codex.ciii.club/*
+// @name         Sub2API Helper
+// @namespace    https://github.com/Wei-Shaw/sub2api
+// @version      0.21.0
+// @description  为 Sub2API 管理端同步浏览器主题；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @match        *://*/*
 // @grant        GM_deleteValue
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -13,12 +13,24 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.20.0';
-  const DATE_RANGE_STORAGE_KEY = 'ciii-codex-usage-date-range';
-  const DASHBOARD_DATE_RANGE_STORAGE_KEY = 'ciii-codex-dashboard-date-range';
-  const PAGE_SIZE_STORAGE_KEY = 'ciii-codex-usage-page-size';
-  const DASHBOARD_GRANULARITY_STORAGE_KEY = 'ciii-codex-dashboard-granularity';
-  const AUTO_REFRESH_STORAGE_KEY = 'ciii-codex-auto-refresh-ms';
+  const SCRIPT_VERSION = '0.21.0';
+  const STORAGE_NAMESPACE = 'sub2api-helper';
+  const STORAGE_MISSING = {};
+  const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
+  const STORAGE_NAMES = {
+    AUTO_REFRESH: 'auto-refresh-ms',
+    DASHBOARD_DATE_RANGE: 'dashboard-date-range',
+    DASHBOARD_GRANULARITY: 'dashboard-granularity',
+    PAGE_SIZE: 'usage-page-size',
+    USAGE_DATE_RANGE: 'usage-date-range',
+  };
+  const LEGACY_STORAGE_KEYS = {
+    [STORAGE_NAMES.AUTO_REFRESH]: 'ciii-codex-auto-refresh-ms',
+    [STORAGE_NAMES.DASHBOARD_DATE_RANGE]: 'ciii-codex-dashboard-date-range',
+    [STORAGE_NAMES.DASHBOARD_GRANULARITY]: 'ciii-codex-dashboard-granularity',
+    [STORAGE_NAMES.PAGE_SIZE]: 'ciii-codex-usage-page-size',
+    [STORAGE_NAMES.USAGE_DATE_RANGE]: 'ciii-codex-usage-date-range',
+  };
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
@@ -59,6 +71,11 @@
   let browserThemeWatcherInstalled = false;
   let pageVisibilityWatcherInstalled = false;
   let pageSizeWatcherInstalled = false;
+  let clickHooksInstalled = false;
+  let autoRefreshMenuCloseHookInstalled = false;
+  let urlWatcherInstalled = false;
+  let activationWatcherInstalled = false;
+  let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
   let lastObservedPageSizeValue = null;
@@ -106,6 +123,55 @@
     },
   };
 
+  function getCurrentOrigin() {
+    return location.origin || new URL(location.href).origin;
+  }
+
+  function getScopedStorageKey(name) {
+    return `${STORAGE_NAMESPACE}:${getCurrentOrigin()}:${name}`;
+  }
+
+  function getStorageValue(name, fallback = null) {
+    const scopedKey = getScopedStorageKey(name);
+    const scopedValue = storage.get(scopedKey, STORAGE_MISSING);
+    if (scopedValue !== STORAGE_MISSING) {
+      return scopedValue;
+    }
+
+    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
+      return fallback;
+    }
+
+    const legacyKey = LEGACY_STORAGE_KEYS[name];
+    if (!legacyKey) {
+      return fallback;
+    }
+
+    const legacyValue = storage.get(legacyKey, STORAGE_MISSING);
+    if (legacyValue === STORAGE_MISSING) {
+      return fallback;
+    }
+
+    storage.set(scopedKey, legacyValue);
+    return legacyValue;
+  }
+
+  function setStorageValue(name, value) {
+    storage.set(getScopedStorageKey(name), value);
+  }
+
+  function deleteStorageValue(name) {
+    storage.delete(getScopedStorageKey(name));
+    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
+      return;
+    }
+
+    const legacyKey = LEGACY_STORAGE_KEYS[name];
+    if (legacyKey) {
+      storage.delete(legacyKey);
+    }
+  }
+
   function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
@@ -130,22 +196,22 @@
     return location.pathname.startsWith('/dashboard');
   }
 
-  function getActiveDateRangeStorageKey() {
+  function getActiveDateRangeStorageName() {
     if (isUsagePage()) {
-      return DATE_RANGE_STORAGE_KEY;
+      return STORAGE_NAMES.USAGE_DATE_RANGE;
     }
     if (isDashboardPage()) {
-      return DASHBOARD_DATE_RANGE_STORAGE_KEY;
+      return STORAGE_NAMES.DASHBOARD_DATE_RANGE;
     }
     return null;
   }
 
   function getSavedRangeForCurrentPage() {
-    const storageKey = getActiveDateRangeStorageKey();
-    if (!storageKey) {
+    const storageName = getActiveDateRangeStorageName();
+    if (!storageName) {
       return null;
     }
-    return storage.get(storageKey, null);
+    return getStorageValue(storageName, null);
   }
 
   function formatIsoDateFromParts({ year, month, day }) {
@@ -279,7 +345,7 @@
 
     const nextRefreshSeconds = getRemainingAutoRefreshSeconds();
     const debugTitle = [
-      `Ciii Codex Helper v${SCRIPT_VERSION}`,
+      `Sub2API Helper v${SCRIPT_VERSION}`,
       `state: ${autoRefreshState}`,
       `visible: ${document.visibilityState}`,
       `focus: ${document.hasFocus()}`,
@@ -289,17 +355,17 @@
       `last: ${lastAutoRefreshEvent}`,
       ...autoRefreshDebugEvents,
     ].join('\n');
-    const root = autoRefreshButton.closest('[data-ciii-auto-refresh-root="true"]');
+    const root = autoRefreshButton.closest('[data-sub2api-auto-refresh-root="true"]');
 
-    autoRefreshButton.dataset.ciiiAutoRefreshVersion = SCRIPT_VERSION;
-    autoRefreshButton.dataset.ciiiAutoRefreshState = autoRefreshState;
-    autoRefreshButton.dataset.ciiiAutoRefreshLastEvent = lastAutoRefreshEvent;
+    autoRefreshButton.dataset.sub2apiAutoRefreshVersion = SCRIPT_VERSION;
+    autoRefreshButton.dataset.sub2apiAutoRefreshState = autoRefreshState;
+    autoRefreshButton.dataset.sub2apiAutoRefreshLastEvent = lastAutoRefreshEvent;
     autoRefreshButton.title = debugTitle;
 
     if (root) {
-      root.dataset.ciiiAutoRefreshVersion = SCRIPT_VERSION;
-      root.dataset.ciiiAutoRefreshState = autoRefreshState;
-      root.dataset.ciiiAutoRefreshLastEvent = lastAutoRefreshEvent;
+      root.dataset.sub2apiAutoRefreshVersion = SCRIPT_VERSION;
+      root.dataset.sub2apiAutoRefreshState = autoRefreshState;
+      root.dataset.sub2apiAutoRefreshLastEvent = lastAutoRefreshEvent;
     }
   }
 
@@ -393,7 +459,7 @@
   }
 
   function getSavedPageSizeValue() {
-    const savedValue = storage.get(PAGE_SIZE_STORAGE_KEY, null);
+    const savedValue = getStorageValue(STORAGE_NAMES.PAGE_SIZE, null);
     return normalizePageSizeValue(savedValue);
   }
 
@@ -402,7 +468,7 @@
     if (!normalizedValue) {
       return;
     }
-    storage.set(PAGE_SIZE_STORAGE_KEY, normalizedValue);
+    setStorageValue(STORAGE_NAMES.PAGE_SIZE, normalizedValue);
   }
 
   function isPageSizeButtonTarget(target) {
@@ -455,6 +521,22 @@
     return getLabeledSelectButton('粒度:');
   }
 
+  function hasDatePickerFingerprint() {
+    return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
+  }
+
+  function hasUsagePageFingerprint() {
+    return Boolean(isUsagePage() && getRefreshButton() && hasDatePickerFingerprint() && getPageSizeButton());
+  }
+
+  function hasDashboardPageFingerprint() {
+    return Boolean(isDashboardPage() && getRefreshButton() && hasDatePickerFingerprint() && getDashboardGranularityButton());
+  }
+
+  function shouldEnableSub2apiHelper() {
+    return hasUsagePageFingerprint() || hasDashboardPageFingerprint();
+  }
+
   function normalizeDashboardGranularityValue(value) {
     const normalizedValue = String(value || '').trim();
     return normalizedValue || null;
@@ -465,7 +547,7 @@
   }
 
   function getSavedDashboardGranularityValue() {
-    const savedValue = storage.get(DASHBOARD_GRANULARITY_STORAGE_KEY, null);
+    const savedValue = getStorageValue(STORAGE_NAMES.DASHBOARD_GRANULARITY, null);
     return normalizeDashboardGranularityValue(savedValue);
   }
 
@@ -474,7 +556,7 @@
     if (!normalizedValue) {
       return;
     }
-    storage.set(DASHBOARD_GRANULARITY_STORAGE_KEY, normalizedValue);
+    setStorageValue(STORAGE_NAMES.DASHBOARD_GRANULARITY, normalizedValue);
   }
 
   function isDashboardGranularityButtonTarget(target) {
@@ -543,12 +625,12 @@
   }
 
   function getSavedAutoRefreshValue() {
-    const savedValue = storage.get(AUTO_REFRESH_STORAGE_KEY, 'off');
+    const savedValue = getStorageValue(STORAGE_NAMES.AUTO_REFRESH, 'off');
     return getAutoRefreshOption(savedValue).value;
   }
 
   function setSavedAutoRefreshValue(value) {
-    storage.set(AUTO_REFRESH_STORAGE_KEY, getAutoRefreshOption(value).value);
+    setStorageValue(STORAGE_NAMES.AUTO_REFRESH, getAutoRefreshOption(value).value);
   }
 
   function isPickerOpen() {
@@ -757,7 +839,7 @@
   }
 
   function rewriteUsageRequestUrl(urlInput) {
-    if ((!isUsagePage() && !isDashboardPage()) || !urlInput) {
+    if (!helperActivated || (!isUsagePage() && !isDashboardPage()) || !urlInput) {
       return urlInput;
     }
 
@@ -767,7 +849,7 @@
     }
 
     const requestUrl = new URL(String(urlInput), location.href);
-    if (!requestUrl.pathname.startsWith('/api/v1/usage')) {
+    if (requestUrl.origin !== getCurrentOrigin() || !requestUrl.pathname.startsWith('/api/v1/usage')) {
       return urlInput;
     }
 
@@ -921,18 +1003,18 @@
       return {};
     }
 
-    let label = autoRefreshButton.querySelector('[data-ciii-auto-refresh-label="true"]');
+    let label = autoRefreshButton.querySelector('[data-sub2api-auto-refresh-label="true"]');
     if (!label) {
       autoRefreshButton.textContent = '';
       label = document.createElement('span');
-      label.dataset.ciiiAutoRefreshLabel = 'true';
+      label.dataset.sub2apiAutoRefreshLabel = 'true';
       autoRefreshButton.appendChild(label);
     }
 
-    let badge = autoRefreshButton.querySelector('[data-ciii-auto-refresh-badge="true"]');
+    let badge = autoRefreshButton.querySelector('[data-sub2api-auto-refresh-badge="true"]');
     if (!badge) {
       badge = document.createElement('span');
-      badge.dataset.ciiiAutoRefreshBadge = 'true';
+      badge.dataset.sub2apiAutoRefreshBadge = 'true';
       badge.style.display = 'none';
       badge.style.alignItems = 'center';
       badge.style.justifyContent = 'center';
@@ -981,7 +1063,7 @@
 
   function buildAutoRefreshMenu(currentValue, onSelect) {
     const menu = document.createElement('div');
-    menu.dataset.ciiiAutoRefreshMenu = 'true';
+    menu.dataset.sub2apiAutoRefreshMenu = 'true';
     menu.style.position = 'absolute';
     menu.style.top = 'calc(100% + 8px)';
     menu.style.right = '0';
@@ -1031,15 +1113,15 @@
       return false;
     }
 
-    const existingRoot = actionRow.querySelector('[data-ciii-auto-refresh-root="true"]');
+    const existingRoot = actionRow.querySelector('[data-sub2api-auto-refresh-root="true"]');
     if (existingRoot) {
-      autoRefreshButton = existingRoot.querySelector('[data-ciii-auto-refresh-button="true"]');
+      autoRefreshButton = existingRoot.querySelector('[data-sub2api-auto-refresh-button="true"]');
       updateAutoRefreshButtonLabel(getSavedAutoRefreshValue());
       return Boolean(autoRefreshButton);
     }
 
     const root = document.createElement('div');
-    root.dataset.ciiiAutoRefreshRoot = 'true';
+    root.dataset.sub2apiAutoRefreshRoot = 'true';
     root.style.position = 'relative';
     root.style.display = 'inline-flex';
 
@@ -1052,7 +1134,7 @@
     const refreshButtonStyle = window.getComputedStyle(refreshButton);
     const button = document.createElement('button');
     button.type = 'button';
-    button.dataset.ciiiAutoRefreshButton = 'true';
+    button.dataset.sub2apiAutoRefreshButton = 'true';
     button.className = refreshButton.className;
     button.style.height = refreshButtonStyle.height;
     button.style.padding = refreshButtonStyle.padding;
@@ -1394,6 +1476,10 @@
   }
 
   function installClickHooks() {
+    if (clickHooksInstalled) {
+      return;
+    }
+
     document.addEventListener(
       'click',
       (event) => {
@@ -1442,30 +1528,35 @@
         const text = button.textContent.trim();
         if (text === '应用') {
           const draft = readDraftRange();
-          const storageKey = getActiveDateRangeStorageKey();
-          if (draft && storageKey) {
-            storage.set(storageKey, draft);
+          const storageName = getActiveDateRangeStorageName();
+          if (draft && storageName) {
+            setStorageValue(storageName, draft);
           }
           return;
         }
 
         if (text === '重置') {
           if (isUsagePage()) {
-            storage.delete(DATE_RANGE_STORAGE_KEY);
-            storage.delete(PAGE_SIZE_STORAGE_KEY);
+            deleteStorageValue(STORAGE_NAMES.USAGE_DATE_RANGE);
+            deleteStorageValue(STORAGE_NAMES.PAGE_SIZE);
             return;
           }
 
           if (isDashboardPage()) {
-            storage.delete(DASHBOARD_DATE_RANGE_STORAGE_KEY);
+            deleteStorageValue(STORAGE_NAMES.DASHBOARD_DATE_RANGE);
           }
         }
       },
       true,
     );
+    clickHooksInstalled = true;
   }
 
   function installAutoRefreshMenuCloseHook() {
+    if (autoRefreshMenuCloseHookInstalled) {
+      return;
+    }
+
     document.addEventListener(
       'click',
       (event) => {
@@ -1473,13 +1564,14 @@
         if (!(target instanceof Element)) {
           return;
         }
-        if (target.closest('[data-ciii-auto-refresh-root="true"]')) {
+        if (target.closest('[data-sub2api-auto-refresh-root="true"]')) {
           return;
         }
         closeAutoRefreshMenu();
       },
       true,
     );
+    autoRefreshMenuCloseHookInstalled = true;
   }
 
   function installBrowserThemeWatcher() {
@@ -1569,9 +1661,13 @@
   }
 
   function installUrlWatcher() {
+    if (urlWatcherInstalled) {
+      return;
+    }
+
     let lastHref = location.href;
     const observer = new MutationObserver(() => {
-      if (isUsagePage() && getRefreshButton() && !document.querySelector('[data-ciii-auto-refresh-root="true"]')) {
+      if (isUsagePage() && getRefreshButton() && !document.querySelector('[data-sub2api-auto-refresh-root="true"]')) {
         installAutoRefreshControl();
       }
 
@@ -1589,15 +1685,54 @@
       childList: true,
       subtree: true,
     });
+    urlWatcherInstalled = true;
   }
 
-  installClickHooks();
-  installAutoRefreshMenuCloseHook();
-  installUsageRequestRewriter();
-  installBrowserThemeWatcher();
-  installPageVisibilityWatcher();
-  installForegroundWatcher();
-  installPageSizeWatcher();
-  installUrlWatcher();
-  applyPageEnhancements();
+  function activateSub2apiHelper() {
+    if (helperActivated) {
+      return true;
+    }
+
+    helperActivated = true;
+    installClickHooks();
+    installAutoRefreshMenuCloseHook();
+    installUsageRequestRewriter();
+    installBrowserThemeWatcher();
+    installPageVisibilityWatcher();
+    installForegroundWatcher();
+    installPageSizeWatcher();
+    installUrlWatcher();
+    applyPageEnhancements();
+    return true;
+  }
+
+  function tryActivateSub2apiHelper() {
+    if (helperActivated) {
+      return true;
+    }
+
+    if (!shouldEnableSub2apiHelper()) {
+      return false;
+    }
+
+    return activateSub2apiHelper();
+  }
+
+  function installActivationWatcher() {
+    if (activationWatcherInstalled) {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      tryActivateSub2apiHelper();
+    });
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+    activationWatcherInstalled = true;
+  }
+
+  installActivationWatcher();
+  tryActivateSub2apiHelper();
 })();

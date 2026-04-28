@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const scriptPath = new URL('./ciii-codex-usage-enhancer.user.js', import.meta.url);
+const scriptPath = new URL('./sub2api-helper.user.js', import.meta.url);
 const source = await readFile(scriptPath, 'utf8');
 const RealDate = Date;
 
@@ -296,6 +296,7 @@ async function flushMicrotasks(times = 80) {
 function createTestEnvironment({
   gmValues = {},
   now = 0,
+  origin = 'https://codex.ciii.club',
   pathname = '/usage',
   savedAutoRefreshValue = 'off',
 } = {}) {
@@ -311,8 +312,9 @@ function createTestEnvironment({
   const fetchCalls = [];
   const windowListeners = new Map();
 
-  if (!gmState.has('ciii-codex-auto-refresh-ms')) {
-    gmState.set('ciii-codex-auto-refresh-ms', savedAutoRefreshValue);
+  const autoRefreshStorageKey = `sub2api-helper:${origin}:auto-refresh-ms`;
+  if (!gmState.has(autoRefreshStorageKey)) {
+    gmState.set(autoRefreshStorageKey, savedAutoRefreshValue);
   }
 
   const html = new TestElement('html');
@@ -330,7 +332,8 @@ function createTestEnvironment({
   body.appendChild(actionRow);
 
   const location = {
-    href: `https://codex.ciii.club${pathname}`,
+    href: `${origin}${pathname}`,
+    origin,
     pathname,
   };
 
@@ -733,7 +736,7 @@ function createTestEnvironment({
     createSelectControl,
     document,
     findAutoRefreshButton() {
-      return body.querySelector('[data-ciii-auto-refresh-button="true"]');
+      return body.querySelector('[data-sub2api-auto-refresh-button="true"]');
     },
     getFetchCalls() {
       return [...fetchCalls];
@@ -771,7 +774,7 @@ function createTestEnvironment({
     },
     setLocation(pathnameValue) {
       location.pathname = pathnameValue;
-      location.href = `https://codex.ciii.club${pathnameValue}`;
+      location.href = `${origin}${pathnameValue}`;
     },
     setFocused(value) {
       focused = Boolean(value);
@@ -780,8 +783,48 @@ function createTestEnvironment({
   };
 }
 
+function getScopedStorageKey(origin, name) {
+  return `sub2api-helper:${origin}:${name}`;
+}
+
+function createUsageFingerprint(environment) {
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近 7 天', '近 30 天'],
+    triggerText: '近 7 天',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+  return { datePicker, pageSize };
+}
+
+test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
+  assert.match(source, /\/\/ @name\s+Sub2API Helper/);
+  assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/Wei-Shaw\/sub2api/);
+  assert.match(source, /\/\/ @match\s+\*:\/\/\*\/\*/);
+  assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
+});
+
+test('does not activate on a generic usage path without Sub2API UI fingerprint', async () => {
+  const environment = createTestEnvironment({
+    origin: 'https://docs.example.test',
+    pathname: '/usage',
+    savedAutoRefreshValue: '5000',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(environment.findAutoRefreshButton(), null);
+  assert.deepEqual(environment.getIntervalDurations(), []);
+});
+
 test('returning to foreground refreshes once before restarting countdown', async () => {
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
+  createUsageFingerprint(environment);
 
   vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
   await flushMicrotasks();
@@ -808,11 +851,12 @@ test('returning to foreground refreshes once before restarting countdown', async
 
   assert.equal(environment.refreshButton.clickCount, 1);
   assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
-  assert.equal(environment.findAutoRefreshButton()?.dataset.ciiiAutoRefreshState, 'running');
+  assert.equal(environment.findAutoRefreshButton()?.dataset.sub2apiAutoRefreshState, 'running');
 });
 
 test('blur before visibilitychange does not trigger a foreground refresh', async () => {
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
+  createUsageFingerprint(environment);
 
   vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
   await flushMicrotasks();
@@ -830,11 +874,12 @@ test('blur before visibilitychange does not trigger a foreground refresh', async
 
   assert.equal(environment.refreshButton.clickCount, 0);
   assert.deepEqual(environment.getIntervalDurations(), [1000]);
-  assert.equal(environment.findAutoRefreshButton()?.dataset.ciiiAutoRefreshState, 'paused-hidden');
+  assert.equal(environment.findAutoRefreshButton()?.dataset.sub2apiAutoRefreshState, 'paused-hidden');
 });
 
 test('visible without focus does not resume auto refresh', async () => {
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
+  createUsageFingerprint(environment);
 
   vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
   await flushMicrotasks();
@@ -850,14 +895,16 @@ test('visible without focus does not resume auto refresh', async () => {
 
   assert.equal(environment.refreshButton.clickCount, 0);
   assert.deepEqual(environment.getIntervalDurations(), [1000]);
-  assert.equal(environment.findAutoRefreshButton()?.dataset.ciiiAutoRefreshState, 'paused-hidden');
+  assert.equal(environment.findAutoRefreshButton()?.dataset.sub2apiAutoRefreshState, 'paused-hidden');
 });
 
 test('usage re-applies saved date range after SPA tab switch when the first trigger is stale', async () => {
+  const origin = 'https://codex.ciii.club';
   const environment = createTestEnvironment({
     gmValues: {
-      'ciii-codex-usage-date-range': { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
     },
+    origin,
     pathname: '/api-keys',
   });
   const stalePicker = environment.createDatePicker({
@@ -891,11 +938,13 @@ test('usage re-applies saved date range after SPA tab switch when the first trig
 });
 
 test('usage rewrites requests and syncs preset label even when the picker ignores synthetic clicks', async () => {
+  const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      'ciii-codex-usage-date-range': { type: 'preset', label: '今天' },
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
     },
     now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
     pathname: '/usage',
   });
   const datePicker = environment.createDatePicker({
@@ -904,12 +953,17 @@ test('usage rewrites requests and syncs preset label even when the picker ignore
     presetLabels: ['今天', '近 7 天'],
     triggerText: '近 7 天',
   });
+  environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
 
   vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
   await flushMicrotasks();
 
   const response = await environment.vmContext.fetch(
-    'https://codex.ciii.club/api/v1/usage?page=1&page_size=50&start_date=2026-04-17&end_date=2026-04-23&sort_by=created_at&sort_order=desc&timezone=Asia%2FShanghai',
+    `${origin}/api/v1/usage?page=1&page_size=50&start_date=2026-04-17&end_date=2026-04-23&sort_by=created_at&sort_order=desc&timezone=Asia%2FShanghai`,
   );
   const requestUrl = new URL(response.url);
 
@@ -918,12 +972,83 @@ test('usage rewrites requests and syncs preset label even when the picker ignore
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
 });
 
-test('dashboard rewrites requests and syncs preset label even when the picker ignores synthetic clicks', async () => {
+test('usage date range storage is isolated per Sub2API origin', async () => {
+  const origin = 'https://team-b.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      'ciii-codex-dashboard-date-range': { type: 'preset', label: '今天' },
+      [getScopedStorageKey('https://team-a.sub2api.example.test', 'usage-date-range')]: {
+        type: 'preset',
+        label: '今天',
+      },
+      [getScopedStorageKey(origin, 'usage-date-range')]: {
+        type: 'preset',
+        label: '近 30 天',
+      },
+    },
+    origin,
+    pathname: '/usage',
+  });
+  const { datePicker } = createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+});
+
+test('non-Ciii Sub2API deployments ignore legacy Ciii storage keys', async () => {
+  const origin = 'https://team-c.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      'ciii-codex-usage-date-range': {
+        type: 'preset',
+        label: '今天',
+      },
+    },
+    origin,
+    pathname: '/usage',
+  });
+  const { datePicker } = createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 7 天');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-date-range')), undefined);
+});
+
+test('usage request rewriting does not touch cross-origin usage-like APIs', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
     },
     now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    'https://api.other.example.test/api/v1/usage?page=1&start_date=2026-04-17&end_date=2026-04-23&timezone=Asia%2FShanghai',
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-17');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
+});
+
+test('dashboard rewrites requests and syncs preset label even when the picker ignores synthetic clicks', async () => {
+  const origin = 'https://dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
     pathname: '/dashboard',
   });
   const datePicker = environment.createDatePicker({
@@ -932,12 +1057,17 @@ test('dashboard rewrites requests and syncs preset label even when the picker ig
     presetLabels: ['今天', '近 7 天'],
     triggerText: '近 7 天',
   });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按天',
+  });
 
   vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
   await flushMicrotasks();
 
   const response = await environment.vmContext.fetch(
-    'https://codex.ciii.club/api/v1/usage/dashboard/trend?start_date=2026-04-17&end_date=2026-04-23&granularity=day&timezone=Asia%2FShanghai',
+    `${origin}/api/v1/usage/dashboard/trend?start_date=2026-04-17&end_date=2026-04-23&granularity=day&timezone=Asia%2FShanghai`,
   );
   const requestUrl = new URL(response.url);
 
@@ -947,11 +1077,13 @@ test('dashboard rewrites requests and syncs preset label even when the picker ig
 });
 
 test('dashboard restores saved date range and granularity on load', async () => {
+  const origin = 'https://dashboard.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      'ciii-codex-dashboard-date-range': { type: 'preset', label: '近 30 天' },
-      'ciii-codex-dashboard-granularity': '按小时',
+      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'dashboard-granularity')]: '按小时',
     },
+    origin,
     pathname: '/dashboard',
   });
   const datePicker = environment.createDatePicker({
@@ -973,7 +1105,8 @@ test('dashboard restores saved date range and granularity on load', async () => 
 });
 
 test('dashboard stores selected custom date range and granularity', async () => {
-  const environment = createTestEnvironment({ pathname: '/dashboard' });
+  const origin = 'https://dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/dashboard' });
   const datePicker = environment.createDatePicker({
     activePresetLabel: '近 7 天',
     presetLabels: ['今天', '近 7 天', '近 30 天'],
@@ -999,11 +1132,11 @@ test('dashboard stores selected custom date range and granularity', async () => 
   hourlyOption.click();
   await flushMicrotasks();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue('ciii-codex-dashboard-date-range'))), {
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-date-range')))), {
     displayText: buildCustomDisplayText('2026-04-01', '2026-04-23'),
     end: '2026-04-23',
     start: '2026-04-01',
     type: 'custom',
   });
-  assert.equal(environment.getStoredValue('ciii-codex-dashboard-granularity'), '按小时');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-granularity')), '按小时');
 });

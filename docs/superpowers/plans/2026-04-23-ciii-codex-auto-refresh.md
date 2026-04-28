@@ -4,7 +4,7 @@
 
 **Goal:** Add a persistent auto-refresh control next to the existing `刷新` button on `https://codex.ciii.club/usage`, while preserving the current date-range memory behavior and triggering refreshes by clicking the page's existing refresh button.
 
-**Architecture:** Keep the change inside the existing userscript `sub2api/ciii-codex-usage-enhancer.user.js`. Extend the current storage helpers so date-range state and auto-refresh state are stored independently, add idempotent DOM helpers that inject a compact menu button beside `刷新`, and manage a single `setInterval` timer that survives SPA route changes by reinitializing on `/usage`.
+**Architecture:** Keep the change inside the existing userscript `sub2api/sub2api-helper.user.js`. Extend the current storage helpers so date-range state and auto-refresh state are stored independently, add idempotent DOM helpers that inject a compact menu button beside `刷新`, and manage a single `setInterval` timer that survives SPA route changes by reinitializing on `/usage`.
 
 **Tech Stack:** Tampermonkey GM storage APIs, browser `localStorage`, vanilla DOM APIs, `MutationObserver`, `setInterval`, manual browser verification, `node --check` for syntax validation.
 
@@ -12,7 +12,7 @@
 
 ## File Map
 
-- Modify: `sub2api/ciii-codex-usage-enhancer.user.js`
+- Modify: `sub2api/sub2api-helper.user.js`
   Purpose: existing userscript; will continue to own date-range persistence and will also own auto-refresh storage, UI, and timer lifecycle.
 - Reference: `docs/superpowers/specs/2026-04-23-ciii-codex-auto-refresh-design.md`
   Purpose: approved behavior and scope guard.
@@ -24,7 +24,7 @@
 ### Task 1: Split Storage Responsibilities And Add Auto-Refresh State
 
 **Files:**
-- Modify: `sub2api/ciii-codex-usage-enhancer.user.js`
+- Modify: `sub2api/sub2api-helper.user.js`
 - Reference: `docs/superpowers/specs/2026-04-23-ciii-codex-auto-refresh-design.md`
 
 - [ ] **Step 1: Confirm the current failing state in the browser**
@@ -39,7 +39,7 @@ This is the required red state for the new feature.
 
 - [ ] **Step 2: Add separate storage keys, interval constants, and timer state**
 
-Modify the top of `sub2api/ciii-codex-usage-enhancer.user.js` so the script has independent storage for date range and auto-refresh state, plus a single timer handle.
+Modify the top of `sub2api/sub2api-helper.user.js` so the script has independent storage for date range and auto-refresh state, plus a single timer handle.
 
 ```js
   const DATE_RANGE_STORAGE_KEY = 'ciii-codex-usage-date-range';
@@ -133,7 +133,7 @@ Insert the following helpers after the existing date-range helpers so all later 
 Run:
 
 ```bash
-node --check sub2api/ciii-codex-usage-enhancer.user.js
+node --check sub2api/sub2api-helper.user.js
 ```
 
 Expected: command exits successfully with no output.
@@ -157,7 +157,7 @@ Do not fabricate a commit step in this workspace.
 ### Task 2: Inject The Auto-Refresh Button And Menu Beside `刷新`
 
 **Files:**
-- Modify: `sub2api/ciii-codex-usage-enhancer.user.js`
+- Modify: `sub2api/sub2api-helper.user.js`
 
 - [ ] **Step 1: Add DOM helpers to find the existing action area and refresh button**
 
@@ -325,7 +325,7 @@ Use one global listener, not one listener per render:
 Run:
 
 ```bash
-node --check sub2api/ciii-codex-usage-enhancer.user.js
+node --check sub2api/sub2api-helper.user.js
 ```
 
 Expected: command exits successfully with no output.
@@ -333,7 +333,7 @@ Expected: command exits successfully with no output.
 ### Task 3: Start, Stop, And Restore Auto Refresh Across `/usage` Re-Entry
 
 **Files:**
-- Modify: `sub2api/ciii-codex-usage-enhancer.user.js`
+- Modify: `sub2api/sub2api-helper.user.js`
 
 - [ ] **Step 1: Add timer lifecycle helpers that guarantee only one interval**
 
@@ -470,7 +470,7 @@ Place this at the top of `installAutoRefreshControl()` before it queries for an 
 Run:
 
 ```bash
-node --check sub2api/ciii-codex-usage-enhancer.user.js
+node --check sub2api/sub2api-helper.user.js
 ```
 
 Expected: command exits successfully with no output.

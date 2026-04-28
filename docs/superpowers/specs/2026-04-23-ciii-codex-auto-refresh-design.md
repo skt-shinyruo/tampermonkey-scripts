@@ -2,7 +2,7 @@
 
 ## Background
 
-The existing userscript at `sub2api/ciii-codex-usage-enhancer.user.js` enhances `https://codex.ciii.club/usage*` by persisting the selected date range and restoring it when the usage page is revisited. The next enhancement should preserve all existing behavior and add a user-controlled automatic refresh feature that reuses the page's current manual refresh action.
+The existing userscript at `sub2api/sub2api-helper.user.js` enhances `https://codex.ciii.club/usage*` by persisting the selected date range and restoring it when the usage page is revisited. The next enhancement should preserve all existing behavior and add a user-controlled automatic refresh feature that reuses the page's current manual refresh action.
 
 ## Goal
 
@@ -139,7 +139,7 @@ Required checks:
 
 ## Implementation Outline
 
-The code change stays within `sub2api/ciii-codex-usage-enhancer.user.js`.
+The code change stays within `sub2api/sub2api-helper.user.js`.
 
 Expected additions:
 
