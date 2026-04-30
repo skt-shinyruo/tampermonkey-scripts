@@ -748,6 +748,7 @@ function createTestEnvironment({
     createSelectControl,
     createSidebarToggle({ collapsed = false } = {}) {
       const button = document.createElement('button');
+      button.className = 'sidebar-link w-full';
       button.textContent = collapsed ? '展开' : '收起';
       button.clickCount = 0;
       button.addEventListener('click', () => {
@@ -904,6 +905,24 @@ test('sidebar collapsed storage is isolated per Sub2API origin', async () => {
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '收起');
+  assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('activates sidebar persistence on Sub2API admin pages without usage or dashboard fingerprints', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: true,
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '展开');
   assert.equal(sidebarToggle.clickCount, 1);
 });
 
