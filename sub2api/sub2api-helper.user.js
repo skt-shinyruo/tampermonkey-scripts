@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/Wei-Shaw/sub2api
-// @version      0.22.2
+// @version      0.22.3
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @grant        GM_deleteValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.2';
+  const SCRIPT_VERSION = '0.22.3';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -80,6 +80,7 @@
   let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
+  let sidebarSelectionActiveUntil = 0;
   let lastObservedPageSizeValue = null;
   let dashboardGranularitySelectionActiveUntil = 0;
   let lastObservedDashboardGranularityValue = null;
@@ -479,6 +480,10 @@
   }
 
   function restoreSavedSidebarState() {
+    if (isSidebarSelectionActive()) {
+      return false;
+    }
+
     const savedState = getSavedSidebarCollapsedState();
     if (savedState === null) {
       return false;
@@ -499,12 +504,21 @@
     return Boolean(button && getSidebarCollapsedStateFromButton(button) !== null);
   }
 
+  function markSidebarSelectionActive() {
+    sidebarSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+  }
+
+  function isSidebarSelectionActive() {
+    return Boolean(sidebarSelectionActiveUntil && Date.now() <= sidebarSelectionActiveUntil);
+  }
+
   function saveCurrentSidebarStateSoon() {
     window.setTimeout(() => {
       const currentState = getCurrentSidebarCollapsedState();
       if (currentState !== null) {
         setSavedSidebarCollapsedState(currentState);
       }
+      sidebarSelectionActiveUntil = 0;
     }, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
@@ -1577,6 +1591,7 @@
         }
 
         if (isSidebarToggleTarget(target)) {
+          markSidebarSelectionActive();
           saveCurrentSidebarStateSoon();
         }
 

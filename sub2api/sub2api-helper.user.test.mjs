@@ -936,6 +936,33 @@ test('restores saved expanded sidebar when collapsed state is only exposed by ti
   assert.equal(sidebarToggle.clickCount, 1);
 });
 
+test('allows expanding a previously saved collapsed sidebar before the delayed save runs', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: true,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const sidebarToggle = environment.createSidebarToggle({
+    collapsed: true,
+    keepsTextAfterCollapse: true,
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  environment.sendDocumentClick(sidebarToggle);
+  sidebarToggle.click();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.getAttribute('title'), '收起');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-collapsed')), false);
+});
+
 test('sidebar collapsed storage is isolated per Sub2API origin', async () => {
   const origin = 'https://team-b.sub2api.example.test';
   const environment = createTestEnvironment({
