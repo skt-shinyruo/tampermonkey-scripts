@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/Wei-Shaw/sub2api
-// @version      0.21.0
-// @description  为 Sub2API 管理端同步浏览器主题；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @version      0.22.0
+// @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @grant        GM_deleteValue
 // @grant        GM_getValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.21.0';
+  const SCRIPT_VERSION = '0.22.0';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -22,6 +22,7 @@
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     PAGE_SIZE: 'usage-page-size',
+    SIDEBAR_COLLAPSED: 'sidebar-collapsed',
     USAGE_DATE_RANGE: 'usage-date-range',
   };
   const LEGACY_STORAGE_KEYS = {
@@ -39,6 +40,7 @@
   const THEME_SYNC_RETRY_DELAY_MS = 500;
   const PAGE_SIZE_SELECTION_WINDOW_MS = 5000;
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
+  const SIDEBAR_STATE_SAVE_DELAY_MS = 150;
   const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
   const FOREGROUND_WATCH_GAP_MS = 2500;
@@ -423,6 +425,70 @@
         return text === '深色模式' || text === '浅色模式';
       })
     );
+  }
+
+  function getSidebarToggleButton() {
+    return [...document.querySelectorAll('button')].find((button) => {
+      const text = button.textContent.trim();
+      return text === '收起' || text === '展开';
+    }) || null;
+  }
+
+  function getSidebarCollapsedStateFromButton(button) {
+    const text = button?.textContent.trim();
+    if (text === '展开') {
+      return true;
+    }
+    if (text === '收起') {
+      return false;
+    }
+    return null;
+  }
+
+  function getCurrentSidebarCollapsedState() {
+    return getSidebarCollapsedStateFromButton(getSidebarToggleButton());
+  }
+
+  function getSavedSidebarCollapsedState() {
+    const savedValue = getStorageValue(STORAGE_NAMES.SIDEBAR_COLLAPSED, null);
+    return typeof savedValue === 'boolean' ? savedValue : null;
+  }
+
+  function setSavedSidebarCollapsedState(value) {
+    if (typeof value !== 'boolean') {
+      return;
+    }
+    setStorageValue(STORAGE_NAMES.SIDEBAR_COLLAPSED, value);
+  }
+
+  function restoreSavedSidebarState() {
+    const savedState = getSavedSidebarCollapsedState();
+    if (savedState === null) {
+      return false;
+    }
+
+    const toggleButton = getSidebarToggleButton();
+    const currentState = getSidebarCollapsedStateFromButton(toggleButton);
+    if (!toggleButton || currentState === null || currentState === savedState) {
+      return false;
+    }
+
+    toggleButton.click();
+    return true;
+  }
+
+  function isSidebarToggleTarget(target) {
+    const button = target.closest('button');
+    return Boolean(button && getSidebarCollapsedStateFromButton(button) !== null);
+  }
+
+  function saveCurrentSidebarStateSoon() {
+    window.setTimeout(() => {
+      const currentState = getCurrentSidebarCollapsedState();
+      if (currentState !== null) {
+        setSavedSidebarCollapsedState(currentState);
+      }
+    }, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
   function findSpanByText(text) {
@@ -1439,6 +1505,7 @@
 
   async function applyPageEnhancements() {
     await syncPageThemeWithBrowserTheme();
+    restoreSavedSidebarState();
 
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
@@ -1486,6 +1553,10 @@
         const target = event.target;
         if (!(target instanceof Element)) {
           return;
+        }
+
+        if (isSidebarToggleTarget(target)) {
+          saveCurrentSidebarStateSoon();
         }
 
         if (isPageSizeButtonTarget(target)) {
@@ -1647,6 +1718,7 @@
     }
 
     const observer = new MutationObserver(() => {
+      restoreSavedSidebarState();
       restoreSavedRange();
       handlePageSizeValueChange();
       handleDashboardGranularityValueChange();

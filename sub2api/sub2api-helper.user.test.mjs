@@ -309,6 +309,7 @@ function createTestEnvironment({
   const intervals = new Map();
   const localStorageState = new Map();
   const mutationObservers = new Set();
+  const timeouts = new Map();
   const fetchCalls = [];
   const windowListeners = new Map();
 
@@ -380,11 +381,22 @@ function createTestEnvironment({
   };
 
   const setTimeoutImpl = (handler, ms = 0) => {
-    currentTime += ms;
-    handler();
     const id = nextTimeoutId;
     nextTimeoutId += 1;
+    timeouts.set(id, true);
+    currentTime += ms;
+    Promise.resolve().then(() => {
+      if (!timeouts.has(id)) {
+        return;
+      }
+      timeouts.delete(id);
+      handler();
+    });
     return id;
+  };
+
+  const clearTimeoutImpl = (id) => {
+    timeouts.delete(id);
   };
 
   const context = {
@@ -433,7 +445,7 @@ function createTestEnvironment({
     URL,
     URLSearchParams,
     clearInterval: clearIntervalImpl,
-    clearTimeout() {},
+    clearTimeout: clearTimeoutImpl,
     console,
     document,
     fetch(input, init = {}) {
@@ -468,7 +480,7 @@ function createTestEnvironment({
       windowListeners.set(type, handlers);
     },
     clearInterval: clearIntervalImpl,
-    clearTimeout() {},
+    clearTimeout: clearTimeoutImpl,
     document,
     fetch: context.fetch,
     getComputedStyle() {
@@ -734,6 +746,17 @@ function createTestEnvironment({
   return {
     createDatePicker,
     createSelectControl,
+    createSidebarToggle({ collapsed = false } = {}) {
+      const button = document.createElement('button');
+      button.textContent = collapsed ? '展开' : '收起';
+      button.clickCount = 0;
+      button.addEventListener('click', () => {
+        button.clickCount += 1;
+        button.textContent = button.textContent.trim() === '展开' ? '收起' : '展开';
+      });
+      body.appendChild(button);
+      return button;
+    },
     document,
     findAutoRefreshButton() {
       return body.querySelector('[data-sub2api-auto-refresh-button="true"]');
@@ -800,6 +823,89 @@ function createUsageFingerprint(environment) {
   });
   return { datePicker, pageSize };
 }
+
+test('restores a saved collapsed sidebar across the Sub2API management UI', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: true,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '展开');
+  assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('restores a saved expanded sidebar across the Sub2API management UI', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: false,
+    },
+    origin,
+    pathname: '/dashboard',
+  });
+  environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近 7 天'],
+    triggerText: '近 7 天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按天',
+  });
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: true });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '收起');
+  assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('stores sidebar collapsed state after the native toggle is clicked', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  environment.sendDocumentClick(sidebarToggle);
+  sidebarToggle.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-collapsed')), true);
+});
+
+test('sidebar collapsed storage is isolated per Sub2API origin', async () => {
+  const origin = 'https://team-b.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey('https://team-a.sub2api.example.test', 'sidebar-collapsed')]: true,
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: false,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: true });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '收起');
+  assert.equal(sidebarToggle.clickCount, 1);
+});
 
 test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
