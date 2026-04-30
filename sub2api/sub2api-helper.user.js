@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/Wei-Shaw/sub2api
-// @version      0.22.1
+// @version      0.22.2
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @grant        GM_deleteValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.1';
+  const SCRIPT_VERSION = '0.22.2';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -430,11 +430,28 @@
   function getSidebarToggleButton() {
     return [...document.querySelectorAll('button')].find((button) => {
       const text = button.textContent.trim();
-      return text === '收起' || text === '展开';
+      const title = button.getAttribute('title')?.trim();
+      return (
+        text === '收起' ||
+        text === '展开' ||
+        title === '收起' ||
+        title === '展开' ||
+        button.classList.contains('sidebar-link-collapsed')
+      );
     }) || null;
   }
 
   function getSidebarCollapsedStateFromButton(button) {
+    const title = button?.getAttribute('title')?.trim();
+    if (title === '展开') {
+      return true;
+    }
+    if (title === '收起') {
+      return false;
+    }
+    if (button?.classList.contains('sidebar-link-collapsed')) {
+      return true;
+    }
     const text = button?.textContent.trim();
     if (text === '展开') {
       return true;
