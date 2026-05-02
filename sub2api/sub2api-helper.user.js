@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/Wei-Shaw/sub2api
-// @version      0.22.3
-// @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围记忆、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @version      0.22.4
+// @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @grant        GM_deleteValue
 // @grant        GM_getValue
@@ -13,7 +13,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.3';
+  const SCRIPT_VERSION = '0.22.4';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -24,6 +24,7 @@
     PAGE_SIZE: 'usage-page-size',
     SIDEBAR_COLLAPSED: 'sidebar-collapsed',
     USAGE_DATE_RANGE: 'usage-date-range',
+    USAGE_GRANULARITY: 'usage-granularity',
   };
   const LEGACY_STORAGE_KEYS = {
     [STORAGE_NAMES.AUTO_REFRESH]: 'ciii-codex-auto-refresh-ms',
@@ -82,8 +83,8 @@
   let pageSizeSelectionActiveUntil = 0;
   let sidebarSelectionActiveUntil = 0;
   let lastObservedPageSizeValue = null;
-  let dashboardGranularitySelectionActiveUntil = 0;
-  let lastObservedDashboardGranularityValue = null;
+  let granularitySelectionActiveUntil = 0;
+  let lastObservedGranularityValue = null;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
   let foregroundWatcherInstalled = false;
@@ -192,6 +193,10 @@
   }
 
   function isUsagePage() {
+    return location.pathname.startsWith('/usage') || location.pathname.startsWith('/admin/usage');
+  }
+
+  function isUsageAutoRefreshPage() {
     return location.pathname.startsWith('/usage');
   }
 
@@ -338,7 +343,7 @@
   }
 
   function isPageForeground() {
-    return isUsagePage() && isPageVisible() && document.hasFocus();
+    return isUsageAutoRefreshPage() && isPageVisible() && document.hasFocus();
   }
 
   function updateAutoRefreshDebugAttributes() {
@@ -614,7 +619,7 @@
     pageSizeSelectionActiveUntil = 0;
   }
 
-  function getDashboardGranularityButton() {
+  function getGranularityButton() {
     return getLabeledSelectButton('粒度:');
   }
 
@@ -623,11 +628,16 @@
   }
 
   function hasUsagePageFingerprint() {
-    return Boolean(isUsagePage() && getRefreshButton() && hasDatePickerFingerprint() && getPageSizeButton());
+    return Boolean(
+      isUsagePage() &&
+        getRefreshButton() &&
+        hasDatePickerFingerprint() &&
+        (getPageSizeButton() || getGranularityButton()),
+    );
   }
 
   function hasDashboardPageFingerprint() {
-    return Boolean(isDashboardPage() && getRefreshButton() && hasDatePickerFingerprint() && getDashboardGranularityButton());
+    return Boolean(isDashboardPage() && getRefreshButton() && hasDatePickerFingerprint() && getGranularityButton());
   }
 
   function hasSidebarFingerprint() {
@@ -638,72 +648,90 @@
     return hasUsagePageFingerprint() || hasDashboardPageFingerprint() || hasSidebarFingerprint();
   }
 
-  function normalizeDashboardGranularityValue(value) {
+  function getActiveGranularityStorageName() {
+    if (isUsagePage()) {
+      return STORAGE_NAMES.USAGE_GRANULARITY;
+    }
+    if (isDashboardPage()) {
+      return STORAGE_NAMES.DASHBOARD_GRANULARITY;
+    }
+    return null;
+  }
+
+  function normalizeGranularityValue(value) {
     const normalizedValue = String(value || '').trim();
     return normalizedValue || null;
   }
 
-  function getCurrentDashboardGranularityValue() {
-    return normalizeDashboardGranularityValue(getDashboardGranularityButton()?.textContent.trim());
+  function getCurrentGranularityValue() {
+    return normalizeGranularityValue(getGranularityButton()?.textContent.trim());
   }
 
-  function getSavedDashboardGranularityValue() {
-    const savedValue = getStorageValue(STORAGE_NAMES.DASHBOARD_GRANULARITY, null);
-    return normalizeDashboardGranularityValue(savedValue);
+  function getSavedGranularityValue() {
+    const storageName = getActiveGranularityStorageName();
+    if (!storageName) {
+      return null;
+    }
+    const savedValue = getStorageValue(storageName, null);
+    return normalizeGranularityValue(savedValue);
   }
 
-  function setSavedDashboardGranularityValue(value) {
-    const normalizedValue = normalizeDashboardGranularityValue(value);
+  function setSavedGranularityValue(value) {
+    const storageName = getActiveGranularityStorageName();
+    const normalizedValue = normalizeGranularityValue(value);
+    if (!storageName) {
+      return;
+    }
     if (!normalizedValue) {
       return;
     }
-    setStorageValue(STORAGE_NAMES.DASHBOARD_GRANULARITY, normalizedValue);
+    setStorageValue(storageName, normalizedValue);
   }
 
-  function isDashboardGranularityButtonTarget(target) {
-    const granularityButton = getDashboardGranularityButton();
+  function isGranularityButtonTarget(target) {
+    const granularityButton = getGranularityButton();
     return Boolean(granularityButton && granularityButton.contains(target));
   }
 
-  function markDashboardGranularitySelectionActive() {
-    dashboardGranularitySelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
-    lastObservedDashboardGranularityValue = getCurrentDashboardGranularityValue();
+  function markGranularitySelectionActive() {
+    granularitySelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    lastObservedGranularityValue = getCurrentGranularityValue();
   }
 
-  function isDashboardGranularitySelectionActive() {
-    return Date.now() <= dashboardGranularitySelectionActiveUntil;
+  function isGranularitySelectionActive() {
+    return Date.now() <= granularitySelectionActiveUntil;
   }
 
-  function saveCurrentDashboardGranularitySoon(fallbackValue = null) {
-    const normalizedFallbackValue = normalizeDashboardGranularityValue(fallbackValue);
+  function saveCurrentGranularitySoon(fallbackValue = null) {
+    const normalizedFallbackValue = normalizeGranularityValue(fallbackValue);
     window.setTimeout(() => {
-      const currentValue = getCurrentDashboardGranularityValue();
+      const currentValue = getCurrentGranularityValue();
       if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
-        setSavedDashboardGranularityValue(currentValue);
+        setSavedGranularityValue(currentValue);
         return;
       }
 
-      setSavedDashboardGranularityValue(normalizedFallbackValue);
+      setSavedGranularityValue(normalizedFallbackValue);
     }, PAGE_SIZE_SAVE_DELAY_MS);
   }
 
-  function handleDashboardGranularityValueChange() {
-    if (!isDashboardPage()) {
+  function handleGranularityValueChange() {
+    if (!getActiveGranularityStorageName()) {
       return;
     }
 
-    const currentValue = getCurrentDashboardGranularityValue();
-    if (!currentValue || currentValue === lastObservedDashboardGranularityValue) {
+    const currentValue = getCurrentGranularityValue();
+    if (!currentValue || currentValue === lastObservedGranularityValue) {
       return;
     }
 
-    lastObservedDashboardGranularityValue = currentValue;
-    if (!isDashboardGranularitySelectionActive()) {
+    lastObservedGranularityValue = currentValue;
+    if (!isGranularitySelectionActive()) {
       return;
     }
 
-    setSavedDashboardGranularityValue(currentValue);
-    dashboardGranularitySelectionActiveUntil = 0;
+    setSavedGranularityValue(currentValue);
+    granularitySelectionActiveUntil = 0;
   }
 
   function getAutoRefreshOption(value) {
@@ -1032,14 +1060,14 @@
     }
   }
 
-  async function restoreSavedDashboardGranularity() {
-    const savedGranularity = getSavedDashboardGranularityValue();
+  async function restoreSavedGranularity() {
+    const savedGranularity = getSavedGranularityValue();
     if (!savedGranularity) {
       return;
     }
 
-    const granularityButton = await waitFor(getDashboardGranularityButton);
-    if (!granularityButton || getCurrentDashboardGranularityValue() === savedGranularity) {
+    const granularityButton = await waitFor(getGranularityButton);
+    if (!granularityButton || getCurrentGranularityValue() === savedGranularity) {
       return;
     }
 
@@ -1052,7 +1080,7 @@
 
     if (targetOption) {
       targetOption.click();
-      setSavedDashboardGranularityValue(savedGranularity);
+      setSavedGranularityValue(savedGranularity);
     }
   }
 
@@ -1317,7 +1345,7 @@
   }
 
   function triggerRefresh(reason = 'auto') {
-    if (!isUsagePage() || !isPageVisible()) {
+    if (!isUsageAutoRefreshPage() || !isPageVisible()) {
       recordAutoRefreshEvent('refresh-skip', reason);
       return false;
     }
@@ -1357,7 +1385,7 @@
       updateAutoRefreshButtonLabel(option.value);
       return;
     }
-    if (!isUsagePage() || !isPageVisible()) {
+    if (!isUsageAutoRefreshPage() || !isPageVisible()) {
       autoRefreshState = AUTO_REFRESH_STATE.PAUSED_HIDDEN;
       autoRefreshPausedByBackground = true;
       recordAutoRefreshEvent('start-paused', reason);
@@ -1370,7 +1398,7 @@
     recordAutoRefreshEvent('start-running', reason);
     resetAutoRefreshCountdown(option.ms);
     autoRefreshCountdownTimer = window.setInterval(() => {
-      if (!isUsagePage() || !isPageVisible()) {
+      if (!isUsageAutoRefreshPage() || !isPageVisible()) {
         pauseAutoRefreshForHidden('countdown-hidden');
         return;
       }
@@ -1378,7 +1406,7 @@
     }, AUTO_REFRESH_COUNTDOWN_INTERVAL_MS);
 
     autoRefreshTimer = window.setInterval(() => {
-      if (!isUsagePage() || !isPageVisible()) {
+      if (!isUsageAutoRefreshPage() || !isPageVisible()) {
         pauseAutoRefreshForHidden('interval-hidden');
         return;
       }
@@ -1459,7 +1487,7 @@
       });
     } finally {
       if (autoRefreshState === AUTO_REFRESH_STATE.RESUMING) {
-        if (!isUsagePage() || !getAutoRefreshOption(getSavedAutoRefreshValue()).ms) {
+        if (!isUsageAutoRefreshPage() || !getAutoRefreshOption(getSavedAutoRefreshValue()).ms) {
           stopAutoRefresh();
         } else if (!isPageVisible()) {
           pauseAutoRefreshForHidden('resume-hidden');
@@ -1474,7 +1502,7 @@
   }
 
   function handleAutoRefreshBackground(reason = 'background') {
-    if (!isUsagePage()) {
+    if (!isUsageAutoRefreshPage()) {
       return;
     }
 
@@ -1551,7 +1579,7 @@
     const rangeRestored = await restoreSavedRange();
 
     if (isDashboardPage()) {
-      await restoreSavedDashboardGranularity();
+      await restoreSavedGranularity();
       if (rangeRestored) {
         const refreshButton = await waitFor(getRefreshButton);
         if (refreshButton && !refreshButton.disabled) {
@@ -1571,6 +1599,13 @@
     }
 
     await restoreSavedPageSize();
+    await restoreSavedGranularity();
+    if (!isUsageAutoRefreshPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      return;
+    }
+
     const controlReady = await ensureAutoRefreshControl();
     if (controlReady) {
       restoreAutoRefresh();
@@ -1599,8 +1634,8 @@
           markPageSizeSelectionActive();
         }
 
-        if (isDashboardGranularityButtonTarget(target)) {
-          markDashboardGranularitySelectionActive();
+        if (isGranularityButtonTarget(target)) {
+          markGranularitySelectionActive();
         }
 
         const option = target.closest('[role="option"]');
@@ -1613,17 +1648,16 @@
           return;
         }
 
-        const dashboardGranularityValue = normalizeDashboardGranularityValue(option?.textContent.trim());
-        const dashboardGranularityButtonExpanded =
-          getDashboardGranularityButton()?.getAttribute('aria-expanded') === 'true';
+        const granularityValue = normalizeGranularityValue(option?.textContent.trim());
+        const granularityButtonExpanded = getGranularityButton()?.getAttribute('aria-expanded') === 'true';
         if (
-          isDashboardPage() &&
-          dashboardGranularityValue &&
-          (dashboardGranularityButtonExpanded || isDashboardGranularitySelectionActive())
+          getActiveGranularityStorageName() &&
+          granularityValue &&
+          (granularityButtonExpanded || isGranularitySelectionActive())
         ) {
-          setSavedDashboardGranularityValue(dashboardGranularityValue);
-          saveCurrentDashboardGranularitySoon(dashboardGranularityValue);
-          dashboardGranularitySelectionActiveUntil = 0;
+          setSavedGranularityValue(granularityValue);
+          saveCurrentGranularitySoon(granularityValue);
+          granularitySelectionActiveUntil = 0;
           return;
         }
 
@@ -1645,6 +1679,7 @@
         if (text === '重置') {
           if (isUsagePage()) {
             deleteStorageValue(STORAGE_NAMES.USAGE_DATE_RANGE);
+            deleteStorageValue(STORAGE_NAMES.USAGE_GRANULARITY);
             deleteStorageValue(STORAGE_NAMES.PAGE_SIZE);
             return;
           }
@@ -1706,7 +1741,7 @@
     }
 
     document.addEventListener('visibilitychange', () => {
-      if (!isUsagePage()) {
+      if (!isUsageAutoRefreshPage()) {
         return;
       }
 
@@ -1757,7 +1792,7 @@
       restoreSavedSidebarState();
       restoreSavedRange();
       handlePageSizeValueChange();
-      handleDashboardGranularityValueChange();
+      handleGranularityValueChange();
     });
     observer.observe(document.documentElement, {
       childList: true,
@@ -1775,7 +1810,11 @@
 
     let lastHref = location.href;
     const observer = new MutationObserver(() => {
-      if (isUsagePage() && getRefreshButton() && !document.querySelector('[data-sub2api-auto-refresh-root="true"]')) {
+      if (
+        isUsageAutoRefreshPage() &&
+        getRefreshButton() &&
+        !document.querySelector('[data-sub2api-auto-refresh-root="true"]')
+      ) {
         installAutoRefreshControl();
       }
 

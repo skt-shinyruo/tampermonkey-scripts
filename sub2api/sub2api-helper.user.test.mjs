@@ -1196,6 +1196,71 @@ test('usage date range storage is isolated per Sub2API origin', async () => {
   assert.equal(datePicker.trigger.textContent, '近 30 天');
 });
 
+test('admin usage restores saved date range and granularity on load', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'usage-granularity')]: '按天',
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['近24小时', '近 7 天', '近 30 天'],
+    triggerText: '近24小时',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+  assert.equal(granularity.button.textContent, '按天');
+});
+
+test('admin usage stores selected custom date range and granularity', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['近24小时', '近 7 天', '近 30 天'],
+    triggerText: '近24小时',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  datePicker.setCustomRange('2026-05-01', '2026-05-02');
+  environment.sendDocumentClick(datePicker.getApplyButton());
+  datePicker.getApplyButton().click();
+
+  environment.sendDocumentClick(granularity.button);
+  granularity.button.click();
+  const dailyOption = granularity.findOption('按天');
+  environment.sendDocumentClick(dailyOption);
+  dailyOption.click();
+  await flushMicrotasks();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'usage-date-range')))), {
+    displayText: buildCustomDisplayText('2026-05-01', '2026-05-02'),
+    end: '2026-05-02',
+    start: '2026-05-01',
+    type: 'custom',
+  });
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-granularity')), '按天');
+});
+
 test('non-Ciii Sub2API deployments ignore legacy Ciii storage keys', async () => {
   const origin = 'https://team-c.sub2api.example.test';
   const environment = createTestEnvironment({
