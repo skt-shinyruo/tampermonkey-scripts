@@ -311,6 +311,7 @@ function createTestEnvironment({
   const mutationObservers = new Set();
   const timeouts = new Map();
   const fetchCalls = [];
+  const menuCommands = new Map();
   const windowListeners = new Map();
 
   const autoRefreshStorageKey = `sub2api-helper:${origin}:auto-refresh-ms`;
@@ -419,6 +420,10 @@ function createTestEnvironment({
     },
     GM_setValue(key, value) {
       gmState.set(key, value);
+    },
+    GM_registerMenuCommand(label, handler) {
+      menuCommands.set(label, handler);
+      return label;
     },
     HTMLInputElement: TestInputElement,
     MutationObserver: class TestMutationObserver {
@@ -766,11 +771,23 @@ function createTestEnvironment({
     findAutoRefreshButton() {
       return body.querySelector('[data-sub2api-auto-refresh-button="true"]');
     },
+    findSettingsRoot() {
+      return body.querySelector('[data-sub2api-settings-root="true"]');
+    },
+    findSettingsLauncherButton() {
+      return body.querySelector('[data-sub2api-settings-launcher="true"]');
+    },
     getFetchCalls() {
       return [...fetchCalls];
     },
+    getMenuCommand(label) {
+      return menuCommands.get(label) || null;
+    },
     getIntervalDurations() {
       return getIntervalDurations(intervals);
+    },
+    getCreatedIntervalCount() {
+      return nextIntervalId - 1;
     },
     getStoredValue(key) {
       return gmState.get(key);
@@ -813,6 +830,14 @@ function createTestEnvironment({
 
 function getScopedStorageKey(origin, name) {
   return `sub2api-helper:${origin}:${name}`;
+}
+
+function getGlobalFeatureStorageKey(featureId) {
+  return `sub2api-helper:global:feature:${featureId}:enabled`;
+}
+
+function getPageFeatureStorageKey(origin, pathname, featureId) {
+  return `sub2api-helper:${origin}:${pathname}:feature:${featureId}:enabled`;
 }
 
 function createUsageFingerprint(environment) {
@@ -1005,7 +1030,205 @@ test('metadata targets generic Sub2API deployments instead of one Ciii domain', 
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
   assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/Wei-Shaw\/sub2api/);
   assert.match(source, /\/\/ @match\s+\*:\/\/\*\/\*/);
+  assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
+});
+
+test('settings panel shows Sub2API detection and per-feature switches for the current page', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  const openSettings = environment.getMenuCommand('Sub2API Helper 设置');
+  assert.equal(typeof openSettings, 'function');
+
+  openSettings();
+  const settingsRoot = environment.findSettingsRoot();
+  assert.ok(settingsRoot);
+  assert.equal(settingsRoot.dataset.sub2apiSettingsIsSub2api, 'true');
+  assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'true');
+  assert.match(settingsRoot.textContent, /当前页面: Sub2API 页面/);
+  assert.match(settingsRoot.textContent, /修改功能: 生效中/);
+  assert.equal(settingsRoot.querySelector('[data-sub2api-settings-global-switch="true"]'), null);
+  assert.equal(settingsRoot.querySelector('[data-sub2api-settings-page-switch="true"]'), null);
+  assert.match(settingsRoot.textContent, /浏览器主题同步/);
+  assert.match(settingsRoot.textContent, /使用记录自动刷新/);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="usage-auto-refresh"]').checked, true);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-page-switch="usage-auto-refresh"]').checked, true);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="sidebar-state"]').checked, true);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-page-switch="sidebar-state"]').checked, true);
+});
+
+test('global feature switch disables only that feature on Sub2API pages', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
+    pathname: '/usage',
+    savedAutoRefreshValue: '5000',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.ok(environment.findAutoRefreshButton());
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const dateRangeSwitch = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-feature-global-switch="usage-date-range"]');
+  dateRangeSwitch.checked = false;
+  dateRangeSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    `${origin}/api/v1/usage?page=1&start_date=2026-04-17&end_date=2026-04-23&timezone=Asia%2FShanghai`,
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(environment.getStoredValue(getGlobalFeatureStorageKey('usage-date-range')), false);
+  assert.ok(environment.findAutoRefreshButton());
+  assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-17');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
+
+  const restoredDateRangeSwitch = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-feature-global-switch="usage-date-range"]');
+  restoredDateRangeSwitch.checked = true;
+  restoredDateRangeSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  const restoredResponse = await environment.vmContext.fetch(
+    `${origin}/api/v1/usage?page=1&start_date=2026-04-17&end_date=2026-04-23&timezone=Asia%2FShanghai`,
+  );
+  const restoredRequestUrl = new URL(restoredResponse.url);
+
+  assert.equal(environment.getStoredValue(getGlobalFeatureStorageKey('usage-date-range')), true);
+  assert.ok(environment.findAutoRefreshButton());
+  assert.equal(restoredRequestUrl.searchParams.get('start_date'), '2026-04-23');
+  assert.equal(restoredRequestUrl.searchParams.get('end_date'), '2026-04-23');
+});
+
+test('current page feature switch disables only that feature on the current pathname', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: true,
+      [getPageFeatureStorageKey(origin, '/usage', 'sidebar-state')]: false,
+    },
+    origin,
+    pathname: '/usage',
+    savedAutoRefreshValue: '5000',
+  });
+  createUsageFingerprint(environment);
+  const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '收起');
+  assert.equal(sidebarToggle.clickCount, 0);
+  assert.ok(environment.findAutoRefreshButton());
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  assert.equal(settingsRoot.dataset.sub2apiSettingsIsSub2api, 'true');
+  assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'true');
+  assert.match(settingsRoot.textContent, /修改功能: 生效中/);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="sidebar-state"]').checked, true);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-page-switch="sidebar-state"]').checked, false);
+
+  environment.setLocation('/admin/accounts');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.textContent, '展开');
+  assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('current page auto-refresh switch removes only the injected auto-refresh control', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
+    pathname: '/usage',
+    savedAutoRefreshValue: '5000',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  assert.ok(environment.findAutoRefreshButton());
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const autoRefreshPageSwitch = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-feature-page-switch="usage-auto-refresh"]');
+  autoRefreshPageSwitch.checked = false;
+  autoRefreshPageSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    `${origin}/api/v1/usage?page=1&start_date=2026-04-17&end_date=2026-04-23&timezone=Asia%2FShanghai`,
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(environment.getStoredValue(getPageFeatureStorageKey(origin, '/usage', 'usage-auto-refresh')), false);
+  assert.equal(environment.findAutoRefreshButton(), null);
+  assert.deepEqual(environment.getIntervalDurations(), [1000]);
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-23');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
+});
+
+test('in-page settings button appears on Sub2API pages and opens settings', async () => {
+  const environment = createTestEnvironment({
+    origin: 'https://sub2api.example.test',
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  const settingsButton = environment.findSettingsLauncherButton();
+  assert.ok(settingsButton);
+  settingsButton.click();
+
+  assert.ok(environment.findSettingsRoot());
+});
+
+test('settings panel reports non-Sub2API pages without activating modifications', async () => {
+  const environment = createTestEnvironment({
+    origin: 'https://docs.example.test',
+    pathname: '/usage',
+    savedAutoRefreshValue: '5000',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+
+  assert.equal(settingsRoot.dataset.sub2apiSettingsIsSub2api, 'false');
+  assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'false');
+  assert.match(settingsRoot.textContent, /当前页面: 非 Sub2API 页面/);
+  assert.match(settingsRoot.textContent, /修改功能: 当前页面不匹配/);
+  assert.equal(environment.findSettingsLauncherButton(), null);
+  assert.equal(environment.findAutoRefreshButton(), null);
+  assert.deepEqual(environment.getIntervalDurations(), []);
 });
 
 test('does not activate on a generic usage path without Sub2API UI fingerprint', async () => {
@@ -1052,6 +1275,23 @@ test('returning to foreground refreshes once before restarting countdown', async
   assert.equal(environment.refreshButton.clickCount, 1);
   assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
   assert.equal(environment.findAutoRefreshButton()?.dataset.sub2apiAutoRefreshState, 'running');
+});
+
+test('ordinary DOM mutations after activation do not restart auto refresh', async () => {
+  const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  await flushMicrotasks();
+
+  const createdIntervalCount = environment.getCreatedIntervalCount();
+  assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
+
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(environment.getCreatedIntervalCount(), createdIntervalCount);
+  assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
 });
 
 test('blur before visibilitychange does not trigger a foreground refresh', async () => {
