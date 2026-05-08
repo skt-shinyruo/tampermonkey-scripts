@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Sub2API Helper
-// @namespace    https://github.com/Wei-Shaw/sub2api
+// @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
 // @version      0.22.4
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*

@@ -1,0 +1,75 @@
+name: Publish Sub2API Helper
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'sub2api/**'
+      - '.github/workflows/sub2api-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: sub2api-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build userscript for tests
+        run: node sub2api/build-userscript.mjs
+
+      - name: Run tests
+        run: node --test sub2api/sub2api-helper.user.test.mjs
+
+      - name: Check generated userscript syntax
+        run: node --check sub2api/sub2api-helper.user.js
+
+      - name: Check build script syntax
+        run: node --check sub2api/build-userscript.mjs
+
+      - name: Build GitHub Pages userscript
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          script_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/sub2api-helper.user.js"
+          SUB2API_UPDATE_URL="$script_url" \
+          SUB2API_DOWNLOAD_URL="$script_url" \
+          node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
+
+      - name: Check GitHub Pages userscript syntax
+        run: node --check dist/sub2api-helper.user.js
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

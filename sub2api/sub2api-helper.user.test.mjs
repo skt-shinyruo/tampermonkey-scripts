@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 
+const buildScriptPath = new URL('./build-userscript.mjs', import.meta.url);
 const scriptPath = new URL('./sub2api-helper.user.js', import.meta.url);
 const source = await readFile(scriptPath, 'utf8');
 const RealDate = Date;
@@ -854,6 +858,37 @@ function createUsageFingerprint(environment) {
   return { datePicker, pageSize };
 }
 
+test('generated userscript is up to date with split source files', () => {
+  assert.doesNotThrow(() => {
+    execFileSync(process.execPath, [buildScriptPath.pathname, '--check'], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+  });
+});
+
+test('build script can write a Greasy Fork sync artifact for GitHub Pages', async () => {
+  const hostedScriptUrl =
+    'https://skt-shinyruo.github.io/tampermonkey-scripts/sub2api-helper.user.js';
+  const outputPath = join(tmpdir(), `sub2api-helper-${Date.now()}.user.js`);
+
+  execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${outputPath}`], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SUB2API_DOWNLOAD_URL: hostedScriptUrl,
+      SUB2API_UPDATE_URL: hostedScriptUrl,
+    },
+    stdio: 'pipe',
+  });
+
+  const publishedSource = await readFile(outputPath, 'utf8');
+
+  assert.match(publishedSource, new RegExp(`// @downloadURL\\s+${hostedScriptUrl}`));
+  assert.match(publishedSource, new RegExp(`// @updateURL\\s+${hostedScriptUrl}`));
+  assert.match(publishedSource, /function openSettingsPanel/);
+});
+
 test('restores a saved collapsed sidebar across the Sub2API management UI', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1028,7 +1063,7 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
 
 test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
-  assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/Wei-Shaw\/sub2api/);
+  assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/skt-shinyruo\/tampermonkey-scripts/);
   assert.match(source, /\/\/ @match\s+\*:\/\/\*\/\*/);
   assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
