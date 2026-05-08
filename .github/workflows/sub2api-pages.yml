@@ -1,10 +1,11 @@
-name: Publish Sub2API Helper
+name: Publish Userscripts
 
 on:
   push:
     branches:
       - main
     paths:
+      - 'linuxdo/**'
       - 'sub2api/**'
       - '.github/workflows/sub2api-pages.yml'
   workflow_dispatch:
@@ -15,7 +16,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: sub2api-pages
+  group: userscripts-pages
   cancel-in-progress: true
 
 jobs:
@@ -43,7 +44,7 @@ jobs:
       - name: Check build script syntax
         run: node --check sub2api/build-userscript.mjs
 
-      - name: Build GitHub Pages userscript
+      - name: Build Sub2API GitHub Pages userscript
         run: |
           repo_name="${GITHUB_REPOSITORY#*/}"
           script_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/sub2api-helper.user.js"
@@ -51,8 +52,14 @@ jobs:
           SUB2API_DOWNLOAD_URL="$script_url" \
           node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
 
+      - name: Publish Linux.do userscript
+        run: cp linuxdo/linuxdo-open-links-new-tab.user.js dist/linuxdo-open-links-new-tab.user.js
+
       - name: Check GitHub Pages userscript syntax
         run: node --check dist/sub2api-helper.user.js
+
+      - name: Check Linux.do userscript syntax
+        run: node --check dist/linuxdo-open-links-new-tab.user.js
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
