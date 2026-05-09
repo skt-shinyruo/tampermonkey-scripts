@@ -10,7 +10,7 @@
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 (function () {
@@ -303,8 +303,12 @@
     return null;
   }
 
+  function isAdminUsagePage() {
+    return location.pathname.startsWith('/admin/usage');
+  }
+
   function isUsagePage() {
-    return location.pathname.startsWith('/usage') || location.pathname.startsWith('/admin/usage');
+    return location.pathname.startsWith('/usage') || isAdminUsagePage();
   }
 
   function isUsageAutoRefreshPage() {
@@ -336,7 +340,6 @@
   function formatIsoDateFromParts({ year, month, day }) {
     return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
-
   function getDatePartsInTimeZone(date, timeZone) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       day: '2-digit',
@@ -1473,7 +1476,7 @@
       return false;
     }
 
-    if (isUsagePage() || isDashboardPage()) {
+    if ((isUsagePage() && !isAdminUsagePage()) || isDashboardPage()) {
       return syncRangeTriggerText(savedRange);
     }
 
@@ -1533,7 +1536,6 @@
 
   function rewriteUsageRequestUrl(urlInput) {
     if (
-      !helperActivated ||
       !isActiveDateRangeFeatureEnabled() ||
       (!isUsagePage() && !isDashboardPage()) ||
       !urlInput
@@ -1694,7 +1696,6 @@
       themeSyncInFlight = false;
     }
   }
-
   function closeAutoRefreshMenu() {
     autoRefreshMenu?.remove();
     autoRefreshMenu = null;
@@ -2518,7 +2519,21 @@
     activationWatcherInstalled = true;
   }
 
+  function startSub2apiEnhancements() {
+    installActivationWatcher();
+    tryActivateSub2apiHelper();
+  }
+
+  function startSub2apiEnhancementsWhenDomIsReady() {
+    if (document.documentElement) {
+      startSub2apiEnhancements();
+      return;
+    }
+
+    window.addEventListener('DOMContentLoaded', startSub2apiEnhancements, { once: true });
+  }
+
+  installUsageRequestRewriter();
   registerSettingsMenu();
-  installActivationWatcher();
-  tryActivateSub2apiHelper();
+  startSub2apiEnhancementsWhenDomIsReady();
 })();
