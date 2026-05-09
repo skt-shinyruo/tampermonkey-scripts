@@ -900,6 +900,24 @@ test('build script can write a Greasy Fork sync artifact for the build branch', 
   assert.match(publishedSource, /function openSettingsPanel/);
 });
 
+test('build script applies SUB2API_VERSION to metadata and runtime version', async () => {
+  const outputPath = join(tmpdir(), `sub2api-helper-version-${process.pid}-${Date.now()}.user.js`);
+
+  execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${outputPath}`], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      SUB2API_VERSION: '0.22.123',
+    },
+    stdio: 'pipe',
+  });
+
+  const versionedSource = await readFile(outputPath, 'utf8');
+
+  assert.match(versionedSource, /\/\/ @version\s+0\.22\.123/);
+  assert.match(versionedSource, /const SCRIPT_VERSION = '0\.22\.123';/);
+});
+
 test('restores a saved collapsed sidebar across the Sub2API management UI', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({

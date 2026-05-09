@@ -25,6 +25,8 @@ function getArgValue(name) {
 const outputPath = resolve(process.cwd(), getArgValue('--output') || defaultOutputPath);
 const updateUrl = process.env.SUB2API_UPDATE_URL || '';
 const downloadUrl = process.env.SUB2API_DOWNLOAD_URL || updateUrl;
+const baseVersion = '0.22';
+const scriptVersion = process.env.SUB2API_VERSION || `${baseVersion}.0`;
 const publishMetadataLines = [
   updateUrl ? `// @updateURL    ${updateUrl}` : '',
   downloadUrl ? `// @downloadURL  ${downloadUrl}` : '',
@@ -33,7 +35,7 @@ const publishMetadataLines = [
 const header = `// ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.4
+// @version      ${scriptVersion}
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 ${publishMetadataLines.length > 0 ? `${publishMetadataLines.join('\n')}\n` : ''}// @grant        GM_deleteValue
@@ -45,12 +47,16 @@ ${publishMetadataLines.length > 0 ? `${publishMetadataLines.join('\n')}\n` : ''}
 
 async function buildUserscriptSource() {
   const parts = await Promise.all(partPaths.map((path) => readFile(path, 'utf8')));
+  const sourceParts = parts.join('').replace(
+    /const SCRIPT_VERSION = '[^']+';/,
+    `const SCRIPT_VERSION = '${scriptVersion}';`,
+  );
   return `${header}
 
 (function () {
   'use strict';
 
-${parts.join('')}` + '})();\n';
+${sourceParts}` + '})();\n';
 }
 
 const args = new Set(process.argv.slice(2));

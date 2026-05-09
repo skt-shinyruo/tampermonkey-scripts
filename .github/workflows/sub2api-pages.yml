@@ -38,6 +38,7 @@ jobs:
       - name: Build userscript
         run: |
           script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/sub2api-helper.user.js"
+          SUB2API_VERSION="0.22.${GITHUB_RUN_NUMBER}" \
           SUB2API_UPDATE_URL="$script_url" \
           SUB2API_DOWNLOAD_URL="$script_url" \
           node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
