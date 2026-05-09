@@ -91,6 +91,16 @@
     { value: '30000', label: '30s', ms: 30000 },
     { value: '60000', label: '1分钟', ms: 60000 },
   ];
+  const ADMIN_DASHBOARD_DATE_RANGE_API_PATHS = [
+    '/api/v1/admin/dashboard/trend',
+    '/api/v1/admin/dashboard/models',
+    '/api/v1/admin/dashboard/groups',
+    '/api/v1/admin/dashboard/snapshot-v2',
+    '/api/v1/admin/dashboard/api-keys-trend',
+    '/api/v1/admin/dashboard/users-trend',
+    '/api/v1/admin/dashboard/users-ranking',
+    '/api/v1/admin/dashboard/user-breakdown',
+  ];
   const AUTO_REFRESH_STATE = {
     OFF: 'off',
     RUNNING: 'running',
@@ -299,8 +309,12 @@
     return location.pathname.startsWith('/usage');
   }
 
+  function isAdminDashboardPage() {
+    return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
+  }
+
   function isDashboardPage() {
-    return location.pathname.startsWith('/dashboard');
+    return location.pathname.startsWith('/dashboard') || isAdminDashboardPage();
   }
 
   function getActiveDateRangeStorageName() {

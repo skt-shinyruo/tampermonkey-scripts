@@ -291,6 +291,17 @@
     }
   }
 
+  function isAdminDashboardDateRangeRequestPath(pathname) {
+    return ADMIN_DASHBOARD_DATE_RANGE_API_PATHS.includes(pathname);
+  }
+
+  function isDateRangeRequestPath(pathname) {
+    return (
+      pathname.startsWith('/api/v1/usage') ||
+      (isDashboardPage() && isAdminDashboardDateRangeRequestPath(pathname))
+    );
+  }
+
   function rewriteUsageRequestUrl(urlInput) {
     if (
       !isActiveDateRangeFeatureEnabled() ||
@@ -306,7 +317,7 @@
     }
 
     const requestUrl = new URL(String(urlInput), location.href);
-    if (requestUrl.origin !== getCurrentOrigin() || !requestUrl.pathname.startsWith('/api/v1/usage')) {
+    if (requestUrl.origin !== getCurrentOrigin() || !isDateRangeRequestPath(requestUrl.pathname)) {
       return urlInput;
     }
 

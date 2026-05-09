@@ -1861,3 +1861,95 @@ test('dashboard stores selected custom date range and granularity', async () => 
   });
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-granularity')), '按小时');
 });
+
+test('admin dashboard rewrites dashboard requests before the page fingerprint is ready', async () => {
+  const origin = 'https://admin-dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-04-23T12:00:00+08:00'),
+    origin,
+    pathname: '/admin/dashboard',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    `${origin}/api/v1/admin/dashboard/trend?start_date=2026-04-17&end_date=2026-04-23&granularity=day&timezone=Asia%2FShanghai`,
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-23');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
+});
+
+test('admin dashboard restores saved date range and granularity on load', async () => {
+  const origin = 'https://admin-dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'dashboard-granularity')]: '按小时',
+    },
+    origin,
+    pathname: '/admin/dashboard',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近 7 天', '近 30 天'],
+    triggerText: '近 7 天',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按天',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+  const clickCounts = datePicker.getClickCounts();
+  assert.equal(clickCounts.trigger, 1);
+  assert.equal(clickCounts.presets.get('近 30 天'), 1);
+  assert.equal(clickCounts.apply, 1);
+  assert.equal(granularity.button.textContent, '按小时');
+});
+
+test('admin dashboard stores selected custom date range and granularity', async () => {
+  const origin = 'https://admin-dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/dashboard' });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近 7 天', '近 30 天'],
+    triggerText: '近 7 天',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按天',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  datePicker.setCustomRange('2026-04-01', '2026-04-23');
+  environment.sendDocumentClick(datePicker.getApplyButton());
+  datePicker.getApplyButton().click();
+
+  environment.sendDocumentClick(granularity.button);
+  granularity.button.click();
+  const hourlyOption = granularity.findOption('按小时');
+  environment.sendDocumentClick(hourlyOption);
+  hourlyOption.click();
+  await flushMicrotasks();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-date-range')))), {
+    displayText: buildCustomDisplayText('2026-04-01', '2026-04-23'),
+    end: '2026-04-23',
+    start: '2026-04-01',
+    type: 'custom',
+  });
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-granularity')), '按小时');
+});
