@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.11
+// @version      0.22.12
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.11';
+  const SCRIPT_VERSION = '0.22.12';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -747,6 +747,63 @@
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }
 
+  function hasSub2apiInjectedConfigShape(config) {
+    return Boolean(
+      config &&
+        typeof config === 'object' &&
+        !Array.isArray(config) &&
+        typeof config.site_name === 'string' &&
+        typeof config.version === 'string' &&
+        typeof config.backend_mode_enabled === 'boolean' &&
+        typeof config.table_default_page_size === 'number' &&
+        Array.isArray(config.table_page_size_options) &&
+        Array.isArray(config.custom_menu_items),
+    );
+  }
+
+  function hasSub2apiInjectedConfig() {
+    return hasSub2apiInjectedConfigShape(globalThis.__APP_CONFIG__) || hasSub2apiInjectedConfigShape(window.__APP_CONFIG__);
+  }
+
+  function hasSub2apiInjectedConfigScript() {
+    return [...document.querySelectorAll('script')].some((script) => {
+      const text = script.textContent || '';
+      return (
+        text.includes('window.__APP_CONFIG__=') &&
+        text.includes('"site_name"') &&
+        text.includes('"version"') &&
+        text.includes('"backend_mode_enabled"') &&
+        text.includes('"table_default_page_size"') &&
+        text.includes('"table_page_size_options"') &&
+        text.includes('"custom_menu_items"')
+      );
+    });
+  }
+
+  function hasSub2apiShellFingerprint() {
+    const sidebar = document.querySelector('aside.sidebar');
+    if (!sidebar || !sidebar.querySelector('.sidebar-nav')) {
+      return false;
+    }
+
+    return [...sidebar.querySelectorAll('a.sidebar-link, button.sidebar-link')].some((item) => {
+      const href = item.getAttribute('href') || '';
+      return (
+        href === '/dashboard' ||
+        href === '/usage' ||
+        href === '/keys' ||
+        href === '/admin/dashboard' ||
+        href === '/admin/accounts' ||
+        href === '/admin/usage' ||
+        href === '/admin/settings'
+      );
+    });
+  }
+
+  function hasSub2apiAppFingerprint() {
+    return hasSub2apiInjectedConfig() || hasSub2apiInjectedConfigScript() || hasSub2apiShellFingerprint();
+  }
+
   function hasUsagePageFingerprint() {
     return Boolean(
       isUsagePage() &&
@@ -765,7 +822,10 @@
   }
 
   function shouldEnableSub2apiHelper() {
-    return hasUsagePageFingerprint() || hasDashboardPageFingerprint() || hasSidebarFingerprint();
+    return (
+      hasSub2apiAppFingerprint() &&
+      (hasUsagePageFingerprint() || hasDashboardPageFingerprint() || hasSidebarFingerprint())
+    );
   }
 
   function isFeatureRelevantToCurrentPage(featureId) {
@@ -1212,7 +1272,6 @@
       // Some userscript managers expose GM_registerMenuCommand only in specific contexts.
     }
   }
-
   function getActiveGranularityStorageName() {
     if (isUsagePage()) {
       return STORAGE_NAMES.USAGE_GRANULARITY;
