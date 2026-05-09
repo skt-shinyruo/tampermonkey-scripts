@@ -52,8 +52,22 @@ jobs:
           SUB2API_DOWNLOAD_URL="$script_url" \
           node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
 
-      - name: Publish Linux.do userscript
-        run: cp linuxdo/linuxdo-open-links-new-tab.user.js dist/linuxdo-open-links-new-tab.user.js
+      - name: Check Linux.do source syntax
+        run: node --check linuxdo/linuxdo-open-links-new-tab.user.js
+
+      - name: Check Linux.do build script syntax
+        run: node --check linuxdo/build-userscript.mjs
+
+      - name: Test Linux.do build script
+        run: node --test linuxdo/linuxdo-open-links-new-tab.user.test.mjs
+
+      - name: Build Linux.do GitHub Pages userscript
+        run: |
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          script_url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${repo_name}/linuxdo-open-links-new-tab.user.js"
+          LINUXDO_UPDATE_URL="$script_url" \
+          LINUXDO_DOWNLOAD_URL="$script_url" \
+          node linuxdo/build-userscript.mjs --output=dist/linuxdo-open-links-new-tab.user.js
 
       - name: Check GitHub Pages userscript syntax
         run: node --check dist/sub2api-helper.user.js
