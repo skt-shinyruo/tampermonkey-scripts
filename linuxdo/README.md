@@ -20,10 +20,13 @@ This userscript opens Linux.do topic links and eligible sidebar navigation links
 
 ```bash
 node linuxdo/build-userscript.mjs
+LINUXDO_VERSION="0.1.${GITHUB_RUN_NUMBER}" \
 LINUXDO_UPDATE_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/linuxdo-open-links-new-tab.user.js" \
 LINUXDO_DOWNLOAD_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/linuxdo-open-links-new-tab.user.js" \
 node linuxdo/build-userscript.mjs --output=dist/linuxdo-open-links-new-tab.user.js
 ```
+
+`linuxdo-open-links-new-tab.user.js` keeps the baseline source `@version`; CI passes `LINUXDO_VERSION="0.1.${GITHUB_RUN_NUMBER}"` so the published build artifact has a monotonically increasing version for userscript auto-updates.
 
 ## Validation
 

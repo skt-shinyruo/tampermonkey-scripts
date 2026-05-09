@@ -41,6 +41,7 @@ jobs:
       - name: Build userscript
         run: |
           script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/linuxdo-open-links-new-tab.user.js"
+          LINUXDO_VERSION="0.1.${GITHUB_RUN_NUMBER}" \
           LINUXDO_UPDATE_URL="$script_url" \
           LINUXDO_DOWNLOAD_URL="$script_url" \
           node linuxdo/build-userscript.mjs --output=dist/linuxdo-open-links-new-tab.user.js

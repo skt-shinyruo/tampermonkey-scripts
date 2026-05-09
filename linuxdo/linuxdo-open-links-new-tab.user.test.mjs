@@ -44,3 +44,20 @@ test('linuxdo build script injects build branch metadata into dist output', () =
     });
   });
 });
+
+test('linuxdo build script applies LINUXDO_VERSION to @version', () => {
+  const outDir = mkdtempSync(join(tmpdir(), 'linuxdo-build-version-'));
+  const outPath = join(outDir, 'linuxdo-open-links-new-tab.user.js');
+
+  execFileSync(process.execPath, [buildScriptPath, `--output=${outPath}`], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      LINUXDO_VERSION: '0.1.123',
+    },
+    stdio: 'pipe',
+  });
+
+  const built = readFileSync(outPath, 'utf8');
+  assert.match(built, /\/\/ @version\s+0\.1\.123/);
+});

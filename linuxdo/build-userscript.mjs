@@ -20,9 +20,14 @@ const repoOwner = process.env.GITHUB_REPOSITORY_OWNER || 'skt-shinyruo';
 const pagesUrl = `https://${repoOwner}.github.io/${repoName}/linuxdo-open-links-new-tab.user.js`;
 const updateUrl = process.env.LINUXDO_UPDATE_URL || pagesUrl;
 const downloadUrl = process.env.LINUXDO_DOWNLOAD_URL || updateUrl;
+const baseVersion = '0.1';
+const scriptVersion = process.env.LINUXDO_VERSION || `${baseVersion}.0`;
 
 const source = await readFile(sourcePath, 'utf8');
 const built = source.replace(
+  /^\/\/ @version\s+.*$/m,
+  `// @version      ${scriptVersion}`,
+).replace(
   '// @grant        none',
   `// @updateURL    ${updateUrl}\n// @downloadURL  ${downloadUrl}\n// @grant        none`,
 );
