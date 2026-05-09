@@ -2,7 +2,7 @@
 
 Sub2API Helper 是一个 Tampermonkey userscript，用来增强 Sub2API 管理端的日常使用体验。脚本会在所有网页中加载，但只会在识别到 Sub2API 管理端页面特征后启用功能。
 
-生成后的安装文件是 `sub2api-helper.user.js`。源码拆分在 `src/parts/` 下，修改源码后由 GitHub Actions 构建最终 userscript，推送到 `build` 分支供 Greasy Fork webhook 同步，并同时发布到 GitHub Pages 作为调试入口。
+生成后的安装文件是 `sub2api-helper.user.js`。源码拆分在 `src/parts/` 下，修改源码后由 GitHub Actions 构建最终 userscript，推送到 `build` 分支供 Greasy Fork webhook 同步；`pages.yml` 会把 `build` 分支发布到 GitHub Pages 作为调试入口。
 
 ## 功能
 
@@ -93,7 +93,7 @@ SUB2API_DOWNLOAD_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonke
 node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
 ```
 
-仓库中的 `.github/workflows/sub2api-pages.yml` 会在 push 到 `main` 时自动运行测试、构建 `dist/sub2api-helper.user.js`，上传 GitHub Pages artifact，并把最终 userscript 推送到 `build` 分支。workflow 使用 GitHub Actions 提供的 `GITHUB_REPOSITORY` 自动计算 raw URL，仓库改名后不需要手动改 workflow。
+仓库中的 `.github/workflows/sub2api-pages.yml` 会在 push 到 `main` 且修改 `sub2api/**` 时自动运行测试、构建 `dist/sub2api-helper.user.js`，并把最终 userscript 推送到 `build` 分支。`pages.yml` 会在 `build` 分支更新后把当前构建产物发布到 GitHub Pages。workflow 使用 GitHub Actions 提供的 `GITHUB_REPOSITORY` 自动计算 raw URL，仓库改名后不需要手动改 workflow。
 
 ## 验证
 

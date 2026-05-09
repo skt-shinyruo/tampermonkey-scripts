@@ -1,0 +1,48 @@
+name: Deploy Userscript Pages
+
+on:
+  push:
+    branches:
+      - build
+    paths:
+      - 'sub2api-helper.user.js'
+      - 'linuxdo-open-links-new-tab.user.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: userscripts-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+        with:
+          ref: build
+
+      - name: Prepare GitHub Pages content
+        run: |
+          mkdir -p dist
+          cp ./*.user.js dist/
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

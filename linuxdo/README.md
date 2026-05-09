@@ -33,4 +33,4 @@ node --check linuxdo/build-userscript.mjs
 node --test linuxdo/linuxdo-open-links-new-tab.user.test.mjs
 ```
 
-Greasy Fork sync uses the raw `build` branch file, and the existing webhook updates the script after each push to `main`.
+Greasy Fork sync uses the raw `build` branch file, and the `linuxdo-pages.yml` workflow updates the script after each push to `main` that touches `linuxdo/**`. `pages.yml` then republishes the `build` branch to GitHub Pages.

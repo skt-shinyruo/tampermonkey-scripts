@@ -1,12 +1,12 @@
-name: Publish Sub2API Userscript
+name: Publish Linux.do Userscript
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'sub2api/**'
-      - '.github/workflows/sub2api-pages.yml'
+      - 'linuxdo/**'
+      - '.github/workflows/linuxdo-pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -29,21 +29,24 @@ jobs:
         with:
           node-version: 24
 
-      - name: Run tests
-        run: node --test sub2api/sub2api-helper.user.test.mjs
+      - name: Check source syntax
+        run: node --check linuxdo/linuxdo-open-links-new-tab.user.js
 
       - name: Check build script syntax
-        run: node --check sub2api/build-userscript.mjs
+        run: node --check linuxdo/build-userscript.mjs
+
+      - name: Test build script
+        run: node --test linuxdo/linuxdo-open-links-new-tab.user.test.mjs
 
       - name: Build userscript
         run: |
-          script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/sub2api-helper.user.js"
-          SUB2API_UPDATE_URL="$script_url" \
-          SUB2API_DOWNLOAD_URL="$script_url" \
-          node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
+          script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/linuxdo-open-links-new-tab.user.js"
+          LINUXDO_UPDATE_URL="$script_url" \
+          LINUXDO_DOWNLOAD_URL="$script_url" \
+          node linuxdo/build-userscript.mjs --output=dist/linuxdo-open-links-new-tab.user.js
 
       - name: Check userscript syntax
-        run: node --check dist/sub2api-helper.user.js
+        run: node --check dist/linuxdo-open-links-new-tab.user.js
 
       - name: Publish userscript to build branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -52,13 +55,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           publish_dir="$(mktemp -d)"
-          cp dist/sub2api-helper.user.js "$publish_dir/sub2api-helper.user.js"
+          cp dist/linuxdo-open-links-new-tab.user.js "$publish_dir/linuxdo-open-links-new-tab.user.js"
 
           git fetch origin build:refs/remotes/origin/build || true
           if git show-ref --verify --quiet refs/remotes/origin/build; then
             git switch --detach origin/build
-            if [ -f linuxdo-open-links-new-tab.user.js ]; then
-              cp linuxdo-open-links-new-tab.user.js "$publish_dir/linuxdo-open-links-new-tab.user.js"
+            if [ -f sub2api-helper.user.js ]; then
+              cp sub2api-helper.user.js "$publish_dir/sub2api-helper.user.js"
             fi
           else
             git switch --orphan build
@@ -66,15 +69,15 @@ jobs:
           fi
 
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
-          if [ -f "$publish_dir/linuxdo-open-links-new-tab.user.js" ]; then
-            cp "$publish_dir/linuxdo-open-links-new-tab.user.js" .
+          if [ -f "$publish_dir/sub2api-helper.user.js" ]; then
+            cp "$publish_dir/sub2api-helper.user.js" .
           fi
-          cp "$publish_dir/sub2api-helper.user.js" .
+          cp "$publish_dir/linuxdo-open-links-new-tab.user.js" .
 
           git add -A
           if git diff --cached --quiet; then
             echo "No build branch changes to publish."
           else
-            git commit -m "chore: publish sub2api userscript build"
+            git commit -m "chore: publish linuxdo userscript build"
             git push origin HEAD:build
           fi
