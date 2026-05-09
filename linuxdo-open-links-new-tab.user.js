@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Linux.do Open Links in New Tab
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.1.0
+// @version      0.1.3
 // @description  Open Linux.do topic links and eligible sidebar navigation links in new tabs.
 // @match        https://linux.do/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/linuxdo-open-links-new-tab.user.js
