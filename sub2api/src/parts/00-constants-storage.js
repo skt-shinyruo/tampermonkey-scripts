@@ -101,6 +101,8 @@
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
+  let rangeRestoreAttemptPathname = null;
+  let rangeRestoreAttemptTrigger = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;

@@ -546,12 +546,15 @@ function createTestEnvironment({
     const state = {
       activePresetLabel,
       applyButton: null,
+      applyClickCount: 0,
       inputs: [],
       panel: null,
+      presetClickCounts: new Map(),
       presetButtons: new Map(),
       resetButton: null,
       startValue: inputValues[0] || '',
       endValue: inputValues[1] || '',
+      triggerClickCount: 0,
       triggerText,
     };
 
@@ -613,7 +616,9 @@ function createTestEnvironment({
         const presetButton = document.createElement('button');
         presetButton.textContent = label;
         presetButton.className = 'date-picker-preset';
+        state.presetClickCounts.set(label, 0);
         presetButton.addEventListener('click', () => {
+          state.presetClickCounts.set(label, (state.presetClickCounts.get(label) || 0) + 1);
           if (!allowPresetInteraction) {
             return;
           }
@@ -631,6 +636,7 @@ function createTestEnvironment({
       applyButton.className = 'date-picker-apply';
       applyButton.textContent = '应用';
       applyButton.addEventListener('click', () => {
+        state.applyClickCount += 1;
         state.startValue = startInput.value;
         state.endValue = endInput.value;
         if (state.activePresetLabel) {
@@ -663,7 +669,10 @@ function createTestEnvironment({
       syncPresetButtons();
     };
 
-    trigger.addEventListener('click', openPanel);
+    trigger.addEventListener('click', () => {
+      state.triggerClickCount += 1;
+      openPanel();
+    });
 
     return {
       closePanel,
@@ -689,6 +698,13 @@ function createTestEnvironment({
       },
       findPreset(label) {
         return state.presetButtons.get(label) || null;
+      },
+      getClickCounts() {
+        return {
+          apply: state.applyClickCount,
+          presets: new Map(state.presetClickCounts),
+          trigger: state.triggerClickCount,
+        };
       },
       remove() {
         closePanel();
@@ -1403,7 +1419,7 @@ test('visible without focus does not resume auto refresh', async () => {
   assert.equal(environment.findAutoRefreshButton()?.dataset.sub2apiAutoRefreshState, 'paused-hidden');
 });
 
-test('usage re-applies saved date range after SPA tab switch when the first trigger is stale', async () => {
+test('usage restores saved date range through picker clicks after SPA tab switch', async () => {
   const origin = 'https://codex.ciii.club';
   const environment = createTestEnvironment({
     gmValues: {
@@ -1440,9 +1456,13 @@ test('usage re-applies saved date range after SPA tab switch when the first trig
   await flushMicrotasks();
 
   assert.equal(currentPicker.trigger.textContent, '近 30 天');
+  const clickCounts = currentPicker.getClickCounts();
+  assert.equal(clickCounts.trigger, 1);
+  assert.equal(clickCounts.presets.get('近 30 天'), 1);
+  assert.equal(clickCounts.apply, 1);
 });
 
-test('usage rewrites requests and syncs preset label even when the picker ignores synthetic clicks', async () => {
+test('usage request rewriting still follows saved range when picker clicks are ignored', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
@@ -1472,7 +1492,7 @@ test('usage rewrites requests and syncs preset label even when the picker ignore
   );
   const requestUrl = new URL(response.url);
 
-  assert.equal(datePicker.trigger.textContent, '今天');
+  assert.equal(datePicker.trigger.textContent, '近 7 天');
   assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-23');
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
 });
@@ -1555,6 +1575,45 @@ test('admin usage restores the real picker preset instead of only syncing the la
   datePicker.open();
 
   assert.equal(datePicker.trigger.textContent, '今天');
+  assert.ok(datePicker.findPreset('今天')?.classList.contains('date-picker-preset-active'));
+  assert.equal(datePicker.findPreset('近24小时')?.classList.contains('date-picker-preset-active'), false);
+});
+
+test('admin usage does not replay saved date range on ordinary DOM mutations after initial restore', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近24小时' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近 7 天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  datePicker.open();
+  const todayPreset = datePicker.findPreset('今天');
+  todayPreset.click();
+  environment.sendDocumentClick(datePicker.getApplyButton());
+  datePicker.getApplyButton().click();
+  assert.equal(datePicker.trigger.textContent, '今天');
+
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '今天');
+  datePicker.open();
   assert.ok(datePicker.findPreset('今天')?.classList.contains('date-picker-preset-active'));
   assert.equal(datePicker.findPreset('近24小时')?.classList.contains('date-picker-preset-active'), false);
 });
@@ -1664,7 +1723,7 @@ test('usage request rewriting does not touch cross-origin usage-like APIs', asyn
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
 });
 
-test('dashboard rewrites requests and syncs preset label even when the picker ignores synthetic clicks', async () => {
+test('dashboard request rewriting still follows saved range when picker clicks are ignored', async () => {
   const origin = 'https://dashboard.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
@@ -1694,7 +1753,7 @@ test('dashboard rewrites requests and syncs preset label even when the picker ig
   );
   const requestUrl = new URL(response.url);
 
-  assert.equal(datePicker.trigger.textContent, '今天');
+  assert.equal(datePicker.trigger.textContent, '近 7 天');
   assert.equal(requestUrl.searchParams.get('start_date'), '2026-04-23');
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
 });
@@ -1724,6 +1783,10 @@ test('dashboard restores saved date range and granularity on load', async () => 
   await flushMicrotasks();
 
   assert.equal(datePicker.trigger.textContent, '近 30 天');
+  const clickCounts = datePicker.getClickCounts();
+  assert.equal(clickCounts.trigger, 1);
+  assert.equal(clickCounts.presets.get('近 30 天'), 1);
+  assert.equal(clickCounts.apply, 1);
   assert.equal(granularity.button.textContent, '按小时');
 });
 

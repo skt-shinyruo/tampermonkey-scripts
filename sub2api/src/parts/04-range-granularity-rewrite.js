@@ -190,48 +190,6 @@
     return getTriggerValueElement()?.textContent.trim() || getTrigger()?.textContent.trim() || '';
   }
 
-  function getSavedRangeDisplayText(savedRange) {
-    if (!savedRange) {
-      return '';
-    }
-
-    if (savedRange.type === 'preset') {
-      return String(savedRange.label || '').trim();
-    }
-
-    if (savedRange.type === 'custom') {
-      return String(savedRange.displayText || buildCustomDisplayText(savedRange.start, savedRange.end)).trim();
-    }
-
-    return '';
-  }
-
-  function syncRangeTriggerText(savedRange) {
-    const expectedText = getSavedRangeDisplayText(savedRange);
-    if (!expectedText) {
-      return false;
-    }
-
-    const trigger = getTrigger();
-    if (!trigger) {
-      return false;
-    }
-
-    const currentText = currentTriggerText();
-    if (currentText === expectedText) {
-      return false;
-    }
-
-    const valueElement = getTriggerValueElement();
-    if (valueElement) {
-      valueElement.textContent = expectedText;
-      return true;
-    }
-
-    trigger.textContent = expectedText;
-    return true;
-  }
-
   function isAlreadyApplied(savedRange) {
     const triggerText = currentTriggerText();
     if (!triggerText) {
@@ -263,12 +221,21 @@
       return false;
     }
 
-    if ((isUsagePage() && !isAdminUsagePage()) || isDashboardPage()) {
-      return syncRangeTriggerText(savedRange);
+    const trigger = getTrigger();
+    if (!trigger) {
+      return false;
     }
 
-    const trigger = getTrigger();
-    if (!trigger || isAlreadyApplied(savedRange)) {
+    if (
+      rangeRestoreAttemptPathname === location.pathname &&
+      rangeRestoreAttemptTrigger === trigger
+    ) {
+      return false;
+    }
+
+    if (isAlreadyApplied(savedRange)) {
+      rangeRestoreAttemptPathname = location.pathname;
+      rangeRestoreAttemptTrigger = trigger;
       return false;
     }
 
@@ -281,6 +248,9 @@
       if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
         return;
       }
+
+      rangeRestoreAttemptPathname = restorePathname;
+      rangeRestoreAttemptTrigger = trigger;
 
       if (savedRange.type === 'preset') {
         const presetButton = await waitFor(() =>

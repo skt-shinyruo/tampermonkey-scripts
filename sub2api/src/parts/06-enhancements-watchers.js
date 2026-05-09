@@ -123,6 +123,18 @@
           return;
         }
 
+        if (button.classList.contains('date-picker-trigger')) {
+          rangeRestoreAttemptPathname = location.pathname;
+          rangeRestoreAttemptTrigger = button;
+          return;
+        }
+
+        if (button.classList.contains('date-picker-preset')) {
+          rangeRestoreAttemptPathname = location.pathname;
+          rangeRestoreAttemptTrigger = getTrigger();
+          return;
+        }
+
         if (text === '重置') {
           if (isUsagePage()) {
             if (isFeatureEnabled(FEATURE_IDS.USAGE_DATE_RANGE)) {
@@ -281,6 +293,8 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
+      rangeRestoreAttemptPathname = null;
+      rangeRestoreAttemptTrigger = null;
       applyPageEnhancements();
     });
 
