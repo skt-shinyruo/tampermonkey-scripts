@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.10
+// @version      0.22.11
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.10';
+  const SCRIPT_VERSION = '0.22.11';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -119,6 +119,8 @@
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
+  let rangeRestoreAttemptPathname = null;
+  let rangeRestoreAttemptTrigger = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;
@@ -1403,48 +1405,6 @@
     return getTriggerValueElement()?.textContent.trim() || getTrigger()?.textContent.trim() || '';
   }
 
-  function getSavedRangeDisplayText(savedRange) {
-    if (!savedRange) {
-      return '';
-    }
-
-    if (savedRange.type === 'preset') {
-      return String(savedRange.label || '').trim();
-    }
-
-    if (savedRange.type === 'custom') {
-      return String(savedRange.displayText || buildCustomDisplayText(savedRange.start, savedRange.end)).trim();
-    }
-
-    return '';
-  }
-
-  function syncRangeTriggerText(savedRange) {
-    const expectedText = getSavedRangeDisplayText(savedRange);
-    if (!expectedText) {
-      return false;
-    }
-
-    const trigger = getTrigger();
-    if (!trigger) {
-      return false;
-    }
-
-    const currentText = currentTriggerText();
-    if (currentText === expectedText) {
-      return false;
-    }
-
-    const valueElement = getTriggerValueElement();
-    if (valueElement) {
-      valueElement.textContent = expectedText;
-      return true;
-    }
-
-    trigger.textContent = expectedText;
-    return true;
-  }
-
   function isAlreadyApplied(savedRange) {
     const triggerText = currentTriggerText();
     if (!triggerText) {
@@ -1476,12 +1436,21 @@
       return false;
     }
 
-    if ((isUsagePage() && !isAdminUsagePage()) || isDashboardPage()) {
-      return syncRangeTriggerText(savedRange);
+    const trigger = getTrigger();
+    if (!trigger) {
+      return false;
     }
 
-    const trigger = getTrigger();
-    if (!trigger || isAlreadyApplied(savedRange)) {
+    if (
+      rangeRestoreAttemptPathname === location.pathname &&
+      rangeRestoreAttemptTrigger === trigger
+    ) {
+      return false;
+    }
+
+    if (isAlreadyApplied(savedRange)) {
+      rangeRestoreAttemptPathname = location.pathname;
+      rangeRestoreAttemptTrigger = trigger;
       return false;
     }
 
@@ -1494,6 +1463,9 @@
       if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
         return;
       }
+
+      rangeRestoreAttemptPathname = restorePathname;
+      rangeRestoreAttemptTrigger = trigger;
 
       if (savedRange.type === 'preset') {
         const presetButton = await waitFor(() =>
@@ -2304,6 +2276,18 @@
           return;
         }
 
+        if (button.classList.contains('date-picker-trigger')) {
+          rangeRestoreAttemptPathname = location.pathname;
+          rangeRestoreAttemptTrigger = button;
+          return;
+        }
+
+        if (button.classList.contains('date-picker-preset')) {
+          rangeRestoreAttemptPathname = location.pathname;
+          rangeRestoreAttemptTrigger = getTrigger();
+          return;
+        }
+
         if (text === '重置') {
           if (isUsagePage()) {
             if (isFeatureEnabled(FEATURE_IDS.USAGE_DATE_RANGE)) {
@@ -2462,6 +2446,8 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
+      rangeRestoreAttemptPathname = null;
+      rangeRestoreAttemptTrigger = null;
       applyPageEnhancements();
     });
 
