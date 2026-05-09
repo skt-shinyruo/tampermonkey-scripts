@@ -285,8 +285,12 @@
     return null;
   }
 
+  function isAdminUsagePage() {
+    return location.pathname.startsWith('/admin/usage');
+  }
+
   function isUsagePage() {
-    return location.pathname.startsWith('/usage') || location.pathname.startsWith('/admin/usage');
+    return location.pathname.startsWith('/usage') || isAdminUsagePage();
   }
 
   function isUsageAutoRefreshPage() {
@@ -318,4 +322,3 @@
   function formatIsoDateFromParts({ year, month, day }) {
     return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   }
-

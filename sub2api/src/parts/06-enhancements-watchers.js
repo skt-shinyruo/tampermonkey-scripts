@@ -338,6 +338,20 @@
     activationWatcherInstalled = true;
   }
 
+  function startSub2apiEnhancements() {
+    installActivationWatcher();
+    tryActivateSub2apiHelper();
+  }
+
+  function startSub2apiEnhancementsWhenDomIsReady() {
+    if (document.documentElement) {
+      startSub2apiEnhancements();
+      return;
+    }
+
+    window.addEventListener('DOMContentLoaded', startSub2apiEnhancements, { once: true });
+  }
+
+  installUsageRequestRewriter();
   registerSettingsMenu();
-  installActivationWatcher();
-  tryActivateSub2apiHelper();
+  startSub2apiEnhancementsWhenDomIsReady();

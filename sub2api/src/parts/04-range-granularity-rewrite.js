@@ -263,7 +263,7 @@
       return false;
     }
 
-    if (isUsagePage() || isDashboardPage()) {
+    if ((isUsagePage() && !isAdminUsagePage()) || isDashboardPage()) {
       return syncRangeTriggerText(savedRange);
     }
 
@@ -323,7 +323,6 @@
 
   function rewriteUsageRequestUrl(urlInput) {
     if (
-      !helperActivated ||
       !isActiveDateRangeFeatureEnabled() ||
       (!isUsagePage() && !isDashboardPage()) ||
       !urlInput
@@ -484,4 +483,3 @@
       themeSyncInFlight = false;
     }
   }
-

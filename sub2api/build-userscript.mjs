@@ -40,7 +40,7 @@ ${publishMetadataLines.length > 0 ? `${publishMetadataLines.join('\n')}\n` : ''}
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setValue
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==`;
 
 async function buildUserscriptSource() {

@@ -1077,6 +1077,7 @@ test('metadata targets generic Sub2API deployments instead of one Ciii domain', 
   assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/skt-shinyruo\/tampermonkey-scripts/);
   assert.match(source, /\/\/ @match\s+\*:\/\/\*\/\*/);
   assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
+  assert.match(source, /\/\/ @run-at\s+document-start/);
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
 });
 
@@ -1508,6 +1509,59 @@ test('admin usage restores saved date range and granularity on load', async () =
 
   assert.equal(datePicker.trigger.textContent, '近 30 天');
   assert.equal(granularity.button.textContent, '按天');
+});
+
+test('admin usage restores the real picker preset instead of only syncing the label', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  datePicker.open();
+
+  assert.equal(datePicker.trigger.textContent, '今天');
+  assert.ok(datePicker.findPreset('今天')?.classList.contains('date-picker-preset-active'));
+  assert.equal(datePicker.findPreset('近24小时')?.classList.contains('date-picker-preset-active'), false);
+});
+
+test('admin usage rewrites usage requests before the admin usage fingerprint is ready', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-05-09T12:00:00+08:00'),
+    origin,
+    pathname: '/admin/usage',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    `${origin}/api/v1/usage?page=1&start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai`,
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-09');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-09');
 });
 
 test('admin usage stores selected custom date range and granularity', async () => {
