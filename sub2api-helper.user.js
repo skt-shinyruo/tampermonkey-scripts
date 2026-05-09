@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.12
+// @version      0.22.13
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.12';
+  const SCRIPT_VERSION = '0.22.13';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -108,6 +108,16 @@
     { value: '10000', label: '10s', ms: 10000 },
     { value: '30000', label: '30s', ms: 30000 },
     { value: '60000', label: '1分钟', ms: 60000 },
+  ];
+  const ADMIN_DASHBOARD_DATE_RANGE_API_PATHS = [
+    '/api/v1/admin/dashboard/trend',
+    '/api/v1/admin/dashboard/models',
+    '/api/v1/admin/dashboard/groups',
+    '/api/v1/admin/dashboard/snapshot-v2',
+    '/api/v1/admin/dashboard/api-keys-trend',
+    '/api/v1/admin/dashboard/users-trend',
+    '/api/v1/admin/dashboard/users-ranking',
+    '/api/v1/admin/dashboard/user-breakdown',
   ];
   const AUTO_REFRESH_STATE = {
     OFF: 'off',
@@ -317,8 +327,12 @@
     return location.pathname.startsWith('/usage');
   }
 
+  function isAdminDashboardPage() {
+    return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
+  }
+
   function isDashboardPage() {
-    return location.pathname.startsWith('/dashboard');
+    return location.pathname.startsWith('/dashboard') || isAdminDashboardPage();
   }
 
   function getActiveDateRangeStorageName() {
@@ -1565,6 +1579,17 @@
     }
   }
 
+  function isAdminDashboardDateRangeRequestPath(pathname) {
+    return ADMIN_DASHBOARD_DATE_RANGE_API_PATHS.includes(pathname);
+  }
+
+  function isDateRangeRequestPath(pathname) {
+    return (
+      pathname.startsWith('/api/v1/usage') ||
+      (isDashboardPage() && isAdminDashboardDateRangeRequestPath(pathname))
+    );
+  }
+
   function rewriteUsageRequestUrl(urlInput) {
     if (
       !isActiveDateRangeFeatureEnabled() ||
@@ -1580,7 +1605,7 @@
     }
 
     const requestUrl = new URL(String(urlInput), location.href);
-    if (requestUrl.origin !== getCurrentOrigin() || !requestUrl.pathname.startsWith('/api/v1/usage')) {
+    if (requestUrl.origin !== getCurrentOrigin() || !isDateRangeRequestPath(requestUrl.pathname)) {
       return urlInput;
     }
 
