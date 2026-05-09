@@ -93,7 +93,7 @@ SUB2API_DOWNLOAD_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonke
 node sub2api/build-userscript.mjs --output=dist/sub2api-helper.user.js
 ```
 
-仓库中的 `.github/workflows/sub2api-pages.yml` 会在 push 到 `main` 且修改 `sub2api/**` 时自动运行测试、构建 `dist/sub2api-helper.user.js`，并把最终 userscript 推送到 `build` 分支。`pages.yml` 会在 `build` 分支更新后把当前构建产物发布到 GitHub Pages。workflow 使用 GitHub Actions 提供的 `GITHUB_REPOSITORY` 自动计算 raw URL，仓库改名后不需要手动改 workflow。
+仓库中的 `.github/workflows/sub2api-pages.yml` 会在 push 到 `main` 且修改 `sub2api/**` 时自动运行测试、构建 `dist/sub2api-helper.user.js`，并把最终 userscript 推送到 `build` 分支。`pages.yml` 会在发布 workflow 成功后从 `build` 分支读取当前构建产物并发布到 GitHub Pages。workflow 使用 GitHub Actions 提供的 `GITHUB_REPOSITORY` 自动计算 raw URL，仓库改名后不需要手动改 workflow。
 
 ## 验证
 

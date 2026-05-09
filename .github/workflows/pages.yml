@@ -1,12 +1,14 @@
 name: Deploy Userscript Pages
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Publish Sub2API Userscript
+      - Publish Linux.do Userscript
     branches:
-      - build
-    paths:
-      - 'sub2api-helper.user.js'
-      - 'linuxdo-open-links-new-tab.user.js'
+      - main
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -20,6 +22,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:
