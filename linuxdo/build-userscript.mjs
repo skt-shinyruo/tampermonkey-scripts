@@ -31,7 +31,7 @@ const args = new Set(process.argv.slice(2));
 if (args.has('--check')) {
   const currentSource = await readFile(outputPath, 'utf8');
   if (currentSource !== built) {
-    console.error('linuxdo-open-links-new-tab.user.js is out of date. Run: node linuxdo/build-userscript.mjs');
+    console.error('dist/linuxdo-open-links-new-tab.user.js is out of date. Run: node linuxdo/build-userscript.mjs');
     process.exit(1);
   }
   process.exit(0);

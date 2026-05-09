@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const defaultOutputPath = resolve(scriptDir, 'sub2api-helper.user.js');
+const defaultOutputPath = resolve(scriptDir, '..', 'dist', 'sub2api-helper.user.js');
 const partPaths = [
   'src/parts/00-constants-storage.js',
   'src/parts/01-date-utils.js',
@@ -59,7 +59,7 @@ const source = await buildUserscriptSource();
 if (args.has('--check')) {
   const currentSource = await readFile(outputPath, 'utf8');
   if (currentSource !== source) {
-    console.error('sub2api-helper.user.js is out of date. Run: node sub2api/build-userscript.mjs');
+    console.error('dist/sub2api-helper.user.js is out of date. Run: node sub2api/build-userscript.mjs');
     process.exit(1);
   }
   process.exit(0);

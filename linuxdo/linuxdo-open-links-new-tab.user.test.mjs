@@ -9,11 +9,11 @@ import test from 'node:test';
 const buildScriptPath = fileURLToPath(new URL('./build-userscript.mjs', import.meta.url));
 const sourcePath = fileURLToPath(new URL('./linuxdo-open-links-new-tab.user.js', import.meta.url));
 
-test('linuxdo build script injects Pages metadata into dist output', () => {
+test('linuxdo build script injects build branch metadata into dist output', () => {
   const outDir = mkdtempSync(join(tmpdir(), 'linuxdo-build-'));
   const outPath = join(outDir, 'linuxdo-open-links-new-tab.user.js');
   const hostedScriptUrl =
-    'https://skt-shinyruo.github.io/tampermonkey-scripts/linuxdo-open-links-new-tab.user.js';
+    'https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/linuxdo-open-links-new-tab.user.js';
 
   const source = readFileSync(sourcePath, 'utf8');
   assert.doesNotMatch(source, /@updateURL|@downloadURL/);
@@ -31,11 +31,11 @@ test('linuxdo build script injects Pages metadata into dist output', () => {
   const built = readFileSync(outPath, 'utf8');
   assert.match(
     built,
-    /\/\/ @updateURL    https:\/\/skt-shinyruo\.github\.io\/tampermonkey-scripts\/linuxdo-open-links-new-tab\.user\.js/,
+    /\/\/ @updateURL    https:\/\/raw\.githubusercontent\.com\/skt-shinyruo\/tampermonkey-scripts\/build\/linuxdo-open-links-new-tab\.user\.js/,
   );
   assert.match(
     built,
-    /\/\/ @downloadURL  https:\/\/skt-shinyruo\.github\.io\/tampermonkey-scripts\/linuxdo-open-links-new-tab\.user\.js/,
+    /\/\/ @downloadURL  https:\/\/raw\.githubusercontent\.com\/skt-shinyruo\/tampermonkey-scripts\/build\/linuxdo-open-links-new-tab\.user\.js/,
   );
   assert.doesNotThrow(() => {
     execFileSync(process.execPath, ['--check', outPath], {

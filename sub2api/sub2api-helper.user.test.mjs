@@ -7,8 +7,12 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const buildScriptPath = new URL('./build-userscript.mjs', import.meta.url);
-const scriptPath = new URL('./sub2api-helper.user.js', import.meta.url);
-const source = await readFile(scriptPath, 'utf8');
+const builtScriptPath = join(tmpdir(), `sub2api-helper-test-${process.pid}-${Date.now()}.user.js`);
+execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${builtScriptPath}`], {
+  encoding: 'utf8',
+  stdio: 'pipe',
+});
+const source = await readFile(builtScriptPath, 'utf8');
 const RealDate = Date;
 
 function splitClassNames(value) {
@@ -858,18 +862,25 @@ function createUsageFingerprint(environment) {
   return { datePicker, pageSize };
 }
 
-test('generated userscript is up to date with split source files', () => {
+test('build script check mode validates generated source', () => {
+  const outputPath = join(tmpdir(), `sub2api-helper-check-${process.pid}-${Date.now()}.user.js`);
+
+  execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${outputPath}`], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+
   assert.doesNotThrow(() => {
-    execFileSync(process.execPath, [buildScriptPath.pathname, '--check'], {
+    execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${outputPath}`, '--check'], {
       encoding: 'utf8',
       stdio: 'pipe',
     });
   });
 });
 
-test('build script can write a Greasy Fork sync artifact for GitHub Pages', async () => {
+test('build script can write a Greasy Fork sync artifact for the build branch', async () => {
   const hostedScriptUrl =
-    'https://skt-shinyruo.github.io/tampermonkey-scripts/sub2api-helper.user.js';
+    'https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js';
   const outputPath = join(tmpdir(), `sub2api-helper-${Date.now()}.user.js`);
 
   execFileSync(process.execPath, [buildScriptPath.pathname, `--output=${outputPath}`], {
@@ -901,7 +912,7 @@ test('restores a saved collapsed sidebar across the Sub2API management UI', asyn
   createUsageFingerprint(environment);
   const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '展开');
@@ -929,7 +940,7 @@ test('restores a saved expanded sidebar across the Sub2API management UI', async
   });
   const sidebarToggle = environment.createSidebarToggle({ collapsed: true });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '收起');
@@ -942,7 +953,7 @@ test('stores sidebar collapsed state after the native toggle is clicked', async 
   createUsageFingerprint(environment);
   const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.sendDocumentClick(sidebarToggle);
@@ -961,7 +972,7 @@ test('stores sidebar collapsed state when the native toggle keeps visible text a
     keepsTextAfterCollapse: true,
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.sendDocumentClick(sidebarToggle);
@@ -988,7 +999,7 @@ test('restores saved expanded sidebar when collapsed state is only exposed by ti
     keepsTextAfterCollapse: true,
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '收起');
@@ -1011,7 +1022,7 @@ test('allows expanding a previously saved collapsed sidebar before the delayed s
     keepsTextAfterCollapse: true,
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.sendDocumentClick(sidebarToggle);
@@ -1036,7 +1047,7 @@ test('sidebar collapsed storage is isolated per Sub2API origin', async () => {
   createUsageFingerprint(environment);
   const sidebarToggle = environment.createSidebarToggle({ collapsed: true });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '收起');
@@ -1054,7 +1065,7 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
   });
   const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '展开');
@@ -1074,7 +1085,7 @@ test('settings panel shows Sub2API detection and per-feature switches for the cu
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const openSettings = environment.getMenuCommand('Sub2API Helper 设置');
@@ -1110,7 +1121,7 @@ test('global feature switch disables only that feature on Sub2API pages', async 
   });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.ok(environment.findAutoRefreshButton());
@@ -1166,7 +1177,7 @@ test('current page feature switch disables only that feature on the current path
   createUsageFingerprint(environment);
   const sidebarToggle = environment.createSidebarToggle({ collapsed: false });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebarToggle.textContent, '收起');
@@ -1202,7 +1213,7 @@ test('current page auto-refresh switch removes only the injected auto-refresh co
   });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.ok(environment.findAutoRefreshButton());
@@ -1234,7 +1245,7 @@ test('in-page settings button appears on Sub2API pages and opens settings', asyn
   });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const settingsButton = environment.findSettingsLauncherButton();
@@ -1251,7 +1262,7 @@ test('settings panel reports non-Sub2API pages without activating modifications'
     savedAutoRefreshValue: '5000',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.getMenuCommand('Sub2API Helper 设置')();
@@ -1273,7 +1284,7 @@ test('does not activate on a generic usage path without Sub2API UI fingerprint',
     savedAutoRefreshValue: '5000',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(environment.findAutoRefreshButton(), null);
@@ -1284,7 +1295,7 @@ test('returning to foreground refreshes once before restarting countdown', async
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
@@ -1316,7 +1327,7 @@ test('ordinary DOM mutations after activation do not restart auto refresh', asyn
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const createdIntervalCount = environment.getCreatedIntervalCount();
@@ -1333,7 +1344,7 @@ test('blur before visibilitychange does not trigger a foreground refresh', async
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.deepEqual(environment.getIntervalDurations(), [1000, 1000, 5000]);
@@ -1356,7 +1367,7 @@ test('visible without focus does not resume auto refresh', async () => {
   const environment = createTestEnvironment({ savedAutoRefreshValue: '5000' });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.setFocused(false);
@@ -1388,7 +1399,7 @@ test('usage re-applies saved date range after SPA tab switch when the first trig
     triggerText: '近 30 天',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   environment.setLocation('/usage');
@@ -1434,7 +1445,7 @@ test('usage rewrites requests and syncs preset label even when the picker ignore
     value: '20',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const response = await environment.vmContext.fetch(
@@ -1465,7 +1476,7 @@ test('usage date range storage is isolated per Sub2API origin', async () => {
   });
   const { datePicker } = createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(datePicker.trigger.textContent, '近 30 天');
@@ -1492,7 +1503,7 @@ test('admin usage restores saved date range and granularity on load', async () =
     value: '按小时',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(datePicker.trigger.textContent, '近 30 天');
@@ -1513,7 +1524,7 @@ test('admin usage stores selected custom date range and granularity', async () =
     value: '按小时',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   datePicker.setCustomRange('2026-05-01', '2026-05-02');
@@ -1550,7 +1561,7 @@ test('non-Ciii Sub2API deployments ignore legacy Ciii storage keys', async () =>
   });
   const { datePicker } = createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(datePicker.trigger.textContent, '近 7 天');
@@ -1569,7 +1580,7 @@ test('usage request rewriting does not touch cross-origin usage-like APIs', asyn
   });
   createUsageFingerprint(environment);
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const response = await environment.vmContext.fetch(
@@ -1603,7 +1614,7 @@ test('dashboard rewrites requests and syncs preset label even when the picker ig
     value: '按天',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   const response = await environment.vmContext.fetch(
@@ -1637,7 +1648,7 @@ test('dashboard restores saved date range and granularity on load', async () => 
     value: '按天',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(datePicker.trigger.textContent, '近 30 天');
@@ -1658,7 +1669,7 @@ test('dashboard stores selected custom date range and granularity', async () => 
     value: '按天',
   });
 
-  vm.runInContext(source, environment.vmContext, { filename: scriptPath.pathname });
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   datePicker.setCustomRange('2026-04-01', '2026-04-23');

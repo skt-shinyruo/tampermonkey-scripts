@@ -13,4 +13,4 @@ Check that the generated userscript is current with:
 node sub2api/build-userscript.mjs --check
 ```
 
-The parts intentionally share one userscript closure. This keeps the refactor low-risk while making each feature area smaller to edit.
+The parts intentionally share one userscript closure. This keeps the refactor low-risk while making each feature area smaller to edit. The checked-in source of record lives in `src/parts/`; the final `.user.js` is produced by CI and published to `dist/` and the `build` branch.
