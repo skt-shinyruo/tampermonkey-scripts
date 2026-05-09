@@ -302,6 +302,14 @@ async function flushMicrotasks(times = 80) {
 }
 
 function createTestEnvironment({
+  appConfig = {
+    backend_mode_enabled: false,
+    custom_menu_items: [],
+    site_name: 'Sub2API',
+    table_default_page_size: 20,
+    table_page_size_options: [10, 20, 50, 100],
+    version: '0.1.125',
+  },
   gmValues = {},
   now = 0,
   origin = 'https://codex.ciii.club',
@@ -484,6 +492,10 @@ function createTestEnvironment({
     window: null,
   };
 
+  if (appConfig) {
+    context.__APP_CONFIG__ = appConfig;
+  }
+
   context.window = {
     Event: TestEvent,
     HTMLInputElement: TestInputElement,
@@ -520,6 +532,9 @@ function createTestEnvironment({
     setInterval: setIntervalImpl,
     setTimeout: setTimeoutImpl,
   };
+  if (appConfig) {
+    context.window.__APP_CONFIG__ = appConfig;
+  }
 
   context.globalThis = context;
 
@@ -1292,6 +1307,7 @@ test('in-page settings button appears on Sub2API pages and opens settings', asyn
 
 test('settings panel reports non-Sub2API pages without activating modifications', async () => {
   const environment = createTestEnvironment({
+    appConfig: null,
     origin: 'https://docs.example.test',
     pathname: '/usage',
     savedAutoRefreshValue: '5000',
@@ -1312,8 +1328,27 @@ test('settings panel reports non-Sub2API pages without activating modifications'
   assert.deepEqual(environment.getIntervalDurations(), []);
 });
 
+test('does not activate from sidebar controls without a Sub2API app fingerprint', async () => {
+  const environment = createTestEnvironment({
+    appConfig: null,
+    origin: 'https://generic.example.test',
+    pathname: '/',
+  });
+  const expandButton = environment.document.createElement('button');
+  expandButton.textContent = '展开';
+  expandButton.className = 'sidebar-link';
+  environment.document.body.appendChild(expandButton);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(environment.findSettingsLauncherButton(), null);
+  assert.deepEqual(environment.getIntervalDurations(), []);
+});
+
 test('does not activate on a generic usage path without Sub2API UI fingerprint', async () => {
   const environment = createTestEnvironment({
+    appConfig: null,
     origin: 'https://docs.example.test',
     pathname: '/usage',
     savedAutoRefreshValue: '5000',
