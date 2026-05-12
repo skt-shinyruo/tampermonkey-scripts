@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.14
+// @version      0.22.15
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,12 +16,17 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.14';
+  const SCRIPT_VERSION = '0.22.15';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
+    ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
+    ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
+    ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
     AUTO_REFRESH: 'auto-refresh-ms',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
@@ -31,6 +36,11 @@
     USAGE_GRANULARITY: 'usage-granularity',
   };
   const FEATURE_IDS = {
+    ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
+    ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
+    ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
+    ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     SIDEBAR_STATE: 'sidebar-state',
@@ -52,34 +62,59 @@
       label: '侧边栏状态记忆',
     },
     {
-      description: '记住使用记录页的日期范围，并同步改写使用记录请求。',
+      description: '记住 /usage tab 的日期范围，并同步改写使用记录请求。',
       id: FEATURE_IDS.USAGE_DATE_RANGE,
-      label: '使用记录日期范围',
+      label: '使用记录 tab (/usage) - 日期范围',
     },
     {
-      description: '记住使用记录页的粒度选择。',
+      description: '记住 /usage tab 的粒度选择。',
       id: FEATURE_IDS.USAGE_GRANULARITY,
-      label: '使用记录粒度',
+      label: '使用记录 tab (/usage) - 粒度',
     },
     {
-      description: '记住使用记录页每页显示数量。',
+      description: '记住 /usage tab 每页显示数量。',
       id: FEATURE_IDS.USAGE_PAGE_SIZE,
-      label: '使用记录每页数量',
+      label: '使用记录 tab (/usage) - 每页数量',
     },
     {
-      description: '在使用记录页增加自动刷新和倒计时控件。',
+      description: '在 /usage tab 增加自动刷新和倒计时控件。',
       id: FEATURE_IDS.USAGE_AUTO_REFRESH,
-      label: '使用记录自动刷新',
+      label: '使用记录自动刷新 tab (/usage)',
     },
     {
-      description: '记住仪表盘日期范围，并同步改写仪表盘趋势请求。',
+      description: '记住 /admin/usage tab 的日期范围，并同步改写管理端使用记录请求。',
+      id: FEATURE_IDS.ADMIN_USAGE_DATE_RANGE,
+      label: '管理端使用记录 tab (/admin/usage) - 日期范围',
+    },
+    {
+      description: '记住 /admin/usage tab 的粒度选择。',
+      id: FEATURE_IDS.ADMIN_USAGE_GRANULARITY,
+      label: '管理端使用记录 tab (/admin/usage) - 粒度',
+    },
+    {
+      description: '记住 /admin/usage tab 每页显示数量。',
+      id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
+      label: '管理端使用记录 tab (/admin/usage) - 每页数量',
+    },
+    {
+      description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
       id: FEATURE_IDS.DASHBOARD_DATE_RANGE,
-      label: '仪表盘日期范围',
+      label: '仪表盘 tab (/dashboard) - 日期范围',
     },
     {
-      description: '记住仪表盘粒度选择。',
+      description: '记住 /dashboard tab 的粒度选择。',
       id: FEATURE_IDS.DASHBOARD_GRANULARITY,
-      label: '仪表盘粒度',
+      label: '仪表盘 tab (/dashboard) - 粒度',
+    },
+    {
+      description: '记住 /admin/dashboard tab 的日期范围，并同步改写管理端仪表盘请求。',
+      id: FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE,
+      label: '管理端仪表盘 tab (/admin/dashboard) - 日期范围',
+    },
+    {
+      description: '记住 /admin/dashboard tab 的粒度选择。',
+      id: FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY,
+      label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },
   ];
   const LEGACY_STORAGE_KEYS = {
@@ -320,8 +355,12 @@
     return location.pathname.startsWith('/admin/usage');
   }
 
+  function isUserUsagePage() {
+    return location.pathname.startsWith('/usage');
+  }
+
   function isUsagePage() {
-    return location.pathname.startsWith('/usage') || isAdminUsagePage();
+    return isUserUsagePage() || isAdminUsagePage();
   }
 
   function isUsageAutoRefreshPage() {
@@ -332,16 +371,36 @@
     return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
   }
 
+  function isUserDashboardPage() {
+    return location.pathname.startsWith('/dashboard');
+  }
+
   function isDashboardPage() {
-    return location.pathname.startsWith('/dashboard') || isAdminDashboardPage();
+    return isUserDashboardPage() || isAdminDashboardPage();
   }
 
   function getActiveDateRangeStorageName() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_DATE_RANGE;
+    }
+    if (isUserUsagePage()) {
       return STORAGE_NAMES.USAGE_DATE_RANGE;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return STORAGE_NAMES.ADMIN_DASHBOARD_DATE_RANGE;
+    }
+    if (isUserDashboardPage()) {
       return STORAGE_NAMES.DASHBOARD_DATE_RANGE;
+    }
+    return null;
+  }
+
+  function getActivePageSizeStorageName() {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;
+    }
+    if (isUserUsagePage()) {
+      return STORAGE_NAMES.PAGE_SIZE;
     }
     return null;
   }
@@ -696,16 +755,24 @@
   }
 
   function getSavedPageSizeValue() {
-    const savedValue = getStorageValue(STORAGE_NAMES.PAGE_SIZE, null);
+    const storageName = getActivePageSizeStorageName();
+    if (!storageName) {
+      return null;
+    }
+    const savedValue = getStorageValue(storageName, null);
     return normalizePageSizeValue(savedValue);
   }
 
   function setSavedPageSizeValue(value) {
+    const storageName = getActivePageSizeStorageName();
     const normalizedValue = normalizePageSizeValue(value);
+    if (!storageName) {
+      return;
+    }
     if (!normalizedValue) {
       return;
     }
-    setStorageValue(STORAGE_NAMES.PAGE_SIZE, normalizedValue);
+    setStorageValue(storageName, normalizedValue);
   }
 
   function isPageSizeButtonTarget(target) {
@@ -736,7 +803,7 @@
   }
 
   function handlePageSizeValueChange() {
-    if (!isUsagePage() || !isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
+    if (!isUsagePage() || !isActivePageSizeFeatureEnabled()) {
       return;
     }
 
@@ -761,7 +828,6 @@
   function hasDatePickerFingerprint() {
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }
-
   function hasSub2apiInjectedConfigShape(config) {
     return Boolean(
       config &&
@@ -852,22 +918,35 @@
       case FEATURE_IDS.USAGE_DATE_RANGE:
       case FEATURE_IDS.USAGE_GRANULARITY:
       case FEATURE_IDS.USAGE_PAGE_SIZE:
-        return isUsagePage();
+        return isUserUsagePage();
       case FEATURE_IDS.USAGE_AUTO_REFRESH:
         return isUsageAutoRefreshPage();
+      case FEATURE_IDS.ADMIN_USAGE_DATE_RANGE:
+      case FEATURE_IDS.ADMIN_USAGE_GRANULARITY:
+      case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
+        return isAdminUsagePage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
-        return isDashboardPage();
+        return isUserDashboardPage();
+      case FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE:
+      case FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY:
+        return isAdminDashboardPage();
       default:
         return false;
     }
   }
 
   function getActiveDateRangeFeatureId() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_DATE_RANGE;
+    }
+    if (isUserUsagePage()) {
       return FEATURE_IDS.USAGE_DATE_RANGE;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE;
+    }
+    if (isUserDashboardPage()) {
       return FEATURE_IDS.DASHBOARD_DATE_RANGE;
     }
     return null;
@@ -879,10 +958,16 @@
   }
 
   function getActiveGranularityFeatureId() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_GRANULARITY;
+    }
+    if (isUserUsagePage()) {
       return FEATURE_IDS.USAGE_GRANULARITY;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY;
+    }
+    if (isUserDashboardPage()) {
       return FEATURE_IDS.DASHBOARD_GRANULARITY;
     }
     return null;
@@ -890,6 +975,21 @@
 
   function isActiveGranularityFeatureEnabled() {
     const featureId = getActiveGranularityFeatureId();
+    return Boolean(featureId && isFeatureEnabled(featureId));
+  }
+
+  function getActivePageSizeFeatureId() {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
+    }
+    if (isUserUsagePage()) {
+      return FEATURE_IDS.USAGE_PAGE_SIZE;
+    }
+    return null;
+  }
+
+  function isActivePageSizeFeatureEnabled() {
+    const featureId = getActivePageSizeFeatureId();
     return Boolean(featureId && isFeatureEnabled(featureId));
   }
 
@@ -1288,10 +1388,16 @@
     }
   }
   function getActiveGranularityStorageName() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_GRANULARITY;
+    }
+    if (isUserUsagePage()) {
       return STORAGE_NAMES.USAGE_GRANULARITY;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return STORAGE_NAMES.ADMIN_DASHBOARD_GRANULARITY;
+    }
+    if (isUserDashboardPage()) {
       return STORAGE_NAMES.DASHBOARD_GRANULARITY;
     }
     return null;
@@ -1693,7 +1799,7 @@
   }
 
   async function restoreSavedPageSize() {
-    if (!isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
+    if (!isActivePageSizeFeatureEnabled()) {
       return;
     }
 
@@ -2338,7 +2444,7 @@
           saveCurrentSidebarStateSoon();
         }
 
-        if (isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE) && isPageSizeButtonTarget(target)) {
+        if (isActivePageSizeFeatureEnabled() && isPageSizeButtonTarget(target)) {
           markPageSizeSelectionActive();
         }
 
@@ -2350,7 +2456,7 @@
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
         const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
-          isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE) &&
+          isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
           (pageSizeButtonExpanded || isPageSizeSelectionActive())
         ) {
@@ -2403,20 +2509,30 @@
 
         if (text === '重置') {
           if (isUsagePage()) {
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_DATE_RANGE)) {
-              deleteStorageValue(STORAGE_NAMES.USAGE_DATE_RANGE);
+            if (isActiveDateRangeFeatureEnabled()) {
+              const storageName = getActiveDateRangeStorageName();
+              if (storageName) {
+                deleteStorageValue(storageName);
+              }
             }
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_GRANULARITY)) {
-              deleteStorageValue(STORAGE_NAMES.USAGE_GRANULARITY);
+            if (isActiveGranularityFeatureEnabled()) {
+              const storageName = getActiveGranularityStorageName();
+              if (storageName) {
+                deleteStorageValue(storageName);
+              }
             }
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
-              deleteStorageValue(STORAGE_NAMES.PAGE_SIZE);
+            const pageSizeStorageName = getActivePageSizeStorageName();
+            if (pageSizeStorageName && isActivePageSizeFeatureEnabled()) {
+              deleteStorageValue(pageSizeStorageName);
             }
             return;
           }
 
-          if (isDashboardPage() && isFeatureEnabled(FEATURE_IDS.DASHBOARD_DATE_RANGE)) {
-            deleteStorageValue(STORAGE_NAMES.DASHBOARD_DATE_RANGE);
+          if (isDashboardPage() && isActiveDateRangeFeatureEnabled()) {
+            const storageName = getActiveDateRangeStorageName();
+            if (storageName) {
+              deleteStorageValue(storageName);
+            }
           }
         }
       },
