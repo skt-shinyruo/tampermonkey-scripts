@@ -1174,6 +1174,41 @@ test('settings panel shows Sub2API detection and per-feature switches for the cu
   assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-page-switch="sidebar-state"]').checked, true);
 });
 
+test('settings panel distinguishes feature switches and descriptions by Sub2API tab', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+
+  assert.match(settingsRoot.textContent, /使用记录 tab \(/);
+  assert.match(settingsRoot.textContent, /管理端使用记录 tab \(/);
+  assert.match(settingsRoot.textContent, /仪表盘 tab \(/);
+  assert.match(settingsRoot.textContent, /管理端仪表盘 tab \(/);
+  assert.ok(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="usage-date-range"]'));
+  assert.ok(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="admin-usage-date-range"]'));
+  assert.ok(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="dashboard-date-range"]'));
+  assert.ok(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="admin-dashboard-date-range"]'));
+});
+
 test('global feature switch disables only that feature on Sub2API pages', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1628,12 +1663,100 @@ test('usage date range storage is isolated per Sub2API origin', async () => {
   assert.equal(datePicker.trigger.textContent, '近 30 天');
 });
 
+test('admin usage ignores saved user usage date range when no admin range is saved', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近24小时');
+});
+
+test('admin usage and user usage store separate date range, granularity, and page size values', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+      [getScopedStorageKey(origin, 'usage-granularity')]: '按天',
+      [getScopedStorageKey(origin, 'usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  datePicker.open();
+  datePicker.findPreset('近 7 天').click();
+  environment.sendDocumentClick(datePicker.getApplyButton());
+  datePicker.getApplyButton().click();
+
+  environment.sendDocumentClick(granularity.button);
+  granularity.button.click();
+  const hourlyOption = granularity.findOption('按小时');
+  environment.sendDocumentClick(hourlyOption);
+  hourlyOption.click();
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  const pageSize20Option = pageSize.findOption('20');
+  environment.sendDocumentClick(pageSize20Option);
+  pageSize20Option.click();
+  await flushMicrotasks();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'usage-date-range')))), {
+    type: 'preset',
+    label: '今天',
+  });
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-granularity')), '按天');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-page-size')), '50');
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-date-range')))), {
+    type: 'preset',
+    label: '近 7 天',
+  });
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-granularity')), '按小时');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '20');
+});
+
 test('admin usage restores saved date range and granularity on load', async () => {
   const origin = 'https://admin-usage.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
-      [getScopedStorageKey(origin, 'usage-granularity')]: '按天',
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'admin-usage-granularity')]: '按天',
     },
     origin,
     pathname: '/admin/usage',
@@ -1660,7 +1783,7 @@ test('admin usage restores the real picker preset instead of only syncing the la
   const origin = 'https://admin-usage.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
     },
     origin,
     pathname: '/admin/usage',
@@ -1690,7 +1813,7 @@ test('admin usage does not replay saved date range on ordinary DOM mutations aft
   const origin = 'https://admin-usage.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近24小时' },
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '近24小时' },
     },
     origin,
     pathname: '/admin/usage',
@@ -1729,7 +1852,7 @@ test('admin usage rewrites usage requests before the admin usage fingerprint is 
   const origin = 'https://admin-usage.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '今天' },
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
     },
     now: RealDate.parse('2026-05-09T12:00:00+08:00'),
     origin,
@@ -1746,6 +1869,78 @@ test('admin usage rewrites usage requests before the admin usage fingerprint is 
 
   assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-09');
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-09');
+});
+
+test('user usage date range feature switch does not disable admin usage date range rewriting', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('usage-date-range')]: false,
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-05-09T12:00:00+08:00'),
+    origin,
+    pathname: '/admin/usage',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const response = await environment.vmContext.fetch(
+    `${origin}/api/v1/usage?page=1&start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai`,
+  );
+  const requestUrl = new URL(response.url);
+
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-09');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-09');
+});
+
+test('user usage granularity and page size switches do not disable admin usage persistence', async () => {
+  const origin = 'https://admin-usage.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('usage-granularity')]: false,
+      [getGlobalFeatureStorageKey('usage-page-size')]: false,
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  const granularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.sendDocumentClick(granularity.button);
+  granularity.button.click();
+  const dailyOption = granularity.findOption('按天');
+  environment.sendDocumentClick(dailyOption);
+  dailyOption.click();
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  const pageSize50Option = pageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-granularity')), '按天');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-granularity')), undefined);
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-page-size')), undefined);
 });
 
 test('admin usage stores selected custom date range and granularity', async () => {
@@ -1776,13 +1971,13 @@ test('admin usage stores selected custom date range and granularity', async () =
   dailyOption.click();
   await flushMicrotasks();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'usage-date-range')))), {
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-date-range')))), {
     displayText: buildCustomDisplayText('2026-05-01', '2026-05-02'),
     end: '2026-05-02',
     start: '2026-05-01',
     type: 'custom',
   });
-  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-granularity')), '按天');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-granularity')), '按天');
 });
 
 test('non-Ciii Sub2API deployments ignore legacy Ciii storage keys', async () => {
@@ -1938,7 +2133,7 @@ test('admin dashboard rewrites dashboard requests before the page fingerprint is
   const origin = 'https://admin-dashboard.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '今天' },
+      [getScopedStorageKey(origin, 'admin-dashboard-date-range')]: { type: 'preset', label: '今天' },
     },
     now: RealDate.parse('2026-04-23T12:00:00+08:00'),
     origin,
@@ -1957,12 +2152,38 @@ test('admin dashboard rewrites dashboard requests before the page fingerprint is
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-04-23');
 });
 
+test('admin dashboard ignores saved user dashboard date range when no admin dashboard range is saved', async () => {
+  const origin = 'https://admin-dashboard.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/dashboard',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    presetLabels: ['今天', '近 7 天', '近 30 天'],
+    triggerText: '近 7 天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按天',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 7 天');
+});
+
 test('admin dashboard restores saved date range and granularity on load', async () => {
   const origin = 'https://admin-dashboard.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'dashboard-date-range')]: { type: 'preset', label: '近 30 天' },
-      [getScopedStorageKey(origin, 'dashboard-granularity')]: '按小时',
+      [getScopedStorageKey(origin, 'admin-dashboard-date-range')]: { type: 'preset', label: '近 30 天' },
+      [getScopedStorageKey(origin, 'admin-dashboard-granularity')]: '按小时',
     },
     origin,
     pathname: '/admin/dashboard',
@@ -2017,11 +2238,13 @@ test('admin dashboard stores selected custom date range and granularity', async 
   hourlyOption.click();
   await flushMicrotasks();
 
-  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-date-range')))), {
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-date-range')), undefined);
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-granularity')), undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, 'admin-dashboard-date-range')))), {
     displayText: buildCustomDisplayText('2026-04-01', '2026-04-23'),
     end: '2026-04-23',
     start: '2026-04-01',
     type: 'custom',
   });
-  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'dashboard-granularity')), '按小时');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-dashboard-granularity')), '按小时');
 });

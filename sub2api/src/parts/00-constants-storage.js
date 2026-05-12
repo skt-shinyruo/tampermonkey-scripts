@@ -4,6 +4,11 @@
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
+    ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
+    ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
+    ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
     AUTO_REFRESH: 'auto-refresh-ms',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
@@ -13,6 +18,11 @@
     USAGE_GRANULARITY: 'usage-granularity',
   };
   const FEATURE_IDS = {
+    ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
+    ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
+    ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
+    ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     SIDEBAR_STATE: 'sidebar-state',
@@ -34,34 +44,59 @@
       label: '侧边栏状态记忆',
     },
     {
-      description: '记住使用记录页的日期范围，并同步改写使用记录请求。',
+      description: '记住 /usage tab 的日期范围，并同步改写使用记录请求。',
       id: FEATURE_IDS.USAGE_DATE_RANGE,
-      label: '使用记录日期范围',
+      label: '使用记录 tab (/usage) - 日期范围',
     },
     {
-      description: '记住使用记录页的粒度选择。',
+      description: '记住 /usage tab 的粒度选择。',
       id: FEATURE_IDS.USAGE_GRANULARITY,
-      label: '使用记录粒度',
+      label: '使用记录 tab (/usage) - 粒度',
     },
     {
-      description: '记住使用记录页每页显示数量。',
+      description: '记住 /usage tab 每页显示数量。',
       id: FEATURE_IDS.USAGE_PAGE_SIZE,
-      label: '使用记录每页数量',
+      label: '使用记录 tab (/usage) - 每页数量',
     },
     {
-      description: '在使用记录页增加自动刷新和倒计时控件。',
+      description: '在 /usage tab 增加自动刷新和倒计时控件。',
       id: FEATURE_IDS.USAGE_AUTO_REFRESH,
-      label: '使用记录自动刷新',
+      label: '使用记录自动刷新 tab (/usage)',
     },
     {
-      description: '记住仪表盘日期范围，并同步改写仪表盘趋势请求。',
+      description: '记住 /admin/usage tab 的日期范围，并同步改写管理端使用记录请求。',
+      id: FEATURE_IDS.ADMIN_USAGE_DATE_RANGE,
+      label: '管理端使用记录 tab (/admin/usage) - 日期范围',
+    },
+    {
+      description: '记住 /admin/usage tab 的粒度选择。',
+      id: FEATURE_IDS.ADMIN_USAGE_GRANULARITY,
+      label: '管理端使用记录 tab (/admin/usage) - 粒度',
+    },
+    {
+      description: '记住 /admin/usage tab 每页显示数量。',
+      id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
+      label: '管理端使用记录 tab (/admin/usage) - 每页数量',
+    },
+    {
+      description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
       id: FEATURE_IDS.DASHBOARD_DATE_RANGE,
-      label: '仪表盘日期范围',
+      label: '仪表盘 tab (/dashboard) - 日期范围',
     },
     {
-      description: '记住仪表盘粒度选择。',
+      description: '记住 /dashboard tab 的粒度选择。',
       id: FEATURE_IDS.DASHBOARD_GRANULARITY,
-      label: '仪表盘粒度',
+      label: '仪表盘 tab (/dashboard) - 粒度',
+    },
+    {
+      description: '记住 /admin/dashboard tab 的日期范围，并同步改写管理端仪表盘请求。',
+      id: FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE,
+      label: '管理端仪表盘 tab (/admin/dashboard) - 日期范围',
+    },
+    {
+      description: '记住 /admin/dashboard tab 的粒度选择。',
+      id: FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY,
+      label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },
   ];
   const LEGACY_STORAGE_KEYS = {
@@ -302,8 +337,12 @@
     return location.pathname.startsWith('/admin/usage');
   }
 
+  function isUserUsagePage() {
+    return location.pathname.startsWith('/usage');
+  }
+
   function isUsagePage() {
-    return location.pathname.startsWith('/usage') || isAdminUsagePage();
+    return isUserUsagePage() || isAdminUsagePage();
   }
 
   function isUsageAutoRefreshPage() {
@@ -314,16 +353,36 @@
     return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
   }
 
+  function isUserDashboardPage() {
+    return location.pathname.startsWith('/dashboard');
+  }
+
   function isDashboardPage() {
-    return location.pathname.startsWith('/dashboard') || isAdminDashboardPage();
+    return isUserDashboardPage() || isAdminDashboardPage();
   }
 
   function getActiveDateRangeStorageName() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_DATE_RANGE;
+    }
+    if (isUserUsagePage()) {
       return STORAGE_NAMES.USAGE_DATE_RANGE;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return STORAGE_NAMES.ADMIN_DASHBOARD_DATE_RANGE;
+    }
+    if (isUserDashboardPage()) {
       return STORAGE_NAMES.DASHBOARD_DATE_RANGE;
+    }
+    return null;
+  }
+
+  function getActivePageSizeStorageName() {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;
+    }
+    if (isUserUsagePage()) {
+      return STORAGE_NAMES.PAGE_SIZE;
     }
     return null;
   }

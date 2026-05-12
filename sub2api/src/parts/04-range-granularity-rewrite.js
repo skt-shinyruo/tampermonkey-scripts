@@ -1,8 +1,14 @@
   function getActiveGranularityStorageName() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return STORAGE_NAMES.ADMIN_USAGE_GRANULARITY;
+    }
+    if (isUserUsagePage()) {
       return STORAGE_NAMES.USAGE_GRANULARITY;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return STORAGE_NAMES.ADMIN_DASHBOARD_GRANULARITY;
+    }
+    if (isUserDashboardPage()) {
       return STORAGE_NAMES.DASHBOARD_GRANULARITY;
     }
     return null;
@@ -404,7 +410,7 @@
   }
 
   async function restoreSavedPageSize() {
-    if (!isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
+    if (!isActivePageSizeFeatureEnabled()) {
       return;
     }
 

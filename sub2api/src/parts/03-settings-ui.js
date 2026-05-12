@@ -88,22 +88,35 @@
       case FEATURE_IDS.USAGE_DATE_RANGE:
       case FEATURE_IDS.USAGE_GRANULARITY:
       case FEATURE_IDS.USAGE_PAGE_SIZE:
-        return isUsagePage();
+        return isUserUsagePage();
       case FEATURE_IDS.USAGE_AUTO_REFRESH:
         return isUsageAutoRefreshPage();
+      case FEATURE_IDS.ADMIN_USAGE_DATE_RANGE:
+      case FEATURE_IDS.ADMIN_USAGE_GRANULARITY:
+      case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
+        return isAdminUsagePage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
-        return isDashboardPage();
+        return isUserDashboardPage();
+      case FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE:
+      case FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY:
+        return isAdminDashboardPage();
       default:
         return false;
     }
   }
 
   function getActiveDateRangeFeatureId() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_DATE_RANGE;
+    }
+    if (isUserUsagePage()) {
       return FEATURE_IDS.USAGE_DATE_RANGE;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE;
+    }
+    if (isUserDashboardPage()) {
       return FEATURE_IDS.DASHBOARD_DATE_RANGE;
     }
     return null;
@@ -115,10 +128,16 @@
   }
 
   function getActiveGranularityFeatureId() {
-    if (isUsagePage()) {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_GRANULARITY;
+    }
+    if (isUserUsagePage()) {
       return FEATURE_IDS.USAGE_GRANULARITY;
     }
-    if (isDashboardPage()) {
+    if (isAdminDashboardPage()) {
+      return FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY;
+    }
+    if (isUserDashboardPage()) {
       return FEATURE_IDS.DASHBOARD_GRANULARITY;
     }
     return null;
@@ -126,6 +145,21 @@
 
   function isActiveGranularityFeatureEnabled() {
     const featureId = getActiveGranularityFeatureId();
+    return Boolean(featureId && isFeatureEnabled(featureId));
+  }
+
+  function getActivePageSizeFeatureId() {
+    if (isAdminUsagePage()) {
+      return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
+    }
+    if (isUserUsagePage()) {
+      return FEATURE_IDS.USAGE_PAGE_SIZE;
+    }
+    return null;
+  }
+
+  function isActivePageSizeFeatureEnabled() {
+    const featureId = getActivePageSizeFeatureId();
     return Boolean(featureId && isFeatureEnabled(featureId));
   }
 

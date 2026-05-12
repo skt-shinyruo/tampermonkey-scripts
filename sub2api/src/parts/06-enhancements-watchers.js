@@ -72,7 +72,7 @@
           saveCurrentSidebarStateSoon();
         }
 
-        if (isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE) && isPageSizeButtonTarget(target)) {
+        if (isActivePageSizeFeatureEnabled() && isPageSizeButtonTarget(target)) {
           markPageSizeSelectionActive();
         }
 
@@ -84,7 +84,7 @@
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
         const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
-          isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE) &&
+          isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
           (pageSizeButtonExpanded || isPageSizeSelectionActive())
         ) {
@@ -137,20 +137,30 @@
 
         if (text === '重置') {
           if (isUsagePage()) {
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_DATE_RANGE)) {
-              deleteStorageValue(STORAGE_NAMES.USAGE_DATE_RANGE);
+            if (isActiveDateRangeFeatureEnabled()) {
+              const storageName = getActiveDateRangeStorageName();
+              if (storageName) {
+                deleteStorageValue(storageName);
+              }
             }
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_GRANULARITY)) {
-              deleteStorageValue(STORAGE_NAMES.USAGE_GRANULARITY);
+            if (isActiveGranularityFeatureEnabled()) {
+              const storageName = getActiveGranularityStorageName();
+              if (storageName) {
+                deleteStorageValue(storageName);
+              }
             }
-            if (isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
-              deleteStorageValue(STORAGE_NAMES.PAGE_SIZE);
+            const pageSizeStorageName = getActivePageSizeStorageName();
+            if (pageSizeStorageName && isActivePageSizeFeatureEnabled()) {
+              deleteStorageValue(pageSizeStorageName);
             }
             return;
           }
 
-          if (isDashboardPage() && isFeatureEnabled(FEATURE_IDS.DASHBOARD_DATE_RANGE)) {
-            deleteStorageValue(STORAGE_NAMES.DASHBOARD_DATE_RANGE);
+          if (isDashboardPage() && isActiveDateRangeFeatureEnabled()) {
+            const storageName = getActiveDateRangeStorageName();
+            if (storageName) {
+              deleteStorageValue(storageName);
+            }
           }
         }
       },

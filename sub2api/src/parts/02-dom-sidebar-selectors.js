@@ -217,16 +217,24 @@
   }
 
   function getSavedPageSizeValue() {
-    const savedValue = getStorageValue(STORAGE_NAMES.PAGE_SIZE, null);
+    const storageName = getActivePageSizeStorageName();
+    if (!storageName) {
+      return null;
+    }
+    const savedValue = getStorageValue(storageName, null);
     return normalizePageSizeValue(savedValue);
   }
 
   function setSavedPageSizeValue(value) {
+    const storageName = getActivePageSizeStorageName();
     const normalizedValue = normalizePageSizeValue(value);
+    if (!storageName) {
+      return;
+    }
     if (!normalizedValue) {
       return;
     }
-    setStorageValue(STORAGE_NAMES.PAGE_SIZE, normalizedValue);
+    setStorageValue(storageName, normalizedValue);
   }
 
   function isPageSizeButtonTarget(target) {
@@ -257,7 +265,7 @@
   }
 
   function handlePageSizeValueChange() {
-    if (!isUsagePage() || !isFeatureEnabled(FEATURE_IDS.USAGE_PAGE_SIZE)) {
+    if (!isUsagePage() || !isActivePageSizeFeatureEnabled()) {
       return;
     }
 
@@ -282,4 +290,3 @@
   function hasDatePickerFingerprint() {
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }
-
