@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.13
+// @version      0.22.14
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.13';
+  const SCRIPT_VERSION = '0.22.14';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -92,6 +92,7 @@
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
+  const RANGE_RESTORE_SETTLE_TIMEOUT_MS = 1000;
   const AUTO_REFRESH_COUNTDOWN_INTERVAL_MS = 1000;
   const THEME_TOGGLE_WAIT_TIMEOUT_MS = 5000;
   const THEME_SYNC_RETRY_DELAY_MS = 500;
@@ -130,7 +131,7 @@
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
   let rangeRestoreAttemptPathname = null;
-  let rangeRestoreAttemptTrigger = null;
+  let rangeRestoreAttemptTriggerText = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;
@@ -1495,6 +1496,31 @@
     return false;
   }
 
+  function getExpectedRangeTriggerText(savedRange) {
+    if (savedRange.type === 'preset') {
+      return savedRange.label;
+    }
+
+    if (savedRange.type === 'custom') {
+      return savedRange.displayText || buildCustomDisplayText(savedRange.start, savedRange.end);
+    }
+
+    return '';
+  }
+
+  async function waitForRestoredTriggerText(savedRange) {
+    const expectedText = getExpectedRangeTriggerText(savedRange);
+    if (!expectedText) {
+      return currentTriggerText();
+    }
+
+    const settledText = await waitFor(
+      () => currentTriggerText() === expectedText ? expectedText : null,
+      RANGE_RESTORE_SETTLE_TIMEOUT_MS,
+    );
+    return settledText || currentTriggerText();
+  }
+
   async function restoreSavedRange() {
     if (!isActiveDateRangeFeatureEnabled()) {
       return false;
@@ -1514,16 +1540,18 @@
       return false;
     }
 
+    const triggerText = currentTriggerText();
+
     if (
       rangeRestoreAttemptPathname === location.pathname &&
-      rangeRestoreAttemptTrigger === trigger
+      rangeRestoreAttemptTriggerText === triggerText
     ) {
       return false;
     }
 
     if (isAlreadyApplied(savedRange)) {
       rangeRestoreAttemptPathname = location.pathname;
-      rangeRestoreAttemptTrigger = trigger;
+      rangeRestoreAttemptTriggerText = triggerText;
       return false;
     }
 
@@ -1536,9 +1564,6 @@
       if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
         return;
       }
-
-      rangeRestoreAttemptPathname = restorePathname;
-      rangeRestoreAttemptTrigger = trigger;
 
       if (savedRange.type === 'preset') {
         const presetButton = await waitFor(() =>
@@ -1571,6 +1596,10 @@
         return false;
       }
       applyButton.click();
+      if (restoreToken === rangeRestoreToken && location.pathname === restorePathname) {
+        rangeRestoreAttemptPathname = restorePathname;
+        rangeRestoreAttemptTriggerText = await waitForRestoredTriggerText(savedRange);
+      }
       return true;
     } finally {
       if (restoreToken === rangeRestoreToken) {
@@ -2362,13 +2391,13 @@
 
         if (button.classList.contains('date-picker-trigger')) {
           rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTrigger = button;
+          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
         if (button.classList.contains('date-picker-preset')) {
           rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTrigger = getTrigger();
+          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -2531,7 +2560,7 @@
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
       rangeRestoreAttemptPathname = null;
-      rangeRestoreAttemptTrigger = null;
+      rangeRestoreAttemptTriggerText = null;
       applyPageEnhancements();
     });
 
