@@ -125,13 +125,13 @@
 
         if (button.classList.contains('date-picker-trigger')) {
           rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTrigger = button;
+          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
         if (button.classList.contains('date-picker-preset')) {
           rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTrigger = getTrigger();
+          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -294,7 +294,7 @@
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
       rangeRestoreAttemptPathname = null;
-      rangeRestoreAttemptTrigger = null;
+      rangeRestoreAttemptTriggerText = null;
       applyPageEnhancements();
     });
 

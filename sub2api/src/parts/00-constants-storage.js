@@ -74,6 +74,7 @@
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
+  const RANGE_RESTORE_SETTLE_TIMEOUT_MS = 1000;
   const AUTO_REFRESH_COUNTDOWN_INTERVAL_MS = 1000;
   const THEME_TOGGLE_WAIT_TIMEOUT_MS = 5000;
   const THEME_SYNC_RETRY_DELAY_MS = 500;
@@ -112,7 +113,7 @@
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
   let rangeRestoreAttemptPathname = null;
-  let rangeRestoreAttemptTrigger = null;
+  let rangeRestoreAttemptTriggerText = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;

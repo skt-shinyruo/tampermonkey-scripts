@@ -552,6 +552,7 @@ function createTestEnvironment({
     activePresetLabel = null,
     allowInputInteraction = true,
     allowPresetInteraction = true,
+    deferApplyTriggerUpdate = false,
     inputValues = ['', ''],
     presetLabels = [],
     triggerText = '',
@@ -654,10 +655,25 @@ function createTestEnvironment({
         state.applyClickCount += 1;
         state.startValue = startInput.value;
         state.endValue = endInput.value;
+        const updateTriggerText = () => {
+          if (state.activePresetLabel) {
+            trigger.textContent = state.activePresetLabel;
+          } else if (state.startValue && state.endValue) {
+            trigger.textContent = buildCustomDisplayText(state.startValue, state.endValue);
+          }
+        };
         if (state.activePresetLabel) {
-          trigger.textContent = state.activePresetLabel;
+          if (deferApplyTriggerUpdate) {
+            setTimeoutImpl(updateTriggerText, 50);
+          } else {
+            updateTriggerText();
+          }
         } else if (state.startValue && state.endValue) {
-          trigger.textContent = buildCustomDisplayText(state.startValue, state.endValue);
+          if (deferApplyTriggerUpdate) {
+            setTimeoutImpl(updateTriggerText, 50);
+          } else {
+            updateTriggerText();
+          }
         }
         closePanel();
       });
@@ -1495,6 +1511,62 @@ test('usage restores saved date range through picker clicks after SPA tab switch
   assert.equal(clickCounts.trigger, 1);
   assert.equal(clickCounts.presets.get('近 30 天'), 1);
   assert.equal(clickCounts.apply, 1);
+});
+
+test('usage restores saved date range again after the trigger text resets to default', async () => {
+  const origin = 'https://codex.ciii.club';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
+    },
+    origin,
+    pathname: '/usage',
+  });
+  const datePicker = createUsageFingerprint(environment).datePicker;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+
+  datePicker.trigger.textContent = '今天';
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+});
+
+test('usage restores saved date range again when a delayed picker update resets to the original default', async () => {
+  const origin = 'https://codex.ciii.club';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
+    },
+    origin,
+    pathname: '/usage',
+  });
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近 7 天',
+    deferApplyTriggerUpdate: true,
+    presetLabels: ['近 7 天', '近 30 天'],
+    triggerText: '近 7 天',
+  });
+  environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
+
+  datePicker.trigger.textContent = '近 7 天';
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '近 30 天');
 });
 
 test('usage request rewriting still follows saved range when picker clicks are ignored', async () => {

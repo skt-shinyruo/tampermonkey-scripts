@@ -207,6 +207,31 @@
     return false;
   }
 
+  function getExpectedRangeTriggerText(savedRange) {
+    if (savedRange.type === 'preset') {
+      return savedRange.label;
+    }
+
+    if (savedRange.type === 'custom') {
+      return savedRange.displayText || buildCustomDisplayText(savedRange.start, savedRange.end);
+    }
+
+    return '';
+  }
+
+  async function waitForRestoredTriggerText(savedRange) {
+    const expectedText = getExpectedRangeTriggerText(savedRange);
+    if (!expectedText) {
+      return currentTriggerText();
+    }
+
+    const settledText = await waitFor(
+      () => currentTriggerText() === expectedText ? expectedText : null,
+      RANGE_RESTORE_SETTLE_TIMEOUT_MS,
+    );
+    return settledText || currentTriggerText();
+  }
+
   async function restoreSavedRange() {
     if (!isActiveDateRangeFeatureEnabled()) {
       return false;
@@ -226,16 +251,18 @@
       return false;
     }
 
+    const triggerText = currentTriggerText();
+
     if (
       rangeRestoreAttemptPathname === location.pathname &&
-      rangeRestoreAttemptTrigger === trigger
+      rangeRestoreAttemptTriggerText === triggerText
     ) {
       return false;
     }
 
     if (isAlreadyApplied(savedRange)) {
       rangeRestoreAttemptPathname = location.pathname;
-      rangeRestoreAttemptTrigger = trigger;
+      rangeRestoreAttemptTriggerText = triggerText;
       return false;
     }
 
@@ -248,9 +275,6 @@
       if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
         return;
       }
-
-      rangeRestoreAttemptPathname = restorePathname;
-      rangeRestoreAttemptTrigger = trigger;
 
       if (savedRange.type === 'preset') {
         const presetButton = await waitFor(() =>
@@ -283,6 +307,10 @@
         return false;
       }
       applyButton.click();
+      if (restoreToken === rangeRestoreToken && location.pathname === restorePathname) {
+        rangeRestoreAttemptPathname = restorePathname;
+        rangeRestoreAttemptTriggerText = await waitForRestoredTriggerText(savedRange);
+      }
       return true;
     } finally {
       if (restoreToken === rangeRestoreToken) {
