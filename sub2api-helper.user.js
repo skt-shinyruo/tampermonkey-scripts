@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.15
+// @version      0.22.16
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.15';
+  const SCRIPT_VERSION = '0.22.16';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -133,6 +133,7 @@
   const THEME_SYNC_RETRY_DELAY_MS = 500;
   const PAGE_SIZE_SELECTION_WINDOW_MS = 5000;
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
+  const DATE_RANGE_SELECTION_WINDOW_MS = 5000;
   const SIDEBAR_STATE_SAVE_DELAY_MS = 150;
   const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
@@ -191,6 +192,7 @@
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
+  let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
   let foregroundWatcherInstalled = false;
@@ -1511,6 +1513,18 @@
     return Boolean(getApplyButton() && getDateInputs().length === 2);
   }
 
+  function markDateRangeSelectionActive() {
+    dateRangeSelectionActiveUntil = Date.now() + DATE_RANGE_SELECTION_WINDOW_MS;
+  }
+
+  function clearDateRangeSelectionActive() {
+    dateRangeSelectionActiveUntil = 0;
+  }
+
+  function isDateRangeSelectionActive() {
+    return Boolean(dateRangeSelectionActiveUntil && Date.now() <= dateRangeSelectionActiveUntil);
+  }
+
   function formatCustomLabel(dateText) {
     const [year, month, day] = dateText.split('-').map(Number);
     if (!year || !month || !day) {
@@ -1633,6 +1647,10 @@
     }
 
     if (rangeRestoreInFlight) {
+      return false;
+    }
+
+    if (isDateRangeSelectionActive()) {
       return false;
     }
 
@@ -2492,16 +2510,23 @@
           if (draft && storageName && isActiveDateRangeFeatureEnabled()) {
             setStorageValue(storageName, draft);
           }
+          clearDateRangeSelectionActive();
           return;
         }
 
         if (button.classList.contains('date-picker-trigger')) {
+          markDateRangeSelectionActive();
           rangeRestoreAttemptPathname = location.pathname;
           rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
         if (button.classList.contains('date-picker-preset')) {
+          markDateRangeSelectionActive();
+          const storageName = getActiveDateRangeStorageName();
+          if (storageName && isActiveDateRangeFeatureEnabled()) {
+            setStorageValue(storageName, { type: 'preset', label: text });
+          }
           rangeRestoreAttemptPathname = location.pathname;
           rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
