@@ -122,6 +122,18 @@
     return Boolean(getApplyButton() && getDateInputs().length === 2);
   }
 
+  function markDateRangeSelectionActive() {
+    dateRangeSelectionActiveUntil = Date.now() + DATE_RANGE_SELECTION_WINDOW_MS;
+  }
+
+  function clearDateRangeSelectionActive() {
+    dateRangeSelectionActiveUntil = 0;
+  }
+
+  function isDateRangeSelectionActive() {
+    return Boolean(dateRangeSelectionActiveUntil && Date.now() <= dateRangeSelectionActiveUntil);
+  }
+
   function formatCustomLabel(dateText) {
     const [year, month, day] = dateText.split('-').map(Number);
     if (!year || !month || !day) {
@@ -244,6 +256,10 @@
     }
 
     if (rangeRestoreInFlight) {
+      return false;
+    }
+
+    if (isDateRangeSelectionActive()) {
       return false;
     }
 

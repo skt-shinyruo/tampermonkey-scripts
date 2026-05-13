@@ -120,16 +120,23 @@
           if (draft && storageName && isActiveDateRangeFeatureEnabled()) {
             setStorageValue(storageName, draft);
           }
+          clearDateRangeSelectionActive();
           return;
         }
 
         if (button.classList.contains('date-picker-trigger')) {
+          markDateRangeSelectionActive();
           rangeRestoreAttemptPathname = location.pathname;
           rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
         if (button.classList.contains('date-picker-preset')) {
+          markDateRangeSelectionActive();
+          const storageName = getActiveDateRangeStorageName();
+          if (storageName && isActiveDateRangeFeatureEnabled()) {
+            setStorageValue(storageName, { type: 'preset', label: text });
+          }
           rangeRestoreAttemptPathname = location.pathname;
           rangeRestoreAttemptTriggerText = currentTriggerText();
           return;

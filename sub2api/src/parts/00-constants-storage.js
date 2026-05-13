@@ -115,6 +115,7 @@
   const THEME_SYNC_RETRY_DELAY_MS = 500;
   const PAGE_SIZE_SELECTION_WINDOW_MS = 5000;
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
+  const DATE_RANGE_SELECTION_WINDOW_MS = 5000;
   const SIDEBAR_STATE_SAVE_DELAY_MS = 150;
   const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
@@ -173,6 +174,7 @@
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
+  let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
   let foregroundWatcherInstalled = false;

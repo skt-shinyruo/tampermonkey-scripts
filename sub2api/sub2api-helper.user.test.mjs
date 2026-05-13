@@ -554,6 +554,7 @@ function createTestEnvironment({
     allowPresetInteraction = true,
     deferApplyTriggerUpdate = false,
     inputValues = ['', ''],
+    presetClickAppliesImmediately = false,
     presetLabels = [],
     triggerText = '',
   } = {}) {
@@ -644,6 +645,10 @@ function createTestEnvironment({
           startInput.value = '';
           endInput.value = '';
           syncPresetButtons();
+          if (presetClickAppliesImmediately) {
+            trigger.textContent = label;
+            closePanel();
+          }
         });
         state.presetButtons.set(label, presetButton);
         panel.appendChild(presetButton);
@@ -2248,3 +2253,89 @@ test('admin dashboard stores selected custom date range and granularity', async 
   });
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-dashboard-granularity')), '按小时');
 });
+
+for (const {
+  label,
+  origin,
+  pathname,
+  storageName,
+  usePageSize,
+} of [
+  {
+    label: 'usage',
+    origin: 'https://usage-preset.sub2api.example.test',
+    pathname: '/usage',
+    storageName: 'usage-date-range',
+    usePageSize: true,
+  },
+  {
+    label: 'admin usage',
+    origin: 'https://admin-usage-preset.sub2api.example.test',
+    pathname: '/admin/usage',
+    storageName: 'admin-usage-date-range',
+    usePageSize: true,
+  },
+  {
+    label: 'dashboard',
+    origin: 'https://dashboard-preset.sub2api.example.test',
+    pathname: '/dashboard',
+    storageName: 'dashboard-date-range',
+    usePageSize: false,
+  },
+  {
+    label: 'admin dashboard',
+    origin: 'https://admin-dashboard-preset.sub2api.example.test',
+    pathname: '/admin/dashboard',
+    storageName: 'admin-dashboard-date-range',
+    usePageSize: false,
+  },
+]) {
+  test(`${label} does not replay saved date range over a user preset selection`, async () => {
+    const environment = createTestEnvironment({
+      gmValues: {
+        [getScopedStorageKey(origin, storageName)]: { type: 'preset', label: '今天' },
+      },
+      origin,
+      pathname,
+    });
+    const datePicker = environment.createDatePicker({
+      activePresetLabel: '今天',
+      presetClickAppliesImmediately: true,
+      presetLabels: ['今天', '近 7 天', '近 30 天'],
+      triggerText: '今天',
+    });
+    if (usePageSize) {
+      environment.createSelectControl({
+        labelText: '每页:',
+        options: ['20', '50'],
+        value: '20',
+      });
+    }
+    environment.createSelectControl({
+      labelText: '粒度:',
+      options: ['按小时', '按天'],
+      value: '按小时',
+    });
+
+    vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+    await flushMicrotasks();
+
+    datePicker.open();
+    const near30DaysPreset = datePicker.findPreset('近 30 天');
+    environment.sendDocumentClick(near30DaysPreset);
+    near30DaysPreset.click();
+    assert.equal(datePicker.trigger.textContent, '近 30 天');
+
+    environment.runMutationObservers();
+    await flushMicrotasks();
+
+    assert.equal(datePicker.trigger.textContent, '近 30 天');
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(environment.getStoredValue(getScopedStorageKey(origin, storageName)))),
+      { type: 'preset', label: '近 30 天' },
+    );
+    datePicker.open();
+    assert.ok(datePicker.findPreset('近 30 天')?.classList.contains('date-picker-preset-active'));
+    assert.equal(datePicker.findPreset('今天')?.classList.contains('date-picker-preset-active'), false);
+  });
+}
