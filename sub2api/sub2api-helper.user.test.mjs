@@ -556,6 +556,7 @@ function createTestEnvironment({
     deferApplyTriggerUpdate = false,
     ignoredTriggerClicks = 0,
     inputValues = ['', ''],
+    ignoredApplyUpdates = 0,
     presetClickAppliesImmediately = false,
     presetLabels = [],
     triggerText = '',
@@ -566,6 +567,7 @@ function createTestEnvironment({
       activePresetLabel,
       applyButton: null,
       applyClickCount: 0,
+      ignoredApplyUpdates,
       ignoredTriggerClicks,
       inputs: [],
       panel: null,
@@ -672,6 +674,10 @@ function createTestEnvironment({
         state.startValue = startInput.value;
         state.endValue = endInput.value;
         const updateTriggerText = () => {
+          if (state.ignoredApplyUpdates > 0) {
+            state.ignoredApplyUpdates -= 1;
+            return;
+          }
           if (state.activePresetLabel) {
             trigger.textContent = state.activePresetLabel;
           } else if (state.startValue && state.endValue) {
@@ -1183,6 +1189,9 @@ test('settings panel shows Sub2API detection and per-feature switches for the cu
   assert.ok(settingsRoot);
   assert.equal(settingsRoot.dataset.sub2apiSettingsIsSub2api, 'true');
   assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'true');
+  assert.match(settingsRoot.textContent, /脚本版本: \d+\.\d+\.\d+/);
+  assert.match(environment.findSettingsLauncherButton().dataset.sub2apiSettingsLauncherVersion, /^\d+\.\d+\.\d+$/);
+  assert.match(environment.document.documentElement.dataset.sub2apiHelperVersion, /^\d+\.\d+\.\d+$/);
   assert.match(settingsRoot.textContent, /当前页面: Sub2API 页面/);
   assert.match(settingsRoot.textContent, /修改功能: 生效中/);
   assert.equal(settingsRoot.querySelector('[data-sub2api-settings-global-switch="true"]'), null);
@@ -1931,6 +1940,51 @@ test('admin usage retries saved date range restore when the first SPA picker ope
   assert.equal(clickCounts.trigger, 2);
   assert.equal(clickCounts.presets.get('今天'), 1);
   assert.equal(clickCounts.apply, 1);
+});
+
+test('admin usage retries saved date range restore until the remounted UI text matches the saved range', async () => {
+  const origin = 'https://admin-usage-stale-apply.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const initialDatePicker = environment.createDatePicker({
+    activePresetLabel: '今天',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '今天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  initialDatePicker.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  environment.runMutationObservers();
+  const remountedDatePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    ignoredApplyUpdates: 1,
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  await flushMicrotasks();
+
+  assert.equal(remountedDatePicker.trigger.textContent, '今天');
+  const clickCounts = remountedDatePicker.getClickCounts();
+  assert.ok(clickCounts.trigger >= 2);
+  assert.ok(clickCounts.presets.get('今天') >= 1);
+  assert.equal(clickCounts.apply, 2);
 });
 
 test('admin usage restores granularity and page size after returning from promo code tab', async () => {

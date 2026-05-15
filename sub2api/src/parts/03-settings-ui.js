@@ -236,6 +236,7 @@
       settingsLauncherButton = null;
     }
     if (settingsLauncherButton) {
+      settingsLauncherButton.dataset.sub2apiSettingsLauncherVersion = SCRIPT_VERSION;
       return true;
     }
 
@@ -243,6 +244,7 @@
     button.type = 'button';
     button.textContent = '设置';
     button.dataset.sub2apiSettingsLauncher = 'true';
+    button.dataset.sub2apiSettingsLauncherVersion = SCRIPT_VERSION;
     button.setAttribute('aria-label', '打开 Sub2API Helper 设置');
     setStyles(button, {
       alignItems: 'center',
@@ -448,6 +450,13 @@
         fontSize: '12px',
         marginTop: '2px',
         overflowWrap: 'anywhere',
+      }),
+    );
+    titleWrap.appendChild(
+      createSettingsText(`脚本版本: ${SCRIPT_VERSION}`, {
+        color: '#64748b',
+        fontSize: '12px',
+        marginTop: '2px',
       }),
     );
 

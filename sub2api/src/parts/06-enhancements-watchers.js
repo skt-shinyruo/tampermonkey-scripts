@@ -323,11 +323,13 @@
 
   function activateSub2apiHelper() {
     if (helperActivated) {
+      document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
       applyPageEnhancements();
       return true;
     }
 
     helperActivated = true;
+    document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
     installClickHooks();
     installAutoRefreshMenuCloseHook();
     installUsageRequestRewriter();

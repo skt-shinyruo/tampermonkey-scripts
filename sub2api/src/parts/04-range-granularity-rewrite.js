@@ -304,44 +304,54 @@
     }
 
     try {
-      const opened = await openPicker();
-      if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-        return;
-      }
-
-      if (savedRange.type === 'preset') {
-        const presetButton = await waitFor(() =>
-          getPresetButtons().find(
-            (button) => button.textContent.trim() === savedRange.label,
-          ),
-        );
-        if (!presetButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-          return;
-        }
-        presetButton.click();
-      } else if (savedRange.type === 'custom') {
-        const inputs = await waitFor(() => {
-          const elements = getDateInputs();
-          return elements.length === 2 ? elements : null;
-        });
-
-        if (!inputs || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-          return;
+      for (let attempt = 0; attempt < RANGE_RESTORE_ATTEMPT_LIMIT; attempt += 1) {
+        if (isDateRangeSelectionActive()) {
+          return false;
         }
 
-        setNativeInputValue(inputs[0], savedRange.start);
-        setNativeInputValue(inputs[1], savedRange.end);
-      } else {
-        return;
+        const opened = await openPicker();
+        if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return false;
+        }
+
+        if (savedRange.type === 'preset') {
+          const presetButton = await waitFor(() =>
+            getPresetButtons().find(
+              (button) => button.textContent.trim() === savedRange.label,
+            ),
+          );
+          if (!presetButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+            return false;
+          }
+          presetButton.click();
+        } else if (savedRange.type === 'custom') {
+          const inputs = await waitFor(() => {
+            const elements = getDateInputs();
+            return elements.length === 2 ? elements : null;
+          });
+
+          if (!inputs || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+            return false;
+          }
+
+          setNativeInputValue(inputs[0], savedRange.start);
+          setNativeInputValue(inputs[1], savedRange.end);
+        } else {
+          return false;
+        }
+
+        const applyButton = await waitFor(getApplyButton);
+        if (!applyButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return false;
+        }
+        applyButton.click();
+        await waitForRestoredTriggerText(savedRange);
+        if (isAlreadyApplied(savedRange)) {
+          return true;
+        }
       }
 
-      const applyButton = await waitFor(getApplyButton);
-      if (!applyButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-        return false;
-      }
-      applyButton.click();
-      await waitForRestoredTriggerText(savedRange);
-      return true;
+      return false;
     } finally {
       if (restoreToken === rangeRestoreToken) {
         rangeRestoreInFlight = false;
