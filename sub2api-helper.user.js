@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.22
+// @version      0.22.23
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.22';
+  const SCRIPT_VERSION = '0.22.23';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -153,6 +153,9 @@
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
   const DATE_RANGE_SELECTION_WINDOW_MS = 5000;
   const SIDEBAR_STATE_SAVE_DELAY_MS = 150;
+  const SIDEBAR_STATE_SETTLE_TIMEOUT_MS = 1200;
+  const SIDEBAR_STATE_SETTLE_INTERVAL_MS = 100;
+  const SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS = 1200;
   const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
   const FOREGROUND_WATCH_GAP_MS = 2500;
@@ -207,6 +210,8 @@
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
   let sidebarSelectionActiveUntil = 0;
+  let sidebarSelectionPreviousState = null;
+  let sidebarRestoreInFlightUntil = 0;
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
@@ -702,6 +707,10 @@
       return false;
     }
 
+    if (sidebarRestoreInFlightUntil && Date.now() <= sidebarRestoreInFlightUntil) {
+      return false;
+    }
+
     const savedState = getSavedSidebarCollapsedState();
     if (savedState === null) {
       return false;
@@ -713,7 +722,11 @@
       return false;
     }
 
+    sidebarRestoreInFlightUntil = Date.now() + SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS;
     toggleButton.click();
+    window.setTimeout(() => {
+      sidebarRestoreInFlightUntil = 0;
+    }, SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS);
     return true;
   }
 
@@ -724,6 +737,7 @@
 
   function markSidebarSelectionActive() {
     sidebarSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    sidebarSelectionPreviousState = getCurrentSidebarCollapsedState();
   }
 
   function isSidebarSelectionActive() {
@@ -731,13 +745,32 @@
   }
 
   function saveCurrentSidebarStateSoon() {
-    window.setTimeout(() => {
+    const previousState = sidebarSelectionPreviousState;
+    const startedAt = Date.now();
+    const saveSettledSidebarState = () => {
       const currentState = getCurrentSidebarCollapsedState();
+
+      if (currentState !== null && (previousState === null || currentState !== previousState)) {
+        setSavedSidebarCollapsedState(currentState);
+        sidebarSelectionActiveUntil = 0;
+        sidebarSelectionPreviousState = null;
+        return;
+      }
+
+      if (Date.now() - startedAt < SIDEBAR_STATE_SETTLE_TIMEOUT_MS) {
+        window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SETTLE_INTERVAL_MS);
+        return;
+      }
+
       if (currentState !== null) {
         setSavedSidebarCollapsedState(currentState);
       }
+
       sidebarSelectionActiveUntil = 0;
-    }, SIDEBAR_STATE_SAVE_DELAY_MS);
+      sidebarSelectionPreviousState = null;
+    };
+
+    window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
   function findSpanByText(text) {
