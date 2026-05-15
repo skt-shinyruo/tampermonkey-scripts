@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.16
+// @version      0.22.17
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.16';
+  const SCRIPT_VERSION = '0.22.17';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -166,8 +166,6 @@
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
-  let rangeRestoreAttemptPathname = null;
-  let rangeRestoreAttemptTriggerText = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;
@@ -185,6 +183,8 @@
   let settingsPanelRoot = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
+  let activationRetryInFlight = false;
+  let activationRetryToken = 0;
   let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
@@ -911,6 +911,10 @@
     );
   }
 
+  function shouldRetrySub2apiHelperActivation() {
+    return hasSub2apiAppFingerprint() && (isUsagePage() || isDashboardPage());
+  }
+
   function isFeatureRelevantToCurrentPage(featureId) {
     switch (featureId) {
       case FEATURE_IDS.THEME_SYNC:
@@ -1610,7 +1614,7 @@
     }
 
     if (savedRange.type === 'custom') {
-      return triggerText === savedRange.displayText;
+      return triggerText === getExpectedRangeTriggerText(savedRange);
     }
 
     return false;
@@ -1659,29 +1663,29 @@
       return false;
     }
 
-    const trigger = getTrigger();
+    rangeRestoreInFlight = true;
+    const restoreToken = ++rangeRestoreToken;
+    const restorePathname = location.pathname;
+    const trigger = await waitFor(getTrigger, RANGE_RESTORE_SETTLE_TIMEOUT_MS);
     if (!trigger) {
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
-
-    const triggerText = currentTriggerText();
-
-    if (
-      rangeRestoreAttemptPathname === location.pathname &&
-      rangeRestoreAttemptTriggerText === triggerText
-    ) {
+    if (restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
 
     if (isAlreadyApplied(savedRange)) {
-      rangeRestoreAttemptPathname = location.pathname;
-      rangeRestoreAttemptTriggerText = triggerText;
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
-
-    rangeRestoreInFlight = true;
-    const restoreToken = ++rangeRestoreToken;
-    const restorePathname = location.pathname;
 
     try {
       const opened = await openPicker();
@@ -1720,10 +1724,7 @@
         return false;
       }
       applyButton.click();
-      if (restoreToken === rangeRestoreToken && location.pathname === restorePathname) {
-        rangeRestoreAttemptPathname = restorePathname;
-        rangeRestoreAttemptTriggerText = await waitForRestoredTriggerText(savedRange);
-      }
+      await waitForRestoredTriggerText(savedRange);
       return true;
     } finally {
       if (restoreToken === rangeRestoreToken) {
@@ -1736,7 +1737,19 @@
     return ADMIN_DASHBOARD_DATE_RANGE_API_PATHS.includes(pathname);
   }
 
+  function isAdminUsageDateRangeRequestPath(pathname) {
+    return (
+      pathname.startsWith('/api/v1/usage') ||
+      pathname.startsWith('/api/v1/admin/usage') ||
+      isAdminDashboardDateRangeRequestPath(pathname)
+    );
+  }
+
   function isDateRangeRequestPath(pathname) {
+    if (isAdminUsagePage()) {
+      return isAdminUsageDateRangeRequestPath(pathname);
+    }
+
     return (
       pathname.startsWith('/api/v1/usage') ||
       (isDashboardPage() && isAdminDashboardDateRangeRequestPath(pathname))
@@ -2390,6 +2403,7 @@
 
   async function applyPageEnhancements() {
     if (!shouldEnableSub2apiHelper()) {
+      scheduleActivationRetry();
       removeSettingsLauncherButton();
       cleanupDisabledFeatures();
       return;
@@ -2516,8 +2530,6 @@
 
         if (button.classList.contains('date-picker-trigger')) {
           markDateRangeSelectionActive();
-          rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -2527,8 +2539,6 @@
           if (storageName && isActiveDateRangeFeatureEnabled()) {
             setStorageValue(storageName, { type: 'preset', label: text });
           }
-          rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -2700,8 +2710,6 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
-      rangeRestoreAttemptPathname = null;
-      rangeRestoreAttemptTriggerText = null;
       applyPageEnhancements();
     });
 
@@ -2731,12 +2739,32 @@
     return true;
   }
 
+  async function scheduleActivationRetry() {
+    if (activationRetryInFlight || !shouldRetrySub2apiHelperActivation()) {
+      return;
+    }
+
+    activationRetryInFlight = true;
+    const retryToken = ++activationRetryToken;
+    try {
+      const ready = await waitFor(() => shouldEnableSub2apiHelper() ? true : null, RANGE_RESTORE_SETTLE_TIMEOUT_MS);
+      if (ready && retryToken === activationRetryToken) {
+        applyPageEnhancements();
+      }
+    } finally {
+      if (retryToken === activationRetryToken) {
+        activationRetryInFlight = false;
+      }
+    }
+  }
+
   function tryActivateSub2apiHelper() {
     if (helperActivated) {
       return true;
     }
 
     if (!shouldEnableSub2apiHelper()) {
+      scheduleActivationRetry();
       removeSettingsLauncherButton();
       return false;
     }
