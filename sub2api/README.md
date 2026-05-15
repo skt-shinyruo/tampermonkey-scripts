@@ -143,3 +143,8 @@ node --check sub2api/build-userscript.mjs
 - 不能只用接口请求参数正确来判断日期范围恢复成功。请求可能已经被改写成保存值，但 UI trigger 仍停在页面默认值；恢复完成必须以最终 trigger 文本匹配保存范围为准，不匹配要继续重试。
 - 真实浏览器复测前必须确认当前页面实际运行的 helper 脚本版本。设置面板会显示脚本版本，页面根节点也有 `data-sub2api-helper-version` 便于 DevTools 检查。
 - 修改相关逻辑时，至少保留/补充这些回归场景：从优惠码页切回管理端使用记录、date picker 延迟挂载、第一次 apply 后 UI 文本仍是默认值、粒度和每页数量切回后恢复、请求在页面指纹完整前发出、用户手动选择后不被旧保存值覆盖。
+- 侧边栏刷新后自动收起问题的根因可能不是 Sub2API 页面默认状态，而是 helper 的 `restoreSavedSidebarState()` 读到旧的 `sidebar-collapsed: true` 后主动调用原生 toggle 的 `element.click()`。DevTools 曾在 `0.22.21` 安装版中捕获到 `HTMLElement.click() -> restoreSavedSidebarState() -> MutationObserver` 调用栈。
+- 修复侧边栏状态记忆时，状态识别应优先读取真实底部 toggle 的 `title`：`展开` 表示已收起，`收起` 表示已展开；`sidebar-link-collapsed` class 次之，按钮可见文本只能作为兜底，因为收起态可能仍显示 `收起`。
+- `getSidebarToggleButton()` 不能宽泛匹配所有 sidebar 按钮，必须锁定真实收起/展开 toggle，避免把 `渠道管理`、主题按钮或其他导航按钮当成状态来源。用户点击后要延迟读取更新后的 DOM 并保存最新值，展开后必须写入 `sidebar-collapsed: false`。
+- `restoreSavedSidebarState()` 必须具备幂等和 in-flight 保护。它会被 `applyPageEnhancements()` 与 `MutationObserver` 多次触发，恢复期间不能在 DOM mutation burst 中反复点击同一个 toggle；用户正在手动切换侧边栏时也不能用旧保存值覆盖用户选择。
+- 侧边栏回归测试至少覆盖：保存值 `true`/`false` 各只恢复点击一次、用户从收起切到展开会保存 `false`、用户从展开切到收起会保存 `true`、非 toggle 的 sidebar 按钮不参与识别、不同 origin 的 `sidebar-collapsed` 相互隔离。

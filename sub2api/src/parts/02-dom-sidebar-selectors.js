@@ -144,6 +144,10 @@
       return false;
     }
 
+    if (sidebarRestoreInFlightUntil && Date.now() <= sidebarRestoreInFlightUntil) {
+      return false;
+    }
+
     const savedState = getSavedSidebarCollapsedState();
     if (savedState === null) {
       return false;
@@ -155,7 +159,11 @@
       return false;
     }
 
+    sidebarRestoreInFlightUntil = Date.now() + SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS;
     toggleButton.click();
+    window.setTimeout(() => {
+      sidebarRestoreInFlightUntil = 0;
+    }, SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS);
     return true;
   }
 
@@ -166,6 +174,7 @@
 
   function markSidebarSelectionActive() {
     sidebarSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    sidebarSelectionPreviousState = getCurrentSidebarCollapsedState();
   }
 
   function isSidebarSelectionActive() {
@@ -173,13 +182,32 @@
   }
 
   function saveCurrentSidebarStateSoon() {
-    window.setTimeout(() => {
+    const previousState = sidebarSelectionPreviousState;
+    const startedAt = Date.now();
+    const saveSettledSidebarState = () => {
       const currentState = getCurrentSidebarCollapsedState();
+
+      if (currentState !== null && (previousState === null || currentState !== previousState)) {
+        setSavedSidebarCollapsedState(currentState);
+        sidebarSelectionActiveUntil = 0;
+        sidebarSelectionPreviousState = null;
+        return;
+      }
+
+      if (Date.now() - startedAt < SIDEBAR_STATE_SETTLE_TIMEOUT_MS) {
+        window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SETTLE_INTERVAL_MS);
+        return;
+      }
+
       if (currentState !== null) {
         setSavedSidebarCollapsedState(currentState);
       }
+
       sidebarSelectionActiveUntil = 0;
-    }, SIDEBAR_STATE_SAVE_DELAY_MS);
+      sidebarSelectionPreviousState = null;
+    };
+
+    window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
   function findSpanByText(text) {

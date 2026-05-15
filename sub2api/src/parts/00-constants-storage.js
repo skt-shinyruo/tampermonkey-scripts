@@ -135,6 +135,9 @@
   const PAGE_SIZE_SAVE_DELAY_MS = 150;
   const DATE_RANGE_SELECTION_WINDOW_MS = 5000;
   const SIDEBAR_STATE_SAVE_DELAY_MS = 150;
+  const SIDEBAR_STATE_SETTLE_TIMEOUT_MS = 1200;
+  const SIDEBAR_STATE_SETTLE_INTERVAL_MS = 100;
+  const SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS = 1200;
   const FOREGROUND_REFRESH_WAIT_TIMEOUT_MS = 3000;
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
   const FOREGROUND_WATCH_GAP_MS = 2500;
@@ -189,6 +192,8 @@
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
   let sidebarSelectionActiveUntil = 0;
+  let sidebarSelectionPreviousState = null;
+  let sidebarRestoreInFlightUntil = 0;
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
