@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.18
+// @version      0.22.19
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.18';
+  const SCRIPT_VERSION = '0.22.19';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -1585,18 +1585,29 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  async function openPicker() {
+  async function openPicker(timeoutMs = RANGE_RESTORE_SETTLE_TIMEOUT_MS) {
     if (isPickerOpen()) {
       return true;
     }
 
-    const trigger = await waitFor(getTrigger);
+    const trigger = await waitFor(getTrigger, timeoutMs);
     if (!trigger) {
       return false;
     }
 
-    trigger.click();
-    return Boolean(await waitFor(() => isPickerOpen() ? true : null));
+    return Boolean(await waitFor(() => {
+      if (isPickerOpen()) {
+        return true;
+      }
+
+      const currentTrigger = getTrigger();
+      if (!currentTrigger) {
+        return null;
+      }
+
+      currentTrigger.click();
+      return isPickerOpen() ? true : null;
+    }, timeoutMs));
   }
 
   function currentTriggerText() {
@@ -2468,6 +2479,10 @@
       (event) => {
         const target = event.target;
         if (!(target instanceof Element)) {
+          return;
+        }
+
+        if (event.isTrusted === false) {
           return;
         }
 
