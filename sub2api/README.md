@@ -131,3 +131,12 @@ node --check sub2api/build-userscript.mjs
 - 不要在 `main` 分支直接维护 `sub2api-helper.user.js`，最终文件由 CI 构建并发布到 `build` 分支。
 - 如果修改了 `src/parts/`，必须运行 `node sub2api/build-userscript.mjs`。
 - 测试会先构建临时 userscript，再执行行为验证。
+
+## 回归风险记录
+
+- 使用记录和仪表盘都是 SPA 页面。修复日期范围、粒度、每页数量等状态恢复时，不能只在首次加载时读取控件；从相邻页面切回来时，页面 URL 可能已经变化，但 date picker、select、refresh 按钮还没有重新挂载。恢复逻辑必须等待页面指纹和目标控件出现后再执行。
+- 不要用“上一次尝试恢复时的按钮文字”来跳过后续恢复。SPA 重新挂载后，旧 DOM 已经失效，新的 trigger 可能又回到默认值，例如 `/admin/promo-codes` 切回 `/admin/usage` 后重新显示 `近24小时`。
+- 请求改写不能只依赖页面控件已经就绪。管理端使用记录页会在 UI 指纹完整前发请求，必须根据当前 pathname 和已保存状态改写 URL 参数。
+- `/admin/usage` 需要覆盖真实管理端接口：`/api/v1/admin/usage*`，并同步覆盖页面会触发的管理端 summary/trend 类接口。新增管理端日期接口时，要检查 `ADMIN_DASHBOARD_DATE_RANGE_API_PATHS` 和使用记录改写范围。
+- 普通 `/usage` 与 `/admin/usage` 的日期范围、粒度、每页数量必须独立存储和恢复；不要让普通用户页开关误伤管理端页。
+- 修改相关逻辑时，至少保留/补充这些回归场景：从优惠码页切回管理端使用记录、date picker 延迟挂载、粒度和每页数量切回后恢复、请求在页面指纹完整前发出、用户手动选择后不被旧保存值覆盖。
