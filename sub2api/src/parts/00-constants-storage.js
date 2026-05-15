@@ -17,6 +17,12 @@
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
+  const SETTINGS_GROUPS = {
+    ADMIN_DASHBOARD: 'admin-dashboard',
+    ADMIN_USAGE: 'admin-usage',
+    DASHBOARD: 'dashboard',
+    USAGE: 'usage',
+  };
   const FEATURE_IDS = {
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
@@ -45,56 +51,67 @@
     },
     {
       description: '记住 /usage tab 的日期范围，并同步改写使用记录请求。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_DATE_RANGE,
       label: '使用记录 tab (/usage) - 日期范围',
     },
     {
       description: '记住 /usage tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_GRANULARITY,
       label: '使用记录 tab (/usage) - 粒度',
     },
     {
       description: '记住 /usage tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_PAGE_SIZE,
       label: '使用记录 tab (/usage) - 每页数量',
     },
     {
       description: '在 /usage tab 增加自动刷新和倒计时控件。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_AUTO_REFRESH,
       label: '使用记录自动刷新 tab (/usage)',
     },
     {
       description: '记住 /admin/usage tab 的日期范围，并同步改写管理端使用记录请求。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_DATE_RANGE,
       label: '管理端使用记录 tab (/admin/usage) - 日期范围',
     },
     {
       description: '记住 /admin/usage tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_GRANULARITY,
       label: '管理端使用记录 tab (/admin/usage) - 粒度',
     },
     {
       description: '记住 /admin/usage tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
       label: '管理端使用记录 tab (/admin/usage) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
+      groupId: SETTINGS_GROUPS.DASHBOARD,
       id: FEATURE_IDS.DASHBOARD_DATE_RANGE,
       label: '仪表盘 tab (/dashboard) - 日期范围',
     },
     {
       description: '记住 /dashboard tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.DASHBOARD,
       id: FEATURE_IDS.DASHBOARD_GRANULARITY,
       label: '仪表盘 tab (/dashboard) - 粒度',
     },
     {
       description: '记住 /admin/dashboard tab 的日期范围，并同步改写管理端仪表盘请求。',
+      groupId: SETTINGS_GROUPS.ADMIN_DASHBOARD,
       id: FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE,
       label: '管理端仪表盘 tab (/admin/dashboard) - 日期范围',
     },
     {
       description: '记住 /admin/dashboard tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.ADMIN_DASHBOARD,
       id: FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY,
       label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },

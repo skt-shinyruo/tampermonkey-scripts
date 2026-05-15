@@ -1315,6 +1315,40 @@ test('settings panel distinguishes feature switches and descriptions by Sub2API 
   assert.ok(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="admin-dashboard-date-range"]'));
 });
 
+test('settings panel groups usage features under the same tab section', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+
+  const usageGroup = settingsRoot.querySelector('section[data-sub2api-settings-group="usage"]');
+  assert.ok(usageGroup);
+  assert.match(usageGroup.children[0].textContent, /使用记录 tab \(\/usage\)/);
+  assert.ok(usageGroup.querySelector('input[data-sub2api-feature-global-switch="usage-date-range"]'));
+  assert.ok(usageGroup.querySelector('input[data-sub2api-feature-global-switch="usage-granularity"]'));
+  assert.ok(usageGroup.querySelector('input[data-sub2api-feature-global-switch="usage-page-size"]'));
+  assert.ok(usageGroup.querySelector('input[data-sub2api-feature-global-switch="usage-auto-refresh"]'));
+});
+
 test('global feature switch disables only that feature on Sub2API pages', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({

@@ -401,6 +401,92 @@
     return row;
   }
 
+  function getSettingsGroupMeta(groupId) {
+    switch (groupId) {
+      case SETTINGS_GROUPS.USAGE:
+        return {
+          description: '使用记录 tab (/usage)',
+          title: '使用记录',
+        };
+      case SETTINGS_GROUPS.ADMIN_USAGE:
+        return {
+          description: '管理端使用记录 tab (/admin/usage)',
+          title: '管理端使用记录',
+        };
+      case SETTINGS_GROUPS.DASHBOARD:
+        return {
+          description: '仪表盘 tab (/dashboard)',
+          title: '仪表盘',
+        };
+      case SETTINGS_GROUPS.ADMIN_DASHBOARD:
+        return {
+          description: '管理端仪表盘 tab (/admin/dashboard)',
+          title: '管理端仪表盘',
+        };
+      default:
+        return null;
+    }
+  }
+
+  function createFeatureSettingsGroup(groupId, features) {
+    const groupMeta = getSettingsGroupMeta(groupId);
+    const group = document.createElement('section');
+    group.dataset.sub2apiSettingsGroup = groupId;
+    group.setAttribute('data-sub2api-settings-group', groupId);
+    setStyles(group, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    if (!groupMeta) {
+      for (const feature of features) {
+        group.appendChild(createFeatureSettingsRow(feature));
+      }
+      return group;
+    }
+
+    const header = document.createElement('div');
+    setStyles(header, {
+      display: 'grid',
+      gap: '2px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = groupMeta.title;
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = groupMeta.description;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    const items = document.createElement('div');
+    setStyles(items, {
+      display: 'grid',
+      gap: '10px',
+    });
+
+    for (const feature of features) {
+      items.appendChild(createFeatureSettingsRow(feature));
+    }
+
+    header.appendChild(title);
+    header.appendChild(hint);
+    group.appendChild(header);
+    group.appendChild(items);
+    return group;
+  }
+
   function refreshSettingsPanel() {
     if (!settingsPanelRoot?.isConnected) {
       return;
@@ -508,20 +594,35 @@
       }),
     );
 
-    const featureList = document.createElement('div');
-    setStyles(featureList, {
+    const featureGroups = document.createElement('div');
+    setStyles(featureGroups, {
       display: 'grid',
       gap: '10px',
       maxHeight: 'min(52vh, 520px)',
       overflow: 'auto',
     });
+    const featuresByGroup = new Map();
+    const standaloneFeatures = [];
     for (const feature of state.features) {
-      featureList.appendChild(createFeatureSettingsRow(feature));
+      if (feature.groupId) {
+        const groupedFeatures = featuresByGroup.get(feature.groupId) || [];
+        groupedFeatures.push(feature);
+        featuresByGroup.set(feature.groupId, groupedFeatures);
+      } else {
+        standaloneFeatures.push(feature);
+      }
+    }
+
+    for (const [groupId, features] of featuresByGroup.entries()) {
+      featureGroups.appendChild(createFeatureSettingsGroup(groupId, features));
+    }
+    for (const feature of standaloneFeatures) {
+      featureGroups.appendChild(createFeatureSettingsRow(feature));
     }
 
     panel.appendChild(header);
     panel.appendChild(status);
-    panel.appendChild(featureList);
+    panel.appendChild(featureGroups);
     settingsPanelRoot.appendChild(panel);
   }
 
