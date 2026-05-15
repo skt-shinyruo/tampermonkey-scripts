@@ -79,6 +79,10 @@
     );
   }
 
+  function shouldRetrySub2apiHelperActivation() {
+    return hasSub2apiAppFingerprint() && (isUsagePage() || isDashboardPage());
+  }
+
   function isFeatureRelevantToCurrentPage(featureId) {
     switch (featureId) {
       case FEATURE_IDS.THEME_SYNC:

@@ -1784,6 +1784,155 @@ test('admin usage restores saved date range and granularity on load', async () =
   assert.equal(granularity.button.textContent, '按天');
 });
 
+test('admin usage restores saved date range after returning from promo code tab', async () => {
+  const origin = 'https://admin-usage-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/promo-codes',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  const datePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(datePicker.trigger.textContent, '今天');
+
+  datePicker.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  const remountedDatePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedDatePicker.trigger.textContent, '今天');
+});
+
+test('admin usage waits for remounted date picker after SPA route changes before restoring range', async () => {
+  const origin = 'https://admin-usage-delayed-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const initialDatePicker = environment.createDatePicker({
+    activePresetLabel: '今天',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '今天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  initialDatePicker.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  environment.runMutationObservers();
+
+  const remountedDatePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  await flushMicrotasks();
+
+  assert.equal(remountedDatePicker.trigger.textContent, '今天');
+});
+
+test('admin usage restores granularity and page size after returning from promo code tab', async () => {
+  const origin = 'https://admin-usage-state-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-granularity')]: '按天',
+      [getScopedStorageKey(origin, 'admin-usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const initialDatePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  const initialGranularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const initialPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(initialGranularity.button.textContent, '按天');
+  assert.equal(initialPageSize.button.textContent, '50');
+
+  initialDatePicker.remove();
+  initialGranularity.button.parentElement.remove();
+  initialPageSize.button.parentElement.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  environment.runMutationObservers();
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  const remountedGranularity = environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50'],
+    value: '20',
+  });
+  await flushMicrotasks();
+
+  assert.equal(remountedGranularity.button.textContent, '按天');
+  assert.equal(remountedPageSize.button.textContent, '50');
+});
+
 test('admin usage restores the real picker preset instead of only syncing the label', async () => {
   const origin = 'https://admin-usage.sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1874,6 +2023,34 @@ test('admin usage rewrites usage requests before the admin usage fingerprint is 
 
   assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-09');
   assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-09');
+});
+
+test('admin usage rewrites admin usage and summary requests before the fingerprint is ready', async () => {
+  const origin = 'https://admin-usage-real-apis.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    now: RealDate.parse('2026-05-09T12:00:00+08:00'),
+    origin,
+    pathname: '/admin/usage',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  for (const path of [
+    '/api/v1/admin/usage?page=1&start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai',
+    '/api/v1/admin/usage/stats?start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai',
+    '/api/v1/admin/dashboard/models?start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai',
+    '/api/v1/admin/dashboard/snapshot-v2?start_date=2026-05-08&end_date=2026-05-09&timezone=Asia%2FShanghai',
+  ]) {
+    const response = await environment.vmContext.fetch(`${origin}${path}`);
+    const requestUrl = new URL(response.url);
+
+    assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-09');
+    assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-09');
+  }
 });
 
 test('user usage date range feature switch does not disable admin usage date range rewriting', async () => {

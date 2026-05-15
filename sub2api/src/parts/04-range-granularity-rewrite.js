@@ -219,7 +219,7 @@
     }
 
     if (savedRange.type === 'custom') {
-      return triggerText === savedRange.displayText;
+      return triggerText === getExpectedRangeTriggerText(savedRange);
     }
 
     return false;
@@ -268,29 +268,29 @@
       return false;
     }
 
-    const trigger = getTrigger();
+    rangeRestoreInFlight = true;
+    const restoreToken = ++rangeRestoreToken;
+    const restorePathname = location.pathname;
+    const trigger = await waitFor(getTrigger, RANGE_RESTORE_SETTLE_TIMEOUT_MS);
     if (!trigger) {
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
-
-    const triggerText = currentTriggerText();
-
-    if (
-      rangeRestoreAttemptPathname === location.pathname &&
-      rangeRestoreAttemptTriggerText === triggerText
-    ) {
+    if (restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
 
     if (isAlreadyApplied(savedRange)) {
-      rangeRestoreAttemptPathname = location.pathname;
-      rangeRestoreAttemptTriggerText = triggerText;
+      if (restoreToken === rangeRestoreToken) {
+        rangeRestoreInFlight = false;
+      }
       return false;
     }
-
-    rangeRestoreInFlight = true;
-    const restoreToken = ++rangeRestoreToken;
-    const restorePathname = location.pathname;
 
     try {
       const opened = await openPicker();
@@ -329,10 +329,7 @@
         return false;
       }
       applyButton.click();
-      if (restoreToken === rangeRestoreToken && location.pathname === restorePathname) {
-        rangeRestoreAttemptPathname = restorePathname;
-        rangeRestoreAttemptTriggerText = await waitForRestoredTriggerText(savedRange);
-      }
+      await waitForRestoredTriggerText(savedRange);
       return true;
     } finally {
       if (restoreToken === rangeRestoreToken) {
@@ -345,7 +342,19 @@
     return ADMIN_DASHBOARD_DATE_RANGE_API_PATHS.includes(pathname);
   }
 
+  function isAdminUsageDateRangeRequestPath(pathname) {
+    return (
+      pathname.startsWith('/api/v1/usage') ||
+      pathname.startsWith('/api/v1/admin/usage') ||
+      isAdminDashboardDateRangeRequestPath(pathname)
+    );
+  }
+
   function isDateRangeRequestPath(pathname) {
+    if (isAdminUsagePage()) {
+      return isAdminUsageDateRangeRequestPath(pathname);
+    }
+
     return (
       pathname.startsWith('/api/v1/usage') ||
       (isDashboardPage() && isAdminDashboardDateRangeRequestPath(pathname))

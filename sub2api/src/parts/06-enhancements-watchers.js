@@ -1,5 +1,6 @@
   async function applyPageEnhancements() {
     if (!shouldEnableSub2apiHelper()) {
+      scheduleActivationRetry();
       removeSettingsLauncherButton();
       cleanupDisabledFeatures();
       return;
@@ -126,8 +127,6 @@
 
         if (button.classList.contains('date-picker-trigger')) {
           markDateRangeSelectionActive();
-          rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -137,8 +136,6 @@
           if (storageName && isActiveDateRangeFeatureEnabled()) {
             setStorageValue(storageName, { type: 'preset', label: text });
           }
-          rangeRestoreAttemptPathname = location.pathname;
-          rangeRestoreAttemptTriggerText = currentTriggerText();
           return;
         }
 
@@ -310,8 +307,6 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
-      rangeRestoreAttemptPathname = null;
-      rangeRestoreAttemptTriggerText = null;
       applyPageEnhancements();
     });
 
@@ -341,12 +336,32 @@
     return true;
   }
 
+  async function scheduleActivationRetry() {
+    if (activationRetryInFlight || !shouldRetrySub2apiHelperActivation()) {
+      return;
+    }
+
+    activationRetryInFlight = true;
+    const retryToken = ++activationRetryToken;
+    try {
+      const ready = await waitFor(() => shouldEnableSub2apiHelper() ? true : null, RANGE_RESTORE_SETTLE_TIMEOUT_MS);
+      if (ready && retryToken === activationRetryToken) {
+        applyPageEnhancements();
+      }
+    } finally {
+      if (retryToken === activationRetryToken) {
+        activationRetryInFlight = false;
+      }
+    }
+  }
+
   function tryActivateSub2apiHelper() {
     if (helperActivated) {
       return true;
     }
 
     if (!shouldEnableSub2apiHelper()) {
+      scheduleActivationRetry();
       removeSettingsLauncherButton();
       return false;
     }

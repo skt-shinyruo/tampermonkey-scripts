@@ -148,8 +148,6 @@
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
-  let rangeRestoreAttemptPathname = null;
-  let rangeRestoreAttemptTriggerText = null;
   let usageRequestRewriteInstalled = false;
   let autoRefreshTimer = null;
   let autoRefreshCountdownTimer = null;
@@ -167,6 +165,8 @@
   let settingsPanelRoot = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
+  let activationRetryInFlight = false;
+  let activationRetryToken = 0;
   let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
