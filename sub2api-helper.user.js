@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.19
+// @version      0.22.20
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.19';
+  const SCRIPT_VERSION = '0.22.20';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -128,6 +128,7 @@
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
   const RANGE_RESTORE_SETTLE_TIMEOUT_MS = 1000;
+  const RANGE_RESTORE_ATTEMPT_LIMIT = 3;
   const AUTO_REFRESH_COUNTDOWN_INTERVAL_MS = 1000;
   const THEME_TOGGLE_WAIT_TIMEOUT_MS = 5000;
   const THEME_SYNC_RETRY_DELAY_MS = 500;
@@ -1068,6 +1069,7 @@
       settingsLauncherButton = null;
     }
     if (settingsLauncherButton) {
+      settingsLauncherButton.dataset.sub2apiSettingsLauncherVersion = SCRIPT_VERSION;
       return true;
     }
 
@@ -1075,6 +1077,7 @@
     button.type = 'button';
     button.textContent = '设置';
     button.dataset.sub2apiSettingsLauncher = 'true';
+    button.dataset.sub2apiSettingsLauncherVersion = SCRIPT_VERSION;
     button.setAttribute('aria-label', '打开 Sub2API Helper 设置');
     setStyles(button, {
       alignItems: 'center',
@@ -1280,6 +1283,13 @@
         fontSize: '12px',
         marginTop: '2px',
         overflowWrap: 'anywhere',
+      }),
+    );
+    titleWrap.appendChild(
+      createSettingsText(`脚本版本: ${SCRIPT_VERSION}`, {
+        color: '#64748b',
+        fontSize: '12px',
+        marginTop: '2px',
       }),
     );
 
@@ -1699,44 +1709,54 @@
     }
 
     try {
-      const opened = await openPicker();
-      if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-        return;
-      }
-
-      if (savedRange.type === 'preset') {
-        const presetButton = await waitFor(() =>
-          getPresetButtons().find(
-            (button) => button.textContent.trim() === savedRange.label,
-          ),
-        );
-        if (!presetButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-          return;
-        }
-        presetButton.click();
-      } else if (savedRange.type === 'custom') {
-        const inputs = await waitFor(() => {
-          const elements = getDateInputs();
-          return elements.length === 2 ? elements : null;
-        });
-
-        if (!inputs || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-          return;
+      for (let attempt = 0; attempt < RANGE_RESTORE_ATTEMPT_LIMIT; attempt += 1) {
+        if (isDateRangeSelectionActive()) {
+          return false;
         }
 
-        setNativeInputValue(inputs[0], savedRange.start);
-        setNativeInputValue(inputs[1], savedRange.end);
-      } else {
-        return;
+        const opened = await openPicker();
+        if (!opened || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return false;
+        }
+
+        if (savedRange.type === 'preset') {
+          const presetButton = await waitFor(() =>
+            getPresetButtons().find(
+              (button) => button.textContent.trim() === savedRange.label,
+            ),
+          );
+          if (!presetButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+            return false;
+          }
+          presetButton.click();
+        } else if (savedRange.type === 'custom') {
+          const inputs = await waitFor(() => {
+            const elements = getDateInputs();
+            return elements.length === 2 ? elements : null;
+          });
+
+          if (!inputs || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+            return false;
+          }
+
+          setNativeInputValue(inputs[0], savedRange.start);
+          setNativeInputValue(inputs[1], savedRange.end);
+        } else {
+          return false;
+        }
+
+        const applyButton = await waitFor(getApplyButton);
+        if (!applyButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
+          return false;
+        }
+        applyButton.click();
+        await waitForRestoredTriggerText(savedRange);
+        if (isAlreadyApplied(savedRange)) {
+          return true;
+        }
       }
 
-      const applyButton = await waitFor(getApplyButton);
-      if (!applyButton || restoreToken !== rangeRestoreToken || location.pathname !== restorePathname) {
-        return false;
-      }
-      applyButton.click();
-      await waitForRestoredTriggerText(savedRange);
-      return true;
+      return false;
     } finally {
       if (restoreToken === rangeRestoreToken) {
         rangeRestoreInFlight = false;
@@ -2737,11 +2757,13 @@
 
   function activateSub2apiHelper() {
     if (helperActivated) {
+      document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
       applyPageEnhancements();
       return true;
     }
 
     helperActivated = true;
+    document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
     installClickHooks();
     installAutoRefreshMenuCloseHook();
     installUsageRequestRewriter();
