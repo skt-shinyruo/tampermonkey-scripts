@@ -139,4 +139,5 @@ node --check sub2api/build-userscript.mjs
 - 请求改写不能只依赖页面控件已经就绪。管理端使用记录页会在 UI 指纹完整前发请求，必须根据当前 pathname 和已保存状态改写 URL 参数。
 - `/admin/usage` 需要覆盖真实管理端接口：`/api/v1/admin/usage*`，并同步覆盖页面会触发的管理端 summary/trend 类接口。新增管理端日期接口时，要检查 `ADMIN_DASHBOARD_DATE_RANGE_API_PATHS` 和使用记录改写范围。
 - 普通 `/usage` 与 `/admin/usage` 的日期范围、粒度、每页数量必须独立存储和恢复；不要让普通用户页开关误伤管理端页。
+- 自动恢复使用 `element.click()` 时，这些非用户点击不能被当成用户正在选择日期，否则第一次打开 picker 被 SPA 切页/挂载吞掉后，后续恢复会被保护窗口挡住。date picker 打开失败也要短间隔重试，不能只点一次后长时间等待。
 - 修改相关逻辑时，至少保留/补充这些回归场景：从优惠码页切回管理端使用记录、date picker 延迟挂载、粒度和每页数量切回后恢复、请求在页面指纹完整前发出、用户手动选择后不被旧保存值覆盖。

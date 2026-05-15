@@ -68,6 +68,10 @@
           return;
         }
 
+        if (event.isTrusted === false) {
+          return;
+        }
+
         if (isFeatureEnabled(FEATURE_IDS.SIDEBAR_STATE) && isSidebarToggleTarget(target)) {
           markSidebarSelectionActive();
           saveCurrentSidebarStateSoon();

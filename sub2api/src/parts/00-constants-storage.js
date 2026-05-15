@@ -1,4 +1,4 @@
-  const SCRIPT_VERSION = '0.22.4';
+  const SCRIPT_VERSION = '0.22.5';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';

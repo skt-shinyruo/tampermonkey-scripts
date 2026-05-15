@@ -552,7 +552,9 @@ function createTestEnvironment({
     activePresetLabel = null,
     allowInputInteraction = true,
     allowPresetInteraction = true,
+    bubbleProgrammaticClicks = false,
     deferApplyTriggerUpdate = false,
+    ignoredTriggerClicks = 0,
     inputValues = ['', ''],
     presetClickAppliesImmediately = false,
     presetLabels = [],
@@ -564,6 +566,7 @@ function createTestEnvironment({
       activePresetLabel,
       applyButton: null,
       applyClickCount: 0,
+      ignoredTriggerClicks,
       inputs: [],
       panel: null,
       presetClickCounts: new Map(),
@@ -594,6 +597,12 @@ function createTestEnvironment({
       state.inputs = [];
       state.presetButtons = new Map();
       state.resetButton = null;
+    };
+
+    const bubbleProgrammaticClick = (target) => {
+      if (bubbleProgrammaticClicks) {
+        dispatchDocumentEvent('click', { isTrusted: false, target });
+      }
     };
 
     const openPanel = () => {
@@ -635,6 +644,7 @@ function createTestEnvironment({
         presetButton.className = 'date-picker-preset';
         state.presetClickCounts.set(label, 0);
         presetButton.addEventListener('click', () => {
+          bubbleProgrammaticClick(presetButton);
           state.presetClickCounts.set(label, (state.presetClickCounts.get(label) || 0) + 1);
           if (!allowPresetInteraction) {
             return;
@@ -657,6 +667,7 @@ function createTestEnvironment({
       applyButton.className = 'date-picker-apply';
       applyButton.textContent = '应用';
       applyButton.addEventListener('click', () => {
+        bubbleProgrammaticClick(applyButton);
         state.applyClickCount += 1;
         state.startValue = startInput.value;
         state.endValue = endInput.value;
@@ -706,7 +717,12 @@ function createTestEnvironment({
     };
 
     trigger.addEventListener('click', () => {
+      bubbleProgrammaticClick(trigger);
       state.triggerClickCount += 1;
+      if (state.ignoredTriggerClicks > 0) {
+        state.ignoredTriggerClicks -= 1;
+        return;
+      }
       openPanel();
     });
 
@@ -1869,6 +1885,52 @@ test('admin usage waits for remounted date picker after SPA route changes before
   await flushMicrotasks();
 
   assert.equal(remountedDatePicker.trigger.textContent, '今天');
+});
+
+test('admin usage retries saved date range restore when the first SPA picker open is ignored', async () => {
+  const origin = 'https://admin-usage-ignored-open.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-usage-date-range')]: { type: 'preset', label: '今天' },
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  const initialDatePicker = environment.createDatePicker({
+    activePresetLabel: '今天',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '今天',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  initialDatePicker.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/usage');
+  environment.runMutationObservers();
+  const remountedDatePicker = environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    bubbleProgrammaticClicks: true,
+    ignoredTriggerClicks: 1,
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  await flushMicrotasks();
+
+  assert.equal(remountedDatePicker.trigger.textContent, '今天');
+  const clickCounts = remountedDatePicker.getClickCounts();
+  assert.equal(clickCounts.trigger, 2);
+  assert.equal(clickCounts.presets.get('今天'), 1);
+  assert.equal(clickCounts.apply, 1);
 });
 
 test('admin usage restores granularity and page size after returning from promo code tab', async () => {

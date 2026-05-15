@@ -190,18 +190,29 @@
     input.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  async function openPicker() {
+  async function openPicker(timeoutMs = RANGE_RESTORE_SETTLE_TIMEOUT_MS) {
     if (isPickerOpen()) {
       return true;
     }
 
-    const trigger = await waitFor(getTrigger);
+    const trigger = await waitFor(getTrigger, timeoutMs);
     if (!trigger) {
       return false;
     }
 
-    trigger.click();
-    return Boolean(await waitFor(() => isPickerOpen() ? true : null));
+    return Boolean(await waitFor(() => {
+      if (isPickerOpen()) {
+        return true;
+      }
+
+      const currentTrigger = getTrigger();
+      if (!currentTrigger) {
+        return null;
+      }
+
+      currentTrigger.click();
+      return isPickerOpen() ? true : null;
+    }, timeoutMs));
   }
 
   function currentTriggerText() {
