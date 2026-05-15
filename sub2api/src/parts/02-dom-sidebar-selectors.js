@@ -93,8 +93,7 @@
         text === '收起' ||
         text === '展开' ||
         title === '收起' ||
-        title === '展开' ||
-        button.classList.contains('sidebar-link-collapsed')
+        title === '展开'
       );
     }) || null;
   }

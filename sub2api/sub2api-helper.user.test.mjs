@@ -833,6 +833,18 @@ function createTestEnvironment({
   return {
     createDatePicker,
     createSelectControl,
+    createSidebarActionButton({
+      collapsed = false,
+      text = '渠道管理',
+      title = text,
+    } = {}) {
+      const button = document.createElement('button');
+      button.className = collapsed ? 'sidebar-link mb-1 w-full sidebar-link-collapsed' : 'sidebar-link mb-1 w-full';
+      button.setAttribute('title', title);
+      button.textContent = text;
+      body.appendChild(button);
+      return button;
+    },
     createSidebarToggle({ collapsed = false, keepsTextAfterCollapse = false } = {}) {
       const button = document.createElement('button');
       const syncState = (nextCollapsed) => {
@@ -1124,6 +1136,70 @@ test('allows expanding a previously saved collapsed sidebar before the delayed s
 
   assert.equal(sidebarToggle.getAttribute('title'), '收起');
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-collapsed')), false);
+});
+
+test('stores expanded sidebar state from the real toggle when other collapsed sidebar buttons exist', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: true,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const menuButton = environment.createSidebarActionButton({
+    collapsed: true,
+    text: '渠道管理',
+  });
+  const themeButton = environment.createSidebarActionButton({
+    collapsed: true,
+    text: '深色模式',
+  });
+  const sidebarToggle = environment.createSidebarToggle({
+    collapsed: true,
+    keepsTextAfterCollapse: true,
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.sendDocumentClick(sidebarToggle);
+  sidebarToggle.click();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.getAttribute('title'), '收起');
+  assert.equal(menuButton.getAttribute('title'), '渠道管理');
+  assert.equal(themeButton.getAttribute('title'), '深色模式');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-collapsed')), false);
+});
+
+test('restores expanded sidebar state using the real toggle when collapsed sidebar links are present', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: false,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const menuButton = environment.createSidebarActionButton({
+    collapsed: true,
+    text: '渠道管理',
+  });
+  const sidebarToggle = environment.createSidebarToggle({
+    collapsed: true,
+    keepsTextAfterCollapse: true,
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebarToggle.getAttribute('title'), '收起');
+  assert.equal(sidebarToggle.clickCount, 1);
+  assert.equal(menuButton.getAttribute('title'), '渠道管理');
 });
 
 test('sidebar collapsed storage is isolated per Sub2API origin', async () => {
