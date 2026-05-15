@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.21
+// @version      0.22.22
 // @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.21';
+  const SCRIPT_VERSION = '0.22.22';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -34,6 +34,12 @@
     SIDEBAR_COLLAPSED: 'sidebar-collapsed',
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
+  };
+  const SETTINGS_GROUPS = {
+    ADMIN_DASHBOARD: 'admin-dashboard',
+    ADMIN_USAGE: 'admin-usage',
+    DASHBOARD: 'dashboard',
+    USAGE: 'usage',
   };
   const FEATURE_IDS = {
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
@@ -63,56 +69,67 @@
     },
     {
       description: '记住 /usage tab 的日期范围，并同步改写使用记录请求。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_DATE_RANGE,
       label: '使用记录 tab (/usage) - 日期范围',
     },
     {
       description: '记住 /usage tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_GRANULARITY,
       label: '使用记录 tab (/usage) - 粒度',
     },
     {
       description: '记住 /usage tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_PAGE_SIZE,
       label: '使用记录 tab (/usage) - 每页数量',
     },
     {
       description: '在 /usage tab 增加自动刷新和倒计时控件。',
+      groupId: SETTINGS_GROUPS.USAGE,
       id: FEATURE_IDS.USAGE_AUTO_REFRESH,
       label: '使用记录自动刷新 tab (/usage)',
     },
     {
       description: '记住 /admin/usage tab 的日期范围，并同步改写管理端使用记录请求。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_DATE_RANGE,
       label: '管理端使用记录 tab (/admin/usage) - 日期范围',
     },
     {
       description: '记住 /admin/usage tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_GRANULARITY,
       label: '管理端使用记录 tab (/admin/usage) - 粒度',
     },
     {
       description: '记住 /admin/usage tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
       label: '管理端使用记录 tab (/admin/usage) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
+      groupId: SETTINGS_GROUPS.DASHBOARD,
       id: FEATURE_IDS.DASHBOARD_DATE_RANGE,
       label: '仪表盘 tab (/dashboard) - 日期范围',
     },
     {
       description: '记住 /dashboard tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.DASHBOARD,
       id: FEATURE_IDS.DASHBOARD_GRANULARITY,
       label: '仪表盘 tab (/dashboard) - 粒度',
     },
     {
       description: '记住 /admin/dashboard tab 的日期范围，并同步改写管理端仪表盘请求。',
+      groupId: SETTINGS_GROUPS.ADMIN_DASHBOARD,
       id: FEATURE_IDS.ADMIN_DASHBOARD_DATE_RANGE,
       label: '管理端仪表盘 tab (/admin/dashboard) - 日期范围',
     },
     {
       description: '记住 /admin/dashboard tab 的粒度选择。',
+      groupId: SETTINGS_GROUPS.ADMIN_DASHBOARD,
       id: FEATURE_IDS.ADMIN_DASHBOARD_GRANULARITY,
       label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },
@@ -1233,6 +1250,92 @@
     return row;
   }
 
+  function getSettingsGroupMeta(groupId) {
+    switch (groupId) {
+      case SETTINGS_GROUPS.USAGE:
+        return {
+          description: '使用记录 tab (/usage)',
+          title: '使用记录',
+        };
+      case SETTINGS_GROUPS.ADMIN_USAGE:
+        return {
+          description: '管理端使用记录 tab (/admin/usage)',
+          title: '管理端使用记录',
+        };
+      case SETTINGS_GROUPS.DASHBOARD:
+        return {
+          description: '仪表盘 tab (/dashboard)',
+          title: '仪表盘',
+        };
+      case SETTINGS_GROUPS.ADMIN_DASHBOARD:
+        return {
+          description: '管理端仪表盘 tab (/admin/dashboard)',
+          title: '管理端仪表盘',
+        };
+      default:
+        return null;
+    }
+  }
+
+  function createFeatureSettingsGroup(groupId, features) {
+    const groupMeta = getSettingsGroupMeta(groupId);
+    const group = document.createElement('section');
+    group.dataset.sub2apiSettingsGroup = groupId;
+    group.setAttribute('data-sub2api-settings-group', groupId);
+    setStyles(group, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    if (!groupMeta) {
+      for (const feature of features) {
+        group.appendChild(createFeatureSettingsRow(feature));
+      }
+      return group;
+    }
+
+    const header = document.createElement('div');
+    setStyles(header, {
+      display: 'grid',
+      gap: '2px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = groupMeta.title;
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = groupMeta.description;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    const items = document.createElement('div');
+    setStyles(items, {
+      display: 'grid',
+      gap: '10px',
+    });
+
+    for (const feature of features) {
+      items.appendChild(createFeatureSettingsRow(feature));
+    }
+
+    header.appendChild(title);
+    header.appendChild(hint);
+    group.appendChild(header);
+    group.appendChild(items);
+    return group;
+  }
+
   function refreshSettingsPanel() {
     if (!settingsPanelRoot?.isConnected) {
       return;
@@ -1340,20 +1443,35 @@
       }),
     );
 
-    const featureList = document.createElement('div');
-    setStyles(featureList, {
+    const featureGroups = document.createElement('div');
+    setStyles(featureGroups, {
       display: 'grid',
       gap: '10px',
       maxHeight: 'min(52vh, 520px)',
       overflow: 'auto',
     });
+    const featuresByGroup = new Map();
+    const standaloneFeatures = [];
     for (const feature of state.features) {
-      featureList.appendChild(createFeatureSettingsRow(feature));
+      if (feature.groupId) {
+        const groupedFeatures = featuresByGroup.get(feature.groupId) || [];
+        groupedFeatures.push(feature);
+        featuresByGroup.set(feature.groupId, groupedFeatures);
+      } else {
+        standaloneFeatures.push(feature);
+      }
+    }
+
+    for (const [groupId, features] of featuresByGroup.entries()) {
+      featureGroups.appendChild(createFeatureSettingsGroup(groupId, features));
+    }
+    for (const feature of standaloneFeatures) {
+      featureGroups.appendChild(createFeatureSettingsRow(feature));
     }
 
     panel.appendChild(header);
     panel.appendChild(status);
-    panel.appendChild(featureList);
+    panel.appendChild(featureGroups);
     settingsPanelRoot.appendChild(panel);
   }
 
