@@ -17,6 +17,29 @@
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
+  const THEME_MODE_STORAGE_NAME = 'theme-mode';
+  const THEME_MODE_VALUES = {
+    DARK: 'dark',
+    LIGHT: 'light',
+    SYSTEM: 'system',
+  };
+  const THEME_MODE_OPTIONS = [
+    {
+      description: '跟随系统或浏览器的深浅色偏好。',
+      label: '系统',
+      value: THEME_MODE_VALUES.SYSTEM,
+    },
+    {
+      description: '始终使用浅色界面。',
+      label: '浅色模式',
+      value: THEME_MODE_VALUES.LIGHT,
+    },
+    {
+      description: '始终使用深色界面。',
+      label: '深色模式',
+      value: THEME_MODE_VALUES.DARK,
+    },
+  ];
   const SETTINGS_GROUPS = {
     ADMIN_DASHBOARD: 'admin-dashboard',
     ADMIN_USAGE: 'admin-usage',
@@ -39,11 +62,6 @@
     USAGE_PAGE_SIZE: 'usage-page-size',
   };
   const FEATURE_SETTINGS = [
-    {
-      description: '跟随浏览器深浅色切换 Sub2API 主题。',
-      id: FEATURE_IDS.THEME_SYNC,
-      label: '浏览器主题同步',
-    },
     {
       description: '记住并恢复侧边栏收起或展开状态。',
       id: FEATURE_IDS.SIDEBAR_STATE,
@@ -299,6 +317,23 @@
 
   function isFeatureEnabled(featureId) {
     return getGlobalFeatureEnabled(featureId) && getCurrentPageFeatureEnabled(featureId);
+  }
+
+  function normalizeThemeMode(value) {
+    const normalizedValue = String(value || '').trim();
+    return THEME_MODE_OPTIONS.some((option) => option.value === normalizedValue)
+      ? normalizedValue
+      : THEME_MODE_VALUES.SYSTEM;
+  }
+
+  function getSavedThemeMode() {
+    return normalizeThemeMode(
+      storage.get(getGlobalSettingsStorageKey(THEME_MODE_STORAGE_NAME), THEME_MODE_VALUES.SYSTEM),
+    );
+  }
+
+  function setSavedThemeMode(value) {
+    storage.set(getGlobalSettingsStorageKey(THEME_MODE_STORAGE_NAME), normalizeThemeMode(value));
   }
 
   function getStorageValue(name, fallback = null) {

@@ -314,8 +314,10 @@ function createTestEnvironment({
   now = 0,
   origin = 'https://codex.ciii.club',
   pathname = '/usage',
+  preferredColorScheme = 'light',
   savedAutoRefreshValue = 'off',
 } = {}) {
+  let colorScheme = preferredColorScheme;
   let currentTime = now;
   let focused = true;
   let nextIntervalId = 1;
@@ -327,6 +329,7 @@ function createTestEnvironment({
   const mutationObservers = new Set();
   const timeouts = new Map();
   const fetchCalls = [];
+  const mediaQueryListeners = new Set();
   const menuCommands = new Map();
   const windowListeners = new Map();
 
@@ -522,11 +525,26 @@ function createTestEnvironment({
       };
     },
     location,
-    matchMedia() {
+    matchMedia(query) {
       return {
-        addEventListener() {},
-        addListener() {},
-        matches: false,
+        addEventListener(type, handler) {
+          if (type === 'change') {
+            mediaQueryListeners.add(handler);
+          }
+        },
+        addListener(handler) {
+          mediaQueryListeners.add(handler);
+        },
+        get matches() {
+          if (String(query).includes('dark')) {
+            return colorScheme === 'dark';
+          }
+          if (String(query).includes('light')) {
+            return colorScheme === 'light';
+          }
+          return false;
+        },
+        media: String(query),
       };
     },
     setInterval: setIntervalImpl,
@@ -868,6 +886,27 @@ function createTestEnvironment({
       body.appendChild(button);
       return button;
     },
+    createThemeToggle({ dark = false, localStorageTheme = dark ? 'dark' : 'light' } = {}) {
+      const button = document.createElement('button');
+      const syncTheme = (nextDark, storageTheme = nextDark ? 'dark' : 'light') => {
+        if (nextDark) {
+          html.classList.add('dark');
+        } else {
+          html.classList.remove('dark');
+        }
+        button.textContent = nextDark ? '浅色模式' : '深色模式';
+        context.localStorage.setItem('theme', storageTheme);
+      };
+
+      button.clickCount = 0;
+      button.addEventListener('click', () => {
+        button.clickCount += 1;
+        syncTheme(!html.classList.contains('dark'));
+      });
+      syncTheme(dark, localStorageTheme);
+      body.appendChild(button);
+      return button;
+    },
     document,
     findAutoRefreshButton() {
       return body.querySelector('[data-sub2api-auto-refresh-button="true"]');
@@ -892,6 +931,9 @@ function createTestEnvironment({
     },
     getStoredValue(key) {
       return gmState.get(key);
+    },
+    getLocalStorageValue(key) {
+      return context.localStorage.getItem(key);
     },
     intervals,
     refreshButton,
@@ -918,6 +960,15 @@ function createTestEnvironment({
         handler({ type });
       }
     },
+    setPreferredColorScheme(value) {
+      colorScheme = value === 'dark' ? 'dark' : 'light';
+      for (const handler of mediaQueryListeners) {
+        handler({
+          matches: colorScheme === 'dark',
+          media: '(prefers-color-scheme: dark)',
+        });
+      }
+    },
     setLocation(pathnameValue) {
       location.pathname = pathnameValue;
       location.href = `${origin}${pathnameValue}`;
@@ -935,6 +986,10 @@ function getScopedStorageKey(origin, name) {
 
 function getGlobalFeatureStorageKey(featureId) {
   return `sub2api-helper:global:feature:${featureId}:enabled`;
+}
+
+function getGlobalSettingsStorageKey(name) {
+  return `sub2api-helper:global:${name}`;
 }
 
 function getPageFeatureStorageKey(origin, pathname, featureId) {
@@ -1298,6 +1353,105 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
   assert.equal(sidebarToggle.clickCount, 1);
 });
 
+test('system theme mode follows browser preference using the actual html dark class', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'light',
+  });
+  const themeToggle = environment.createThemeToggle({
+    dark: true,
+    localStorageTheme: 'light',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(environment.document.documentElement.classList.contains('dark'), false);
+  assert.equal(themeToggle.textContent, '深色模式');
+  assert.equal(themeToggle.clickCount, 1);
+
+  environment.setPreferredColorScheme('dark');
+  await flushMicrotasks();
+
+  assert.equal(environment.document.documentElement.classList.contains('dark'), true);
+  assert.equal(themeToggle.textContent, '浅色模式');
+  assert.equal(themeToggle.clickCount, 2);
+});
+
+test('stored light theme mode ignores dark browser preference', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalSettingsStorageKey('theme-mode')]: 'light',
+    },
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'dark',
+  });
+  const themeToggle = environment.createThemeToggle({ dark: true });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(environment.document.documentElement.classList.contains('dark'), false);
+  assert.equal(themeToggle.textContent, '深色模式');
+  assert.equal(themeToggle.clickCount, 1);
+});
+
+test('stored theme mode still applies when the legacy theme sync feature switch is off', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('theme-sync')]: false,
+      [getGlobalSettingsStorageKey('theme-mode')]: 'dark',
+    },
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'light',
+  });
+  const themeToggle = environment.createThemeToggle({ dark: false });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(environment.document.documentElement.classList.contains('dark'), true);
+  assert.equal(themeToggle.textContent, '浅色模式');
+  assert.equal(themeToggle.clickCount, 1);
+});
+
+test('settings panel stores a fixed dark theme mode from the theme mode selector', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'light',
+  });
+  const themeToggle = environment.createThemeToggle({ dark: false });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const darkOption = settingsRoot.querySelector('input[data-sub2api-theme-mode-option="dark"]');
+  assert.ok(darkOption);
+  darkOption.checked = true;
+  darkOption.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getGlobalSettingsStorageKey('theme-mode')), 'dark');
+  assert.equal(environment.document.documentElement.classList.contains('dark'), true);
+  assert.equal(themeToggle.textContent, '浅色模式');
+  assert.equal(themeToggle.clickCount, 1);
+  assert.equal(environment.findSettingsRoot().querySelector('input[data-sub2api-theme-mode-option="dark"]').checked, true);
+});
+
 test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
   assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/skt-shinyruo\/tampermonkey-scripts/);
@@ -1330,7 +1484,10 @@ test('settings panel shows Sub2API detection and per-feature switches for the cu
   assert.match(settingsRoot.textContent, /修改功能: 生效中/);
   assert.equal(settingsRoot.querySelector('[data-sub2api-settings-global-switch="true"]'), null);
   assert.equal(settingsRoot.querySelector('[data-sub2api-settings-page-switch="true"]'), null);
-  assert.match(settingsRoot.textContent, /浏览器主题同步/);
+  assert.match(settingsRoot.textContent, /主题模式/);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-theme-mode-option="system"]').checked, true);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-theme-mode-option="light"]').checked, false);
+  assert.equal(settingsRoot.querySelector('input[data-sub2api-theme-mode-option="dark"]').checked, false);
   assert.match(settingsRoot.textContent, /使用记录自动刷新/);
   assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-global-switch="usage-auto-refresh"]').checked, true);
   assert.equal(settingsRoot.querySelector('input[data-sub2api-feature-page-switch="usage-auto-refresh"]').checked, true);
