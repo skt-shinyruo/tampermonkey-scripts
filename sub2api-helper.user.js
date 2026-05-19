@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.23
-// @description  为 Sub2API 管理端同步浏览器主题和侧边栏收起状态；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @version      0.22.24
+// @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.23';
+  const SCRIPT_VERSION = '0.22.24';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -35,6 +35,29 @@
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
+  const THEME_MODE_STORAGE_NAME = 'theme-mode';
+  const THEME_MODE_VALUES = {
+    DARK: 'dark',
+    LIGHT: 'light',
+    SYSTEM: 'system',
+  };
+  const THEME_MODE_OPTIONS = [
+    {
+      description: '跟随系统或浏览器的深浅色偏好。',
+      label: '系统',
+      value: THEME_MODE_VALUES.SYSTEM,
+    },
+    {
+      description: '始终使用浅色界面。',
+      label: '浅色模式',
+      value: THEME_MODE_VALUES.LIGHT,
+    },
+    {
+      description: '始终使用深色界面。',
+      label: '深色模式',
+      value: THEME_MODE_VALUES.DARK,
+    },
+  ];
   const SETTINGS_GROUPS = {
     ADMIN_DASHBOARD: 'admin-dashboard',
     ADMIN_USAGE: 'admin-usage',
@@ -57,11 +80,6 @@
     USAGE_PAGE_SIZE: 'usage-page-size',
   };
   const FEATURE_SETTINGS = [
-    {
-      description: '跟随浏览器深浅色切换 Sub2API 主题。',
-      id: FEATURE_IDS.THEME_SYNC,
-      label: '浏览器主题同步',
-    },
     {
       description: '记住并恢复侧边栏收起或展开状态。',
       id: FEATURE_IDS.SIDEBAR_STATE,
@@ -317,6 +335,23 @@
 
   function isFeatureEnabled(featureId) {
     return getGlobalFeatureEnabled(featureId) && getCurrentPageFeatureEnabled(featureId);
+  }
+
+  function normalizeThemeMode(value) {
+    const normalizedValue = String(value || '').trim();
+    return THEME_MODE_OPTIONS.some((option) => option.value === normalizedValue)
+      ? normalizedValue
+      : THEME_MODE_VALUES.SYSTEM;
+  }
+
+  function getSavedThemeMode() {
+    return normalizeThemeMode(
+      storage.get(getGlobalSettingsStorageKey(THEME_MODE_STORAGE_NAME), THEME_MODE_VALUES.SYSTEM),
+    );
+  }
+
+  function setSavedThemeMode(value) {
+    storage.set(getGlobalSettingsStorageKey(THEME_MODE_STORAGE_NAME), normalizeThemeMode(value));
   }
 
   function getStorageValue(name, fallback = null) {
@@ -1072,6 +1107,7 @@
       features,
       isSub2apiPage,
       relevantFeatureCount,
+      themeMode: getSavedThemeMode(),
     };
   }
 
@@ -1275,6 +1311,116 @@
         scope: 'page',
       }),
     );
+
+    textWrap.appendChild(title);
+    textWrap.appendChild(hint);
+    row.appendChild(textWrap);
+    row.appendChild(controls);
+    return row;
+  }
+
+  function createThemeModeOption({ checked, option }) {
+    const label = document.createElement('label');
+    setStyles(label, {
+      alignItems: 'center',
+      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      borderRadius: '8px',
+      color: checked ? '#0f766e' : '#334155',
+      cursor: 'pointer',
+      display: 'grid',
+      gap: '4px',
+      padding: '10px',
+    });
+
+    const title = document.createElement('span');
+    setStyles(title, {
+      alignItems: 'center',
+      display: 'inline-flex',
+      fontSize: '13px',
+      fontWeight: '800',
+      gap: '8px',
+    });
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'sub2api-theme-mode';
+    input.value = option.value;
+    input.checked = checked;
+    input.setAttribute('data-sub2api-theme-mode-option', option.value);
+    input.addEventListener('change', () => {
+      if (!input.checked) {
+        return;
+      }
+      setSavedThemeMode(option.value);
+      applySettingsStateChange();
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = option.description;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.35',
+    });
+
+    const labelText = document.createElement('span');
+    labelText.textContent = option.label;
+
+    title.appendChild(input);
+    title.appendChild(labelText);
+    label.appendChild(title);
+    label.appendChild(hint);
+    return label;
+  }
+
+  function createThemeModeSettingsRow(themeMode) {
+    const row = document.createElement('div');
+    row.setAttribute('data-sub2api-theme-mode-row', 'true');
+    setStyles(row, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const textWrap = document.createElement('div');
+    setStyles(textWrap, {
+      display: 'grid',
+      gap: '4px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = '主题模式';
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = '选择 Sub2API 使用深色、浅色，或跟随系统。';
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    const controls = document.createElement('div');
+    setStyles(controls, {
+      display: 'grid',
+      gap: '8px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+    });
+
+    for (const option of THEME_MODE_OPTIONS) {
+      controls.appendChild(
+        createThemeModeOption({
+          checked: themeMode === option.value,
+          option,
+        }),
+      );
+    }
 
     textWrap.appendChild(title);
     textWrap.appendChild(hint);
@@ -1498,6 +1644,9 @@
     for (const [groupId, features] of featuresByGroup.entries()) {
       featureGroups.appendChild(createFeatureSettingsGroup(groupId, features));
     }
+    if (state.isSub2apiPage) {
+      featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
+    }
     for (const feature of standaloneFeatures) {
       featureGroups.appendChild(createFeatureSettingsRow(feature));
     }
@@ -1660,7 +1809,31 @@
     return getBrowserThemeMediaQuery().matches ? 'dark' : 'light';
   }
 
+  function getTargetPageTheme() {
+    const themeMode = getSavedThemeMode();
+    if (themeMode === THEME_MODE_VALUES.DARK || themeMode === THEME_MODE_VALUES.LIGHT) {
+      return themeMode;
+    }
+    return getPreferredPageTheme();
+  }
+
   function getCurrentPageTheme() {
+    if (document.documentElement.classList.contains('dark')) {
+      return 'dark';
+    }
+
+    const toggleButton = getThemeToggleButton();
+    if (toggleButton) {
+      const text = toggleButton.textContent.trim();
+      const title = toggleButton.getAttribute('title')?.trim();
+      if (text === '浅色模式' || title === '浅色模式') {
+        return 'dark';
+      }
+      if (text === '深色模式' || title === '深色模式') {
+        return 'light';
+      }
+    }
+
     return localStorage.getItem(PAGE_THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
   }
 
@@ -2067,24 +2240,20 @@
   }
 
   async function syncPageThemeWithBrowserTheme() {
-    if (!isFeatureEnabled(FEATURE_IDS.THEME_SYNC)) {
-      return;
-    }
-
     if (themeSyncInFlight) {
       return;
     }
 
     themeSyncInFlight = true;
     try {
-      const preferredTheme = getPreferredPageTheme();
-      if (getCurrentPageTheme() === preferredTheme) {
+      const targetTheme = getTargetPageTheme();
+      if (getCurrentPageTheme() === targetTheme) {
         return;
       }
 
       const deadline = Date.now() + THEME_TOGGLE_WAIT_TIMEOUT_MS;
       while (Date.now() < deadline) {
-        if (getCurrentPageTheme() === preferredTheme) {
+        if (getCurrentPageTheme() === targetTheme) {
           return;
         }
 
