@@ -11,6 +11,13 @@
     await syncPageThemeWithBrowserTheme();
     restoreSavedSidebarState();
 
+    if (isAdminAccountsPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedAdminAccountsFilters();
+      return;
+    }
+
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
@@ -85,7 +92,24 @@
           markGranularitySelectionActive();
         }
 
+        if (isAdminAccountsFilterButtonTarget(target)) {
+          markAdminAccountsFilterSelectionActive(target);
+        }
+
         const option = target.closest('[role="option"]');
+        const adminAccountsFilter = getActiveAdminAccountsFilter();
+        const adminAccountsFilterValue = normalizeSelectText(option?.textContent.trim());
+        if (
+          isAdminAccountsFiltersFeatureEnabled() &&
+          adminAccountsFilter &&
+          adminAccountsFilterValue &&
+          isAdminAccountsFilterSelectionActive()
+        ) {
+          setSavedAdminAccountsFilterValue(adminAccountsFilter, adminAccountsFilterValue);
+          clearAdminAccountsFilterSelectionActive();
+          return;
+        }
+
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
         const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
@@ -276,6 +300,7 @@
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       restoreSavedRange();
+      restoreSavedAdminAccountsFilters();
       handlePageSizeValueChange();
       handleGranularityValueChange();
     });

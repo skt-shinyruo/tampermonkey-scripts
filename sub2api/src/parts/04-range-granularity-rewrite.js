@@ -535,6 +535,71 @@
     }
   }
 
+  async function restoreAdminAccountsFilter(filter) {
+    const savedValue = getSavedAdminAccountsFilterValue(filter);
+    if (!savedValue) {
+      return false;
+    }
+
+    const filterButton = await waitFor(() => getAdminAccountsFilterButton(filter), RANGE_RESTORE_SETTLE_TIMEOUT_MS);
+    if (!filterButton) {
+      return false;
+    }
+
+    if (getCurrentAdminAccountsFilterValue(filter) === savedValue) {
+      return false;
+    }
+
+    filterButton.click();
+    const targetOption = await waitFor(() =>
+      [...document.querySelectorAll('[role="option"]')].find(
+        (option) => option.textContent.trim() === savedValue,
+      ),
+      RANGE_RESTORE_SETTLE_TIMEOUT_MS,
+    );
+    if (targetOption) {
+      targetOption.click();
+      setSavedAdminAccountsFilterValue(filter, savedValue);
+      return true;
+    }
+
+    if (filter.fallbackOnMissing && savedValue !== filter.defaultLabel) {
+      const fallbackOption = [...document.querySelectorAll('[role="option"]')].find(
+        (option) => option.textContent.trim() === filter.defaultLabel,
+      );
+      if (fallbackOption) {
+        fallbackOption.click();
+        setSavedAdminAccountsFilterValue(filter, filter.defaultLabel);
+        return true;
+      }
+    }
+
+    filterButton.click();
+    return false;
+  }
+
+  async function restoreSavedAdminAccountsFilters() {
+    if (!isAdminAccountsFiltersFeatureEnabled()) {
+      return;
+    }
+
+    if (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive()) {
+      return;
+    }
+
+    adminAccountsFilterRestoreInFlight = true;
+    try {
+      for (const filter of ADMIN_ACCOUNTS_FILTERS) {
+        if (isAdminAccountsFilterSelectionActive()) {
+          return;
+        }
+        await restoreAdminAccountsFilter(filter);
+      }
+    } finally {
+      adminAccountsFilterRestoreInFlight = false;
+    }
+  }
+
   async function syncPageThemeWithBrowserTheme() {
     if (themeSyncInFlight) {
       return;

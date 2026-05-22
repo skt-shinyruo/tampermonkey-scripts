@@ -4,6 +4,11 @@
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_ACCOUNTS_FILTER_GROUP: 'admin-accounts-filter-group',
+    ADMIN_ACCOUNTS_FILTER_PLATFORM: 'admin-accounts-filter-platform',
+    ADMIN_ACCOUNTS_FILTER_PRIVACY: 'admin-accounts-filter-privacy',
+    ADMIN_ACCOUNTS_FILTER_STATUS: 'admin-accounts-filter-status',
+    ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -41,12 +46,14 @@
     },
   ];
   const SETTINGS_GROUPS = {
+    ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
     ADMIN_USAGE: 'admin-usage',
     DASHBOARD: 'dashboard',
     USAGE: 'usage',
   };
   const FEATURE_IDS = {
+    ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -108,6 +115,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
       label: '管理端使用记录 tab (/admin/usage) - 每页数量',
+    },
+    {
+      description: '记住 /admin/accounts tab 的平台、类型、状态、Privacy 和分组筛选。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS,
+      label: '账号管理 tab (/admin/accounts) - 筛选条件',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -184,6 +197,34 @@
     RESUMING: 'resuming',
   };
   const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100', '200', '500'];
+  const ADMIN_ACCOUNTS_FILTERS = [
+    {
+      defaultLabel: '全部平台',
+      id: 'platform',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_PLATFORM,
+    },
+    {
+      defaultLabel: '全部类型',
+      id: 'type',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_TYPE,
+    },
+    {
+      defaultLabel: '全部状态',
+      id: 'status',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_STATUS,
+    },
+    {
+      defaultLabel: '全部Privacy状态',
+      id: 'privacy',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_PRIVACY,
+    },
+    {
+      defaultLabel: '全部分组',
+      fallbackOnMissing: true,
+      id: 'group',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_GROUP,
+    },
+  ];
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
@@ -215,6 +256,9 @@
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
+  let adminAccountsFilterSelectionActiveUntil = 0;
+  let activeAdminAccountsFilterId = null;
+  let adminAccountsFilterRestoreInFlight = false;
   let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
@@ -407,6 +451,10 @@
 
   function isUsageAutoRefreshPage() {
     return location.pathname.startsWith('/usage');
+  }
+
+  function isAdminAccountsPage() {
+    return location.pathname === '/admin/accounts' || location.pathname.startsWith('/admin/accounts/');
   }
 
   function isAdminDashboardPage() {

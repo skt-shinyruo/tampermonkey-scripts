@@ -314,6 +314,149 @@
     return getLabeledSelectButton('粒度:');
   }
 
+  function normalizeSelectText(value) {
+    return String(value || '').trim() || null;
+  }
+
+  function getVisibleSelectButtons() {
+    return [...document.querySelectorAll('button.select-trigger')].filter((button) => {
+      if (!button.isConnected) {
+        return false;
+      }
+
+      const text = normalizeSelectText(button.textContent);
+      return Boolean(text);
+    });
+  }
+
+  function findSelectButtonByText(text) {
+    return getVisibleSelectButtons().find((button) => normalizeSelectText(button.textContent) === text) || null;
+  }
+
+  function getAdminAccountsFilterButtonByPosition(filter) {
+    const filterIndex = ADMIN_ACCOUNTS_FILTERS.findIndex((item) => item.id === filter.id);
+    if (filterIndex < 0) {
+      return null;
+    }
+
+    return getVisibleSelectButtons()[filterIndex] || null;
+  }
+
+  function getAdminAccountsFilterButton(filter) {
+    const taggedButton = getVisibleSelectButtons().find(
+      (button) => button.dataset.sub2apiAdminAccountsFilterId === filter.id,
+    );
+    if (taggedButton) {
+      return taggedButton;
+    }
+
+    const defaultButton = findSelectButtonByText(filter.defaultLabel);
+    if (defaultButton) {
+      defaultButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      defaultButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    if (defaultButton) {
+      return defaultButton;
+    }
+
+    const positionedButton = getAdminAccountsFilterButtonByPosition(filter);
+    if (positionedButton) {
+      positionedButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      positionedButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    return positionedButton || null;
+  }
+
+  function getAdminAccountsFilterButtons() {
+    if (!isAdminAccountsPage()) {
+      return [];
+    }
+
+    return ADMIN_ACCOUNTS_FILTERS
+      .map((filter) => getAdminAccountsFilterButton(filter))
+      .filter(Boolean);
+  }
+
+  function getAdminAccountsFilterByButton(button) {
+    if (!button || !isAdminAccountsPage()) {
+      return null;
+    }
+
+    const taggedFilter = getAdminAccountsFilterById(button.dataset.sub2apiAdminAccountsFilterId);
+    if (taggedFilter) {
+      return taggedFilter;
+    }
+
+    const currentText = normalizeSelectText(button.textContent);
+    const filter = ADMIN_ACCOUNTS_FILTERS.find((item) => item.defaultLabel === currentText) || null;
+    if (filter) {
+      button.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    return filter;
+  }
+
+  function getAdminAccountsFilterById(filterId) {
+    return ADMIN_ACCOUNTS_FILTERS.find((filter) => filter.id === filterId) || null;
+  }
+
+  function getCurrentAdminAccountsFilterValue(filter) {
+    return normalizeSelectText(getAdminAccountsFilterButton(filter)?.textContent);
+  }
+
+  function getSavedAdminAccountsFilterValue(filter) {
+    return normalizeSelectText(getStorageValue(filter.storageName, null));
+  }
+
+  function setSavedAdminAccountsFilterValue(filter, value) {
+    const normalizedValue = normalizeSelectText(value);
+    if (!normalizedValue) {
+      return;
+    }
+
+    setStorageValue(filter.storageName, normalizedValue);
+  }
+
+  function isAdminAccountsFilterButtonTarget(target) {
+    if (!isAdminAccountsFiltersFeatureEnabled()) {
+      return false;
+    }
+
+    const button = target.closest('button.select-trigger');
+    return Boolean(getAdminAccountsFilterByButton(button));
+  }
+
+  function markAdminAccountsFilterSelectionActive(target) {
+    const button = target.closest('button.select-trigger');
+    const filter = getAdminAccountsFilterByButton(button);
+    if (!filter) {
+      return;
+    }
+
+    adminAccountsFilterSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    activeAdminAccountsFilterId = filter.id;
+  }
+
+  function isAdminAccountsFilterSelectionActive() {
+    return Boolean(
+      adminAccountsFilterSelectionActiveUntil &&
+      Date.now() <= adminAccountsFilterSelectionActiveUntil
+    );
+  }
+
+  function clearAdminAccountsFilterSelectionActive() {
+    adminAccountsFilterSelectionActiveUntil = 0;
+    activeAdminAccountsFilterId = null;
+  }
+
+  function getActiveAdminAccountsFilter() {
+    if (!isAdminAccountsFilterSelectionActive()) {
+      return null;
+    }
+
+    return getAdminAccountsFilterById(activeAdminAccountsFilterId);
+  }
+
   function hasDatePickerFingerprint() {
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }

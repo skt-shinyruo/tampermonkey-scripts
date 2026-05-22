@@ -68,6 +68,10 @@
     return Boolean(isDashboardPage() && getRefreshButton() && hasDatePickerFingerprint() && getGranularityButton());
   }
 
+  function hasAdminAccountsPageFingerprint() {
+    return Boolean(isAdminAccountsPage() && getAdminAccountsFilterButtons().length > 0);
+  }
+
   function hasSidebarFingerprint() {
     return Boolean(getSidebarToggleButton());
   }
@@ -75,7 +79,12 @@
   function shouldEnableSub2apiHelper() {
     return (
       hasSub2apiAppFingerprint() &&
-      (hasUsagePageFingerprint() || hasDashboardPageFingerprint() || hasSidebarFingerprint())
+      (
+        hasUsagePageFingerprint() ||
+        hasDashboardPageFingerprint() ||
+        hasAdminAccountsPageFingerprint() ||
+        hasSidebarFingerprint()
+      )
     );
   }
 
@@ -99,6 +108,8 @@
       case FEATURE_IDS.ADMIN_USAGE_GRANULARITY:
       case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
         return isAdminUsagePage();
+      case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
+        return isAdminAccountsPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
         return isUserDashboardPage();
@@ -165,6 +176,10 @@
   function isActivePageSizeFeatureEnabled() {
     const featureId = getActivePageSizeFeatureId();
     return Boolean(featureId && isFeatureEnabled(featureId));
+  }
+
+  function isAdminAccountsFiltersFeatureEnabled() {
+    return isAdminAccountsPage() && isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS);
   }
 
   function getFeatureState(feature) {
@@ -523,6 +538,11 @@
         return {
           description: '管理端使用记录 tab (/admin/usage)',
           title: '管理端使用记录',
+        };
+      case SETTINGS_GROUPS.ADMIN_ACCOUNTS:
+        return {
+          description: '账号管理 tab (/admin/accounts)',
+          title: '账号管理',
         };
       case SETTINGS_GROUPS.DASHBOARD:
         return {

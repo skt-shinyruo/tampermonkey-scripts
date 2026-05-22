@@ -45,13 +45,13 @@ function getDatasetKeyFromSelector(selector) {
 }
 
 function getAttributeSelectorMatch(selector) {
-  const match = selector.match(/^([a-z]+)\[([^=]+)="([^"]+)"\]$/i);
+  const match = selector.match(/^([a-z]+)?\[([^=]+)="([^"]+)"\]$/i);
   if (!match) {
     return null;
   }
   return {
     attribute: match[2],
-    tagName: match[1].toUpperCase(),
+    tagName: match[1]?.toUpperCase() || null,
     value: match[3],
   };
 }
@@ -85,7 +85,7 @@ function matchesSelector(element, selector) {
   const attributeSelector = getAttributeSelectorMatch(normalizedSelector);
   if (attributeSelector) {
     return (
-      element.tagName === attributeSelector.tagName &&
+      (!attributeSelector.tagName || element.tagName === attributeSelector.tagName) &&
       String(element.attributes[attributeSelector.attribute] ?? '') === attributeSelector.value
     );
   }
@@ -1010,6 +1010,31 @@ function createUsageFingerprint(environment) {
   return { datePicker, pageSize };
 }
 
+function createAdminAccountsFilters(environment, groupOptions = ['全部分组', '未分配分组', '订阅', 'Anthropic', 'OpenAI']) {
+  return {
+    platform: environment.createSelectControl({
+      options: ['全部平台', 'Anthropic', 'OpenAI', 'Gemini', 'Antigravity'],
+      value: '全部平台',
+    }),
+    type: environment.createSelectControl({
+      options: ['全部类型', 'OAuth', 'Setup Token', 'API Key', 'AWS Bedrock'],
+      value: '全部类型',
+    }),
+    status: environment.createSelectControl({
+      options: ['全部状态', '正常', '停用', '错误', '限流中', '临时不可调度', '不可调度'],
+      value: '全部状态',
+    }),
+    privacy: environment.createSelectControl({
+      options: ['全部Privacy状态', '未设置', 'Privacy', 'CF', 'Fail'],
+      value: '全部Privacy状态',
+    }),
+    group: environment.createSelectControl({
+      options: groupOptions,
+      value: '全部分组',
+    }),
+  };
+}
+
 test('build script check mode validates generated source', () => {
   const outputPath = join(tmpdir(), `sub2api-helper-check-${process.pid}-${Date.now()}.user.js`);
 
@@ -1351,6 +1376,71 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
 
   assert.equal(sidebarToggle.textContent, '展开');
   assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('admin accounts restores and stores account filter selections', async () => {
+  const origin = 'https://accounts.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-filter-group')]: 'OpenAI',
+      [getScopedStorageKey(origin, 'admin-accounts-filter-platform')]: 'Anthropic',
+      [getScopedStorageKey(origin, 'admin-accounts-filter-privacy')]: 'Privacy',
+      [getScopedStorageKey(origin, 'admin-accounts-filter-status')]: '正常',
+      [getScopedStorageKey(origin, 'admin-accounts-filter-type')]: 'API Key',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(environment);
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(filters.platform.button.textContent, 'Anthropic');
+  assert.equal(filters.type.button.textContent, 'API Key');
+  assert.equal(filters.status.button.textContent, '正常');
+  assert.equal(filters.privacy.button.textContent, 'Privacy');
+  assert.equal(filters.group.button.textContent, 'OpenAI');
+
+  environment.sendDocumentClick(filters.group.button);
+  filters.group.button.click();
+  const subscriptionsOption = filters.group.findOption('订阅');
+  environment.sendDocumentClick(subscriptionsOption);
+  subscriptionsOption.click();
+
+  environment.sendDocumentClick(filters.privacy.button);
+  filters.privacy.button.click();
+  const cfOption = filters.privacy.findOption('CF');
+  environment.sendDocumentClick(cfOption);
+  cfOption.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-group')), '订阅');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-privacy')), 'CF');
+});
+
+test('admin accounts falls back to all groups when the saved group is unavailable', async () => {
+  const origin = 'https://accounts-missing-group.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-filter-group')]: 'Deleted Group',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(environment, ['全部分组', '未分配分组', '订阅']);
+  filters.group.button.textContent = '订阅';
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(filters.group.button.textContent, '全部分组');
+  assert.equal(
+    environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-group')),
+    '全部分组',
+  );
 });
 
 test('system theme mode follows browser preference using the actual html dark class', async () => {
