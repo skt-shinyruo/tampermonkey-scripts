@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.24
+// @version      0.22.25
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,12 +16,17 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.24';
+  const SCRIPT_VERSION = '0.22.25';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_ACCOUNTS_FILTER_GROUP: 'admin-accounts-filter-group',
+    ADMIN_ACCOUNTS_FILTER_PLATFORM: 'admin-accounts-filter-platform',
+    ADMIN_ACCOUNTS_FILTER_PRIVACY: 'admin-accounts-filter-privacy',
+    ADMIN_ACCOUNTS_FILTER_STATUS: 'admin-accounts-filter-status',
+    ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -59,12 +64,14 @@
     },
   ];
   const SETTINGS_GROUPS = {
+    ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
     ADMIN_USAGE: 'admin-usage',
     DASHBOARD: 'dashboard',
     USAGE: 'usage',
   };
   const FEATURE_IDS = {
+    ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -126,6 +133,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_USAGE,
       id: FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE,
       label: '管理端使用记录 tab (/admin/usage) - 每页数量',
+    },
+    {
+      description: '记住 /admin/accounts tab 的平台、类型、状态、Privacy 和分组筛选。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS,
+      label: '账号管理 tab (/admin/accounts) - 筛选条件',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -202,6 +215,34 @@
     RESUMING: 'resuming',
   };
   const PAGE_SIZE_OPTIONS = ['10', '20', '50', '100', '200', '500'];
+  const ADMIN_ACCOUNTS_FILTERS = [
+    {
+      defaultLabel: '全部平台',
+      id: 'platform',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_PLATFORM,
+    },
+    {
+      defaultLabel: '全部类型',
+      id: 'type',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_TYPE,
+    },
+    {
+      defaultLabel: '全部状态',
+      id: 'status',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_STATUS,
+    },
+    {
+      defaultLabel: '全部Privacy状态',
+      id: 'privacy',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_PRIVACY,
+    },
+    {
+      defaultLabel: '全部分组',
+      fallbackOnMissing: true,
+      id: 'group',
+      storageName: STORAGE_NAMES.ADMIN_ACCOUNTS_FILTER_GROUP,
+    },
+  ];
 
   let rangeRestoreInFlight = false;
   let rangeRestoreToken = 0;
@@ -233,6 +274,9 @@
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
+  let adminAccountsFilterSelectionActiveUntil = 0;
+  let activeAdminAccountsFilterId = null;
+  let adminAccountsFilterRestoreInFlight = false;
   let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
@@ -425,6 +469,10 @@
 
   function isUsageAutoRefreshPage() {
     return location.pathname.startsWith('/usage');
+  }
+
+  function isAdminAccountsPage() {
+    return location.pathname === '/admin/accounts' || location.pathname.startsWith('/admin/accounts/');
   }
 
   function isAdminDashboardPage() {
@@ -912,6 +960,149 @@
     return getLabeledSelectButton('粒度:');
   }
 
+  function normalizeSelectText(value) {
+    return String(value || '').trim() || null;
+  }
+
+  function getVisibleSelectButtons() {
+    return [...document.querySelectorAll('button.select-trigger')].filter((button) => {
+      if (!button.isConnected) {
+        return false;
+      }
+
+      const text = normalizeSelectText(button.textContent);
+      return Boolean(text);
+    });
+  }
+
+  function findSelectButtonByText(text) {
+    return getVisibleSelectButtons().find((button) => normalizeSelectText(button.textContent) === text) || null;
+  }
+
+  function getAdminAccountsFilterButtonByPosition(filter) {
+    const filterIndex = ADMIN_ACCOUNTS_FILTERS.findIndex((item) => item.id === filter.id);
+    if (filterIndex < 0) {
+      return null;
+    }
+
+    return getVisibleSelectButtons()[filterIndex] || null;
+  }
+
+  function getAdminAccountsFilterButton(filter) {
+    const taggedButton = getVisibleSelectButtons().find(
+      (button) => button.dataset.sub2apiAdminAccountsFilterId === filter.id,
+    );
+    if (taggedButton) {
+      return taggedButton;
+    }
+
+    const defaultButton = findSelectButtonByText(filter.defaultLabel);
+    if (defaultButton) {
+      defaultButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      defaultButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    if (defaultButton) {
+      return defaultButton;
+    }
+
+    const positionedButton = getAdminAccountsFilterButtonByPosition(filter);
+    if (positionedButton) {
+      positionedButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      positionedButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    return positionedButton || null;
+  }
+
+  function getAdminAccountsFilterButtons() {
+    if (!isAdminAccountsPage()) {
+      return [];
+    }
+
+    return ADMIN_ACCOUNTS_FILTERS
+      .map((filter) => getAdminAccountsFilterButton(filter))
+      .filter(Boolean);
+  }
+
+  function getAdminAccountsFilterByButton(button) {
+    if (!button || !isAdminAccountsPage()) {
+      return null;
+    }
+
+    const taggedFilter = getAdminAccountsFilterById(button.dataset.sub2apiAdminAccountsFilterId);
+    if (taggedFilter) {
+      return taggedFilter;
+    }
+
+    const currentText = normalizeSelectText(button.textContent);
+    const filter = ADMIN_ACCOUNTS_FILTERS.find((item) => item.defaultLabel === currentText) || null;
+    if (filter) {
+      button.dataset.sub2apiAdminAccountsFilterId = filter.id;
+      button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    }
+    return filter;
+  }
+
+  function getAdminAccountsFilterById(filterId) {
+    return ADMIN_ACCOUNTS_FILTERS.find((filter) => filter.id === filterId) || null;
+  }
+
+  function getCurrentAdminAccountsFilterValue(filter) {
+    return normalizeSelectText(getAdminAccountsFilterButton(filter)?.textContent);
+  }
+
+  function getSavedAdminAccountsFilterValue(filter) {
+    return normalizeSelectText(getStorageValue(filter.storageName, null));
+  }
+
+  function setSavedAdminAccountsFilterValue(filter, value) {
+    const normalizedValue = normalizeSelectText(value);
+    if (!normalizedValue) {
+      return;
+    }
+
+    setStorageValue(filter.storageName, normalizedValue);
+  }
+
+  function isAdminAccountsFilterButtonTarget(target) {
+    if (!isAdminAccountsFiltersFeatureEnabled()) {
+      return false;
+    }
+
+    const button = target.closest('button.select-trigger');
+    return Boolean(getAdminAccountsFilterByButton(button));
+  }
+
+  function markAdminAccountsFilterSelectionActive(target) {
+    const button = target.closest('button.select-trigger');
+    const filter = getAdminAccountsFilterByButton(button);
+    if (!filter) {
+      return;
+    }
+
+    adminAccountsFilterSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    activeAdminAccountsFilterId = filter.id;
+  }
+
+  function isAdminAccountsFilterSelectionActive() {
+    return Boolean(
+      adminAccountsFilterSelectionActiveUntil &&
+      Date.now() <= adminAccountsFilterSelectionActiveUntil
+    );
+  }
+
+  function clearAdminAccountsFilterSelectionActive() {
+    adminAccountsFilterSelectionActiveUntil = 0;
+    activeAdminAccountsFilterId = null;
+  }
+
+  function getActiveAdminAccountsFilter() {
+    if (!isAdminAccountsFilterSelectionActive()) {
+      return null;
+    }
+
+    return getAdminAccountsFilterById(activeAdminAccountsFilterId);
+  }
+
   function hasDatePickerFingerprint() {
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }
@@ -985,6 +1176,10 @@
     return Boolean(isDashboardPage() && getRefreshButton() && hasDatePickerFingerprint() && getGranularityButton());
   }
 
+  function hasAdminAccountsPageFingerprint() {
+    return Boolean(isAdminAccountsPage() && getAdminAccountsFilterButtons().length > 0);
+  }
+
   function hasSidebarFingerprint() {
     return Boolean(getSidebarToggleButton());
   }
@@ -992,7 +1187,12 @@
   function shouldEnableSub2apiHelper() {
     return (
       hasSub2apiAppFingerprint() &&
-      (hasUsagePageFingerprint() || hasDashboardPageFingerprint() || hasSidebarFingerprint())
+      (
+        hasUsagePageFingerprint() ||
+        hasDashboardPageFingerprint() ||
+        hasAdminAccountsPageFingerprint() ||
+        hasSidebarFingerprint()
+      )
     );
   }
 
@@ -1016,6 +1216,8 @@
       case FEATURE_IDS.ADMIN_USAGE_GRANULARITY:
       case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
         return isAdminUsagePage();
+      case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
+        return isAdminAccountsPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
         return isUserDashboardPage();
@@ -1082,6 +1284,10 @@
   function isActivePageSizeFeatureEnabled() {
     const featureId = getActivePageSizeFeatureId();
     return Boolean(featureId && isFeatureEnabled(featureId));
+  }
+
+  function isAdminAccountsFiltersFeatureEnabled() {
+    return isAdminAccountsPage() && isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS);
   }
 
   function getFeatureState(feature) {
@@ -1440,6 +1646,11 @@
         return {
           description: '管理端使用记录 tab (/admin/usage)',
           title: '管理端使用记录',
+        };
+      case SETTINGS_GROUPS.ADMIN_ACCOUNTS:
+        return {
+          description: '账号管理 tab (/admin/accounts)',
+          title: '账号管理',
         };
       case SETTINGS_GROUPS.DASHBOARD:
         return {
@@ -2239,6 +2450,71 @@
     }
   }
 
+  async function restoreAdminAccountsFilter(filter) {
+    const savedValue = getSavedAdminAccountsFilterValue(filter);
+    if (!savedValue) {
+      return false;
+    }
+
+    const filterButton = await waitFor(() => getAdminAccountsFilterButton(filter), RANGE_RESTORE_SETTLE_TIMEOUT_MS);
+    if (!filterButton) {
+      return false;
+    }
+
+    if (getCurrentAdminAccountsFilterValue(filter) === savedValue) {
+      return false;
+    }
+
+    filterButton.click();
+    const targetOption = await waitFor(() =>
+      [...document.querySelectorAll('[role="option"]')].find(
+        (option) => option.textContent.trim() === savedValue,
+      ),
+      RANGE_RESTORE_SETTLE_TIMEOUT_MS,
+    );
+    if (targetOption) {
+      targetOption.click();
+      setSavedAdminAccountsFilterValue(filter, savedValue);
+      return true;
+    }
+
+    if (filter.fallbackOnMissing && savedValue !== filter.defaultLabel) {
+      const fallbackOption = [...document.querySelectorAll('[role="option"]')].find(
+        (option) => option.textContent.trim() === filter.defaultLabel,
+      );
+      if (fallbackOption) {
+        fallbackOption.click();
+        setSavedAdminAccountsFilterValue(filter, filter.defaultLabel);
+        return true;
+      }
+    }
+
+    filterButton.click();
+    return false;
+  }
+
+  async function restoreSavedAdminAccountsFilters() {
+    if (!isAdminAccountsFiltersFeatureEnabled()) {
+      return;
+    }
+
+    if (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive()) {
+      return;
+    }
+
+    adminAccountsFilterRestoreInFlight = true;
+    try {
+      for (const filter of ADMIN_ACCOUNTS_FILTERS) {
+        if (isAdminAccountsFilterSelectionActive()) {
+          return;
+        }
+        await restoreAdminAccountsFilter(filter);
+      }
+    } finally {
+      adminAccountsFilterRestoreInFlight = false;
+    }
+  }
+
   async function syncPageThemeWithBrowserTheme() {
     if (themeSyncInFlight) {
       return;
@@ -2764,6 +3040,13 @@
     await syncPageThemeWithBrowserTheme();
     restoreSavedSidebarState();
 
+    if (isAdminAccountsPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedAdminAccountsFilters();
+      return;
+    }
+
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
@@ -2838,7 +3121,24 @@
           markGranularitySelectionActive();
         }
 
+        if (isAdminAccountsFilterButtonTarget(target)) {
+          markAdminAccountsFilterSelectionActive(target);
+        }
+
         const option = target.closest('[role="option"]');
+        const adminAccountsFilter = getActiveAdminAccountsFilter();
+        const adminAccountsFilterValue = normalizeSelectText(option?.textContent.trim());
+        if (
+          isAdminAccountsFiltersFeatureEnabled() &&
+          adminAccountsFilter &&
+          adminAccountsFilterValue &&
+          isAdminAccountsFilterSelectionActive()
+        ) {
+          setSavedAdminAccountsFilterValue(adminAccountsFilter, adminAccountsFilterValue);
+          clearAdminAccountsFilterSelectionActive();
+          return;
+        }
+
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
         const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
@@ -3029,6 +3329,7 @@
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       restoreSavedRange();
+      restoreSavedAdminAccountsFilters();
       handlePageSizeValueChange();
       handleGranularityValueChange();
     });
