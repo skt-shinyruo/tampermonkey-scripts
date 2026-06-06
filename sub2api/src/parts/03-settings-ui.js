@@ -205,6 +205,7 @@
       features,
       isSub2apiPage,
       relevantFeatureCount,
+      sidebarWidth: getSidebarWidthSettingsState(),
       themeMode: getSavedThemeMode(),
     };
   }
@@ -527,6 +528,160 @@
     return row;
   }
 
+  function createSidebarWidthModeOption({ checked, option }) {
+    const label = document.createElement('label');
+    setStyles(label, {
+      alignItems: 'center',
+      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      borderRadius: '8px',
+      color: checked ? '#0f766e' : '#334155',
+      cursor: 'pointer',
+      display: 'grid',
+      gap: '4px',
+      padding: '10px',
+    });
+
+    const title = document.createElement('span');
+    setStyles(title, {
+      alignItems: 'center',
+      display: 'inline-flex',
+      fontSize: '13px',
+      fontWeight: '800',
+      gap: '8px',
+    });
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'sub2api-sidebar-width-mode';
+    input.value = option.value;
+    input.checked = checked;
+    input.setAttribute('data-sub2api-sidebar-width-mode-option', option.value);
+    input.addEventListener('change', () => {
+      if (!input.checked) {
+        return;
+      }
+      setSavedSidebarWidthMode(option.value);
+      if (option.value === SIDEBAR_WIDTH_MODE_VALUES.CUSTOM && !getSavedSidebarWidthPx()) {
+        setSavedSidebarWidthPx(SIDEBAR_WIDTH_COMPACT_PX);
+      }
+      applySettingsStateChange();
+    });
+
+    const labelText = document.createElement('span');
+    labelText.textContent = option.label;
+
+    const hint = document.createElement('span');
+    hint.textContent = option.description;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.35',
+    });
+
+    title.appendChild(input);
+    title.appendChild(labelText);
+    label.appendChild(title);
+    label.appendChild(hint);
+    return label;
+  }
+
+  function createSidebarWidthSettingsRow(sidebarWidth) {
+    const row = document.createElement('div');
+    row.setAttribute('data-sub2api-sidebar-width-row', 'true');
+    setStyles(row, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const textWrap = document.createElement('div');
+    setStyles(textWrap, {
+      display: 'grid',
+      gap: '4px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = '侧边栏宽度';
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = `仅影响当前 Sub2API 域名，桌面窗口生效，自定义范围 ${SIDEBAR_WIDTH_MIN_PX}-${SIDEBAR_WIDTH_MAX_PX}px。`;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    const controls = document.createElement('div');
+    setStyles(controls, {
+      display: 'grid',
+      gap: '8px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+    });
+
+    for (const option of SIDEBAR_WIDTH_MODE_OPTIONS) {
+      controls.appendChild(
+        createSidebarWidthModeOption({
+          checked: sidebarWidth.mode === option.value,
+          option,
+        }),
+      );
+    }
+
+    const customControl = document.createElement('label');
+    setStyles(customControl, {
+      alignItems: 'center',
+      color: '#334155',
+      display: 'inline-flex',
+      fontSize: '12px',
+      fontWeight: '700',
+      gap: '8px',
+    });
+
+    const customLabel = document.createElement('span');
+    customLabel.textContent = '自定义 px';
+
+    const customInput = document.createElement('input');
+    customInput.type = 'number';
+    customInput.min = String(SIDEBAR_WIDTH_MIN_PX);
+    customInput.max = String(SIDEBAR_WIDTH_MAX_PX);
+    customInput.step = '1';
+    customInput.value = String(sidebarWidth.savedWidthPx);
+    customInput.disabled = sidebarWidth.mode !== SIDEBAR_WIDTH_MODE_VALUES.CUSTOM;
+    customInput.setAttribute('data-sub2api-sidebar-width-custom-input', 'true');
+    setStyles(customInput, {
+      border: '1px solid rgba(148, 163, 184, 0.45)',
+      borderRadius: '8px',
+      color: '#0f172a',
+      font: '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      padding: '7px 9px',
+      width: '88px',
+    });
+    customInput.addEventListener('change', () => {
+      const widthPx = normalizeSidebarWidthPx(customInput.value);
+      if (widthPx !== null) {
+        setSavedSidebarWidthPx(widthPx);
+        setSavedSidebarWidthMode(SIDEBAR_WIDTH_MODE_VALUES.CUSTOM);
+      }
+      applySettingsStateChange();
+    });
+
+    customControl.appendChild(customLabel);
+    customControl.appendChild(customInput);
+    textWrap.appendChild(title);
+    textWrap.appendChild(hint);
+    row.appendChild(textWrap);
+    row.appendChild(controls);
+    row.appendChild(customControl);
+    return row;
+  }
+
   function getSettingsGroupMeta(groupId) {
     switch (groupId) {
       case SETTINGS_GROUPS.USAGE:
@@ -747,11 +902,12 @@
     for (const [groupId, features] of featuresByGroup.entries()) {
       featureGroups.appendChild(createFeatureSettingsGroup(groupId, features));
     }
-    if (state.isSub2apiPage) {
-      featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
-    }
     for (const feature of standaloneFeatures) {
       featureGroups.appendChild(createFeatureSettingsRow(feature));
+    }
+    if (state.isSub2apiPage) {
+      featureGroups.appendChild(createSidebarWidthSettingsRow(state.sidebarWidth));
+      featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
     }
 
     panel.appendChild(header);
