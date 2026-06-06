@@ -172,7 +172,7 @@
 
   function getSavedSidebarWidthPx() {
     return normalizeSidebarWidthPx(
-      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, SIDEBAR_WIDTH_COMPACT_PX),
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, null),
     );
   }
 
@@ -260,7 +260,7 @@
 
     const currentCollapsedState = getCurrentSidebarCollapsedState();
     const effectiveWidthPx = getEffectiveSidebarWidthPx();
-    if (currentCollapsedState === true || effectiveWidthPx === null || !isDesktopSidebarWidthViewport()) {
+    if (currentCollapsedState !== false || effectiveWidthPx === null || !isDesktopSidebarWidthViewport()) {
       removeSidebarWidthOverride(sidebar);
       return false;
     }

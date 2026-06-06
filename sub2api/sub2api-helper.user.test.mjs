@@ -1475,6 +1475,39 @@ test('compact sidebar width mode applies the compact width to expanded sidebars'
   assert.ok(environment.document.querySelector('[data-sub2api-sidebar-width-style="true"]'));
 });
 
+test('sidebar width override is skipped when sidebar expanded state is unknown', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  const sidebar = environment.document.createElement('aside');
+  sidebar.className = 'sidebar';
+  const nav = environment.document.createElement('nav');
+  nav.className = 'sidebar-nav';
+  const link = environment.document.createElement('a');
+  link.className = 'sidebar-link';
+  link.setAttribute('href', '/usage');
+  link.textContent = '使用记录';
+  nav.appendChild(link);
+  const unrelatedButton = environment.document.createElement('button');
+  unrelatedButton.textContent = '渠道管理';
+  sidebar.appendChild(nav);
+  sidebar.appendChild(unrelatedButton);
+  environment.document.body.appendChild(sidebar);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
 test('custom sidebar width mode applies a valid custom width', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1501,6 +1534,25 @@ test('invalid custom sidebar width does not apply an override', async () => {
     gmValues: {
       [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'custom',
       [getScopedStorageKey(origin, 'sidebar-width-px')]: 400,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('custom sidebar width mode without a saved width does not apply an override', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'custom',
     },
     origin,
     pathname: '/usage',
