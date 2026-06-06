@@ -1770,6 +1770,91 @@ test('settings panel stores a fixed dark theme mode from the theme mode selector
   assert.equal(environment.findSettingsRoot().querySelector('input[data-sub2api-theme-mode-option="dark"]').checked, true);
 });
 
+test('settings panel stores compact sidebar width mode for the current origin', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const compactOption = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]');
+  assert.ok(compactOption);
+
+  compactOption.checked = true;
+  compactOption.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-mode')), 'compact');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
+  assert.equal(
+    environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]').checked,
+    true,
+  );
+});
+
+test('settings panel stores custom sidebar width for the current origin', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const customOption = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-sidebar-width-mode-option="custom"]');
+  assert.ok(customOption);
+
+  customOption.checked = true;
+  customOption.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  const customInput = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-sidebar-width-custom-input="true"]');
+  assert.ok(customInput);
+  customInput.value = '184';
+  customInput.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-mode')), 'custom');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-px')), 184);
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '184px');
+  assert.equal(
+    environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-custom-input="true"]').value,
+    '184',
+  );
+});
+
+test('sidebar width storage is isolated per Sub2API origin', async () => {
+  const origin = 'https://team-b.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey('https://team-a.sub2api.example.test', 'sidebar-width-mode')]: 'compact',
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'custom',
+      [getScopedStorageKey(origin, 'sidebar-width-px')]: 176,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '176px');
+});
+
 test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
   assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/skt-shinyruo\/tampermonkey-scripts/);
