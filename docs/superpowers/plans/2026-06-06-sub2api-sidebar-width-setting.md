@@ -24,7 +24,41 @@
 **Files:**
 - Modify: `sub2api/sub2api-helper.user.test.mjs`
 
-- [ ] **Step 1: Add viewport support to the test environment**
+- [ ] **Step 1: Add browser-faithful style custom property support**
+
+Add this helper before `TestElement`:
+
+```js
+function createTestStyleDeclaration() {
+  return {
+    getPropertyValue(name) {
+      return this[name] || '';
+    },
+    removeProperty(name) {
+      const previousValue = this[name] || '';
+      delete this[name];
+      return previousValue;
+    },
+    setProperty(name, value) {
+      this[name] = String(value);
+    },
+  };
+}
+```
+
+In the `TestElement` constructor, replace:
+
+```js
+    this.style = {};
+```
+
+with:
+
+```js
+    this.style = createTestStyleDeclaration();
+```
+
+- [ ] **Step 2: Add viewport support to the test environment**
 
 In `createTestEnvironment(...)`, add a `viewportWidth = 1280` option:
 
@@ -60,7 +94,7 @@ Inside `context.window = { ... }`, add:
     innerWidth: viewportWidth,
 ```
 
-- [ ] **Step 2: Add an aside sidebar fixture**
+- [ ] **Step 3: Add an aside sidebar fixture**
 
 Add this method to the object returned by `createTestEnvironment(...)`, next to `createSidebarActionButton` and `createSidebarToggle`:
 
@@ -100,7 +134,7 @@ Add this method to the object returned by `createTestEnvironment(...)`, next to 
     },
 ```
 
-- [ ] **Step 3: Add failing tests for runtime width application**
+- [ ] **Step 4: Add failing tests for runtime width application**
 
 Add these tests after the existing sidebar persistence tests:
 
@@ -122,7 +156,7 @@ test('default sidebar width mode leaves expanded sidebar width untouched', async
 
   assert.equal(sidebar.style.width, '214px');
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('compact sidebar width mode applies the compact width to expanded sidebars', async () => {
@@ -141,7 +175,7 @@ test('compact sidebar width mode applies the compact width to expanded sidebars'
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], '160px');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
   assert.ok(environment.document.querySelector('[data-sub2api-sidebar-width-style="true"]'));
 });
 
@@ -162,7 +196,7 @@ test('custom sidebar width mode applies a valid custom width', async () => {
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], '184px');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '184px');
 });
 
 test('invalid custom sidebar width does not apply an override', async () => {
@@ -182,7 +216,7 @@ test('invalid custom sidebar width does not apply an override', async () => {
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width override is skipped while the native sidebar is collapsed', async () => {
@@ -201,7 +235,7 @@ test('sidebar width override is skipped while the native sidebar is collapsed', 
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width override is skipped below the desktop viewport breakpoint', async () => {
@@ -221,11 +255,11 @@ test('sidebar width override is skipped below the desktop viewport breakpoint', 
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 ```
 
-- [ ] **Step 4: Run tests to verify RED**
+- [ ] **Step 5: Run tests to verify RED**
 
 Run:
 
@@ -372,7 +406,7 @@ In `02-dom-sidebar-selectors.js`, after `setSavedSidebarCollapsedState(...)`, ad
       return;
     }
     delete sidebar.dataset.sub2apiSidebarWidthApplied;
-    delete sidebar.style['--sub2api-helper-sidebar-width'];
+    sidebar.style.removeProperty('--sub2api-helper-sidebar-width');
   }
 
   function ensureSidebarWidthStyleElement() {
@@ -418,7 +452,7 @@ In `02-dom-sidebar-selectors.js`, after `setSavedSidebarCollapsedState(...)`, ad
 
     ensureSidebarWidthStyleElement();
     sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
-    sidebar.style['--sub2api-helper-sidebar-width'] = `${effectiveWidthPx}px`;
+    sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
     return true;
   }
 ```
@@ -487,7 +521,7 @@ test('settings panel stores compact sidebar width mode for the current origin', 
 
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-mode')), 'compact');
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], '160px');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
   assert.equal(
     environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]').checked,
     true,
@@ -524,7 +558,7 @@ test('settings panel stores custom sidebar width for the current origin', async 
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-mode')), 'custom');
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-px')), 184);
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], '184px');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '184px');
   assert.equal(
     environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-custom-input="true"]').value,
     '184',
@@ -548,7 +582,7 @@ test('sidebar width storage is isolated per Sub2API origin', async () => {
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
-  assert.equal(sidebar.style['--sub2api-helper-sidebar-width'], '176px');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '176px');
 });
 ```
 
