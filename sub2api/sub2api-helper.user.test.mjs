@@ -1012,6 +1012,11 @@ function createTestEnvironment({
         handler({ type });
       }
     },
+    setViewportWidth(value) {
+      const width = Number(value);
+      context.window.innerWidth = width;
+      html.clientWidth = width;
+    },
     setPreferredColorScheme(value) {
       colorScheme = value === 'dark' ? 'dark' : 'light';
       for (const handler of mediaQueryListeners) {
@@ -1547,6 +1552,58 @@ test('sidebar width override is skipped below the desktop viewport breakpoint', 
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('sidebar width override is removed after the native sidebar collapses', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar, toggle } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+
+  environment.sendDocumentClick(toggle);
+  toggle.click();
+  await flushMicrotasks();
+
+  assert.equal(toggle.getAttribute('title'), '展开');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('sidebar width override is applied after resizing into the desktop breakpoint', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+    viewportWidth: 760,
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+
+  environment.setViewportWidth(1280);
+  environment.sendWindowEvent('resize');
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
 });
 
 test('admin accounts restores and stores account filter selections', async () => {

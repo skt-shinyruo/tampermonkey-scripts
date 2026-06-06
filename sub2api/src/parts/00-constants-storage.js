@@ -282,6 +282,7 @@
   let sidebarSelectionPreviousState = null;
   let sidebarRestoreInFlightUntil = 0;
   let sidebarWidthStyleElement = null;
+  let sidebarWidthResizeWatcherInstalled = false;
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;

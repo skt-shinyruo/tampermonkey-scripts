@@ -325,6 +325,7 @@
 
       if (currentState !== null && (previousState === null || currentState !== previousState)) {
         setSavedSidebarCollapsedState(currentState);
+        applySavedSidebarWidth();
         sidebarSelectionActiveUntil = 0;
         sidebarSelectionPreviousState = null;
         return;
@@ -339,6 +340,7 @@
         setSavedSidebarCollapsedState(currentState);
       }
 
+      applySavedSidebarWidth();
       sidebarSelectionActiveUntil = 0;
       sidebarSelectionPreviousState = null;
     };

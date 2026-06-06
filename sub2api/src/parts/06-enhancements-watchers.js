@@ -291,6 +291,17 @@
     foregroundWatcherInstalled = true;
   }
 
+  function installSidebarWidthResizeWatcher() {
+    if (sidebarWidthResizeWatcherInstalled) {
+      return;
+    }
+
+    window.addEventListener('resize', () => {
+      applySavedSidebarWidth();
+    });
+    sidebarWidthResizeWatcherInstalled = true;
+  }
+
   function installPageSizeWatcher() {
     if (pageSizeWatcherInstalled) {
       return;
@@ -363,6 +374,7 @@
     installBrowserThemeWatcher();
     installPageVisibilityWatcher();
     installForegroundWatcher();
+    installSidebarWidthResizeWatcher();
     installPageSizeWatcher();
     installUrlWatcher();
     applyPageEnhancements();
