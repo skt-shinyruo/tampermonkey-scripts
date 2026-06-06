@@ -22,6 +22,22 @@ function splitClassNames(value) {
     .filter(Boolean);
 }
 
+function createTestStyleDeclaration() {
+  return {
+    getPropertyValue(name) {
+      return this[name] || '';
+    },
+    removeProperty(name) {
+      const previousValue = this[name] || '';
+      delete this[name];
+      return previousValue;
+    },
+    setProperty(name, value) {
+      this[name] = String(value);
+    },
+  };
+}
+
 function formatCustomLabel(dateText) {
   const [year, month, day] = String(dateText || '')
     .split('-')
@@ -126,7 +142,7 @@ class TestElement {
     this.listeners = new Map();
     this.ownerDocument = null;
     this.parentElement = null;
-    this.style = {};
+    this.style = createTestStyleDeclaration();
   }
 
   get classList() {
@@ -316,6 +332,7 @@ function createTestEnvironment({
   pathname = '/usage',
   preferredColorScheme = 'light',
   savedAutoRefreshValue = 'off',
+  viewportWidth = 1280,
 } = {}) {
   let colorScheme = preferredColorScheme;
   let currentTime = now;
@@ -385,6 +402,7 @@ function createTestEnvironment({
   };
 
   html.ownerDocument = document;
+  html.clientWidth = viewportWidth;
   body.ownerDocument = document;
   actionRow.ownerDocument = document;
   refreshButton.ownerDocument = document;
@@ -525,6 +543,7 @@ function createTestEnvironment({
       };
     },
     location,
+    innerWidth: viewportWidth,
     matchMedia(query) {
       return {
         addEventListener(type, handler) {
@@ -885,6 +904,39 @@ function createTestEnvironment({
       syncState(collapsed);
       body.appendChild(button);
       return button;
+    },
+    createSidebar({ collapsed = false, nativeWidth = '' } = {}) {
+      const sidebar = document.createElement('aside');
+      sidebar.className = 'sidebar';
+      if (nativeWidth) {
+        sidebar.style.width = nativeWidth;
+      }
+
+      const nav = document.createElement('nav');
+      nav.className = 'sidebar-nav';
+      const link = document.createElement('a');
+      link.className = 'sidebar-link';
+      link.setAttribute('href', '/usage');
+      link.textContent = '使用记录';
+      nav.appendChild(link);
+
+      const toggle = document.createElement('button');
+      const syncState = (nextCollapsed) => {
+        toggle.className = nextCollapsed ? 'sidebar-link w-full sidebar-link-collapsed' : 'sidebar-link w-full';
+        toggle.setAttribute('title', nextCollapsed ? '展开' : '收起');
+        toggle.textContent = nextCollapsed ? '展开' : '收起';
+      };
+      toggle.clickCount = 0;
+      toggle.addEventListener('click', () => {
+        toggle.clickCount += 1;
+        syncState(toggle.getAttribute('title') !== '展开');
+      });
+      syncState(collapsed);
+
+      sidebar.appendChild(nav);
+      sidebar.appendChild(toggle);
+      body.appendChild(sidebar);
+      return { sidebar, toggle };
     },
     createThemeToggle({ dark = false, localStorageTheme = dark ? 'dark' : 'light' } = {}) {
       const button = document.createElement('button');
@@ -1376,6 +1428,125 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
 
   assert.equal(sidebarToggle.textContent, '展开');
   assert.equal(sidebarToggle.clickCount, 1);
+});
+
+test('default sidebar width mode leaves expanded sidebar width untouched', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'default',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false, nativeWidth: '214px' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.style.width, '214px');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('compact sidebar width mode applies the compact width to expanded sidebars', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
+  assert.ok(environment.document.querySelector('[data-sub2api-sidebar-width-style="true"]'));
+});
+
+test('custom sidebar width mode applies a valid custom width', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'custom',
+      [getScopedStorageKey(origin, 'sidebar-width-px')]: 184,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '184px');
+});
+
+test('invalid custom sidebar width does not apply an override', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'custom',
+      [getScopedStorageKey(origin, 'sidebar-width-px')]: 400,
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('sidebar width override is skipped while the native sidebar is collapsed', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: true });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('sidebar width override is skipped below the desktop viewport breakpoint', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+    viewportWidth: 760,
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('admin accounts restores and stores account filter selections', async () => {
