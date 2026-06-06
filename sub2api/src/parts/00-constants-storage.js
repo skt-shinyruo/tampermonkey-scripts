@@ -19,6 +19,8 @@
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     PAGE_SIZE: 'usage-page-size',
     SIDEBAR_COLLAPSED: 'sidebar-collapsed',
+    SIDEBAR_WIDTH_MODE: 'sidebar-width-mode',
+    SIDEBAR_WIDTH_PX: 'sidebar-width-px',
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
@@ -45,6 +47,32 @@
       value: THEME_MODE_VALUES.DARK,
     },
   ];
+  const SIDEBAR_WIDTH_MODE_VALUES = {
+    DEFAULT: 'default',
+    COMPACT: 'compact',
+    CUSTOM: 'custom',
+  };
+  const SIDEBAR_WIDTH_MODE_OPTIONS = [
+    {
+      description: '不覆盖 Sub2API 原始侧边栏宽度。',
+      label: '默认',
+      value: SIDEBAR_WIDTH_MODE_VALUES.DEFAULT,
+    },
+    {
+      description: '使用 160px 的紧凑宽度。',
+      label: '紧凑',
+      value: SIDEBAR_WIDTH_MODE_VALUES.COMPACT,
+    },
+    {
+      description: '使用自定义像素宽度。',
+      label: '自定义',
+      value: SIDEBAR_WIDTH_MODE_VALUES.CUSTOM,
+    },
+  ];
+  const SIDEBAR_WIDTH_MIN_PX = 120;
+  const SIDEBAR_WIDTH_MAX_PX = 260;
+  const SIDEBAR_WIDTH_COMPACT_PX = 160;
+  const SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX = 900;
   const SETTINGS_GROUPS = {
     ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
@@ -253,6 +281,7 @@
   let sidebarSelectionActiveUntil = 0;
   let sidebarSelectionPreviousState = null;
   let sidebarRestoreInFlightUntil = 0;
+  let sidebarWidthStyleElement = null;
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;

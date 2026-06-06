@@ -10,6 +10,7 @@
     cleanupDisabledFeatures();
     await syncPageThemeWithBrowserTheme();
     restoreSavedSidebarState();
+    applySavedSidebarWidth();
 
     if (isAdminAccountsPage()) {
       stopAutoRefresh();
@@ -299,6 +300,7 @@
       installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
+      applySavedSidebarWidth();
       restoreSavedRange();
       restoreSavedAdminAccountsFilters();
       handlePageSizeValueChange();

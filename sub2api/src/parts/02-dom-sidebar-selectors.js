@@ -135,6 +135,142 @@
     setStorageValue(STORAGE_NAMES.SIDEBAR_COLLAPSED, value);
   }
 
+  function getSidebarElement() {
+    return document.querySelector('aside.sidebar');
+  }
+
+  function normalizeSidebarWidthMode(value) {
+    const normalizedValue = String(value || '').trim();
+    return SIDEBAR_WIDTH_MODE_OPTIONS.some((option) => option.value === normalizedValue)
+      ? normalizedValue
+      : SIDEBAR_WIDTH_MODE_VALUES.DEFAULT;
+  }
+
+  function normalizeSidebarWidthPx(value) {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) {
+      return null;
+    }
+
+    const roundedValue = Math.round(numberValue);
+    if (roundedValue < SIDEBAR_WIDTH_MIN_PX || roundedValue > SIDEBAR_WIDTH_MAX_PX) {
+      return null;
+    }
+
+    return roundedValue;
+  }
+
+  function getSavedSidebarWidthMode() {
+    return normalizeSidebarWidthMode(
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.DEFAULT),
+    );
+  }
+
+  function setSavedSidebarWidthMode(value) {
+    setStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, normalizeSidebarWidthMode(value));
+  }
+
+  function getSavedSidebarWidthPx() {
+    return normalizeSidebarWidthPx(
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, SIDEBAR_WIDTH_COMPACT_PX),
+    );
+  }
+
+  function setSavedSidebarWidthPx(value) {
+    const normalizedValue = normalizeSidebarWidthPx(value);
+    if (normalizedValue === null) {
+      return false;
+    }
+
+    setStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, normalizedValue);
+    return true;
+  }
+
+  function getEffectiveSidebarWidthPx() {
+    const mode = getSavedSidebarWidthMode();
+    if (mode === SIDEBAR_WIDTH_MODE_VALUES.COMPACT) {
+      return SIDEBAR_WIDTH_COMPACT_PX;
+    }
+    if (mode === SIDEBAR_WIDTH_MODE_VALUES.CUSTOM) {
+      return getSavedSidebarWidthPx();
+    }
+    return null;
+  }
+
+  function getSidebarWidthSettingsState() {
+    const mode = getSavedSidebarWidthMode();
+    const savedWidthPx = getSavedSidebarWidthPx() || SIDEBAR_WIDTH_COMPACT_PX;
+    return {
+      effectiveWidthPx: getEffectiveSidebarWidthPx(),
+      mode,
+      savedWidthPx,
+    };
+  }
+
+  function isDesktopSidebarWidthViewport() {
+    const viewportWidth = Number(window.innerWidth || document.documentElement.clientWidth || 0);
+    if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+      return true;
+    }
+    return viewportWidth >= SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX;
+  }
+
+  function removeSidebarWidthOverride(sidebar = getSidebarElement()) {
+    if (!sidebar) {
+      return;
+    }
+
+    delete sidebar.dataset.sub2apiSidebarWidthApplied;
+    sidebar.style.removeProperty('--sub2api-helper-sidebar-width');
+  }
+
+  function ensureSidebarWidthStyleElement() {
+    if (sidebarWidthStyleElement?.isConnected) {
+      return sidebarWidthStyleElement;
+    }
+
+    const existingStyle = document.querySelector('[data-sub2api-sidebar-width-style="true"]');
+    if (existingStyle) {
+      sidebarWidthStyleElement = existingStyle;
+      return sidebarWidthStyleElement;
+    }
+
+    const style = document.createElement('style');
+    style.dataset.sub2apiSidebarWidthStyle = 'true';
+    style.textContent = `
+@media (min-width: ${SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX}px) {
+  aside.sidebar[data-sub2api-sidebar-width-applied="true"] {
+    width: var(--sub2api-helper-sidebar-width) !important;
+    min-width: var(--sub2api-helper-sidebar-width) !important;
+    max-width: var(--sub2api-helper-sidebar-width) !important;
+    flex-basis: var(--sub2api-helper-sidebar-width) !important;
+  }
+}
+`;
+    document.documentElement.appendChild(style);
+    sidebarWidthStyleElement = style;
+    return sidebarWidthStyleElement;
+  }
+
+  function applySavedSidebarWidth() {
+    const sidebar = getSidebarElement();
+    if (!sidebar) {
+      return false;
+    }
+
+    const currentCollapsedState = getCurrentSidebarCollapsedState();
+    const effectiveWidthPx = getEffectiveSidebarWidthPx();
+    if (currentCollapsedState === true || effectiveWidthPx === null || !isDesktopSidebarWidthViewport()) {
+      removeSidebarWidthOverride(sidebar);
+      return false;
+    }
+
+    ensureSidebarWidthStyleElement();
+    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
+    sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    return true;
+  }
+
   function restoreSavedSidebarState() {
     if (!isFeatureEnabled(FEATURE_IDS.SIDEBAR_STATE)) {
       return false;
