@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.25
+// @version      0.22.26
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.25';
+  const SCRIPT_VERSION = '0.22.26';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -37,6 +37,8 @@
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     PAGE_SIZE: 'usage-page-size',
     SIDEBAR_COLLAPSED: 'sidebar-collapsed',
+    SIDEBAR_WIDTH_MODE: 'sidebar-width-mode',
+    SIDEBAR_WIDTH_PX: 'sidebar-width-px',
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
@@ -63,6 +65,32 @@
       value: THEME_MODE_VALUES.DARK,
     },
   ];
+  const SIDEBAR_WIDTH_MODE_VALUES = {
+    DEFAULT: 'default',
+    COMPACT: 'compact',
+    CUSTOM: 'custom',
+  };
+  const SIDEBAR_WIDTH_MODE_OPTIONS = [
+    {
+      description: '不覆盖 Sub2API 原始侧边栏宽度。',
+      label: '默认',
+      value: SIDEBAR_WIDTH_MODE_VALUES.DEFAULT,
+    },
+    {
+      description: '使用 160px 的紧凑宽度。',
+      label: '紧凑',
+      value: SIDEBAR_WIDTH_MODE_VALUES.COMPACT,
+    },
+    {
+      description: '使用自定义像素宽度。',
+      label: '自定义',
+      value: SIDEBAR_WIDTH_MODE_VALUES.CUSTOM,
+    },
+  ];
+  const SIDEBAR_WIDTH_MIN_PX = 120;
+  const SIDEBAR_WIDTH_MAX_PX = 260;
+  const SIDEBAR_WIDTH_COMPACT_PX = 160;
+  const SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX = 900;
   const SETTINGS_GROUPS = {
     ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
@@ -271,6 +299,8 @@
   let sidebarSelectionActiveUntil = 0;
   let sidebarSelectionPreviousState = null;
   let sidebarRestoreInFlightUntil = 0;
+  let sidebarWidthStyleElement = null;
+  let sidebarWidthResizeWatcherInstalled = false;
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
@@ -731,8 +761,8 @@
     );
   }
 
-  function getSidebarToggleButton() {
-    return [...document.querySelectorAll('button')].find((button) => {
+  function getSidebarToggleButtonFromRoot(root) {
+    return [...root.querySelectorAll('button')].find((button) => {
       const text = button.textContent.trim();
       const title = button.getAttribute('title')?.trim();
       return (
@@ -742,6 +772,10 @@
         title === '展开'
       );
     }) || null;
+  }
+
+  function getSidebarToggleButton() {
+    return getSidebarToggleButtonFromRoot(document);
   }
 
   function getSidebarCollapsedStateFromButton(button) {
@@ -769,6 +803,15 @@
     return getSidebarCollapsedStateFromButton(getSidebarToggleButton());
   }
 
+  function getSidebarScopedToggleButton() {
+    const sidebar = getSidebarElement();
+    return sidebar ? getSidebarToggleButtonFromRoot(sidebar) : null;
+  }
+
+  function getSidebarCollapsedStateForWidth() {
+    return getSidebarCollapsedStateFromButton(getSidebarScopedToggleButton());
+  }
+
   function getSavedSidebarCollapsedState() {
     const savedValue = getStorageValue(STORAGE_NAMES.SIDEBAR_COLLAPSED, null);
     return typeof savedValue === 'boolean' ? savedValue : null;
@@ -779,6 +822,142 @@
       return;
     }
     setStorageValue(STORAGE_NAMES.SIDEBAR_COLLAPSED, value);
+  }
+
+  function getSidebarElement() {
+    return document.querySelector('aside.sidebar');
+  }
+
+  function normalizeSidebarWidthMode(value) {
+    const normalizedValue = String(value || '').trim();
+    return SIDEBAR_WIDTH_MODE_OPTIONS.some((option) => option.value === normalizedValue)
+      ? normalizedValue
+      : SIDEBAR_WIDTH_MODE_VALUES.DEFAULT;
+  }
+
+  function normalizeSidebarWidthPx(value) {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) {
+      return null;
+    }
+
+    const roundedValue = Math.round(numberValue);
+    if (roundedValue < SIDEBAR_WIDTH_MIN_PX || roundedValue > SIDEBAR_WIDTH_MAX_PX) {
+      return null;
+    }
+
+    return roundedValue;
+  }
+
+  function getSavedSidebarWidthMode() {
+    return normalizeSidebarWidthMode(
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.DEFAULT),
+    );
+  }
+
+  function setSavedSidebarWidthMode(value) {
+    setStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, normalizeSidebarWidthMode(value));
+  }
+
+  function getSavedSidebarWidthPx() {
+    return normalizeSidebarWidthPx(
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, null),
+    );
+  }
+
+  function setSavedSidebarWidthPx(value) {
+    const normalizedValue = normalizeSidebarWidthPx(value);
+    if (normalizedValue === null) {
+      return false;
+    }
+
+    setStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_PX, normalizedValue);
+    return true;
+  }
+
+  function getEffectiveSidebarWidthPx() {
+    const mode = getSavedSidebarWidthMode();
+    if (mode === SIDEBAR_WIDTH_MODE_VALUES.COMPACT) {
+      return SIDEBAR_WIDTH_COMPACT_PX;
+    }
+    if (mode === SIDEBAR_WIDTH_MODE_VALUES.CUSTOM) {
+      return getSavedSidebarWidthPx();
+    }
+    return null;
+  }
+
+  function getSidebarWidthSettingsState() {
+    const mode = getSavedSidebarWidthMode();
+    const savedWidthPx = getSavedSidebarWidthPx() || SIDEBAR_WIDTH_COMPACT_PX;
+    return {
+      effectiveWidthPx: getEffectiveSidebarWidthPx(),
+      mode,
+      savedWidthPx,
+    };
+  }
+
+  function isDesktopSidebarWidthViewport() {
+    const viewportWidth = Number(window.innerWidth || document.documentElement.clientWidth || 0);
+    if (!Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+      return true;
+    }
+    return viewportWidth >= SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX;
+  }
+
+  function removeSidebarWidthOverride(sidebar = getSidebarElement()) {
+    if (!sidebar) {
+      return;
+    }
+
+    delete sidebar.dataset.sub2apiSidebarWidthApplied;
+    sidebar.style.removeProperty('--sub2api-helper-sidebar-width');
+  }
+
+  function ensureSidebarWidthStyleElement() {
+    if (sidebarWidthStyleElement?.isConnected) {
+      return sidebarWidthStyleElement;
+    }
+
+    const existingStyle = document.querySelector('[data-sub2api-sidebar-width-style="true"]');
+    if (existingStyle) {
+      sidebarWidthStyleElement = existingStyle;
+      return sidebarWidthStyleElement;
+    }
+
+    const style = document.createElement('style');
+    style.dataset.sub2apiSidebarWidthStyle = 'true';
+    style.textContent = `
+@media (min-width: ${SIDEBAR_WIDTH_DESKTOP_MIN_VIEWPORT_PX}px) {
+  aside.sidebar[data-sub2api-sidebar-width-applied="true"] {
+    width: var(--sub2api-helper-sidebar-width) !important;
+    min-width: var(--sub2api-helper-sidebar-width) !important;
+    max-width: var(--sub2api-helper-sidebar-width) !important;
+    flex-basis: var(--sub2api-helper-sidebar-width) !important;
+  }
+}
+`;
+    document.documentElement.appendChild(style);
+    sidebarWidthStyleElement = style;
+    return sidebarWidthStyleElement;
+  }
+
+  function applySavedSidebarWidth() {
+    const sidebar = getSidebarElement();
+    if (!sidebar) {
+      return false;
+    }
+
+    const currentCollapsedState = getSidebarCollapsedStateForWidth();
+    const effectiveWidthPx = getEffectiveSidebarWidthPx();
+    if (currentCollapsedState !== false || effectiveWidthPx === null || !isDesktopSidebarWidthViewport()) {
+      removeSidebarWidthOverride(sidebar);
+      return false;
+    }
+
+    ensureSidebarWidthStyleElement();
+    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
+    sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    return true;
   }
 
   function restoreSavedSidebarState() {
@@ -809,6 +988,7 @@
     toggleButton.click();
     window.setTimeout(() => {
       sidebarRestoreInFlightUntil = 0;
+      applySavedSidebarWidth();
     }, SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS);
     return true;
   }
@@ -835,6 +1015,7 @@
 
       if (currentState !== null && (previousState === null || currentState !== previousState)) {
         setSavedSidebarCollapsedState(currentState);
+        applySavedSidebarWidth();
         sidebarSelectionActiveUntil = 0;
         sidebarSelectionPreviousState = null;
         return;
@@ -849,6 +1030,7 @@
         setSavedSidebarCollapsedState(currentState);
       }
 
+      applySavedSidebarWidth();
       sidebarSelectionActiveUntil = 0;
       sidebarSelectionPreviousState = null;
     };
@@ -1313,6 +1495,7 @@
       features,
       isSub2apiPage,
       relevantFeatureCount,
+      sidebarWidth: getSidebarWidthSettingsState(),
       themeMode: getSavedThemeMode(),
     };
   }
@@ -1635,6 +1818,160 @@
     return row;
   }
 
+  function createSidebarWidthModeOption({ checked, option }) {
+    const label = document.createElement('label');
+    setStyles(label, {
+      alignItems: 'center',
+      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      borderRadius: '8px',
+      color: checked ? '#0f766e' : '#334155',
+      cursor: 'pointer',
+      display: 'grid',
+      gap: '4px',
+      padding: '10px',
+    });
+
+    const title = document.createElement('span');
+    setStyles(title, {
+      alignItems: 'center',
+      display: 'inline-flex',
+      fontSize: '13px',
+      fontWeight: '800',
+      gap: '8px',
+    });
+
+    const input = document.createElement('input');
+    input.type = 'radio';
+    input.name = 'sub2api-sidebar-width-mode';
+    input.value = option.value;
+    input.checked = checked;
+    input.setAttribute('data-sub2api-sidebar-width-mode-option', option.value);
+    input.addEventListener('change', () => {
+      if (!input.checked) {
+        return;
+      }
+      setSavedSidebarWidthMode(option.value);
+      if (option.value === SIDEBAR_WIDTH_MODE_VALUES.CUSTOM && !getSavedSidebarWidthPx()) {
+        setSavedSidebarWidthPx(SIDEBAR_WIDTH_COMPACT_PX);
+      }
+      applySettingsStateChange();
+    });
+
+    const labelText = document.createElement('span');
+    labelText.textContent = option.label;
+
+    const hint = document.createElement('span');
+    hint.textContent = option.description;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.35',
+    });
+
+    title.appendChild(input);
+    title.appendChild(labelText);
+    label.appendChild(title);
+    label.appendChild(hint);
+    return label;
+  }
+
+  function createSidebarWidthSettingsRow(sidebarWidth) {
+    const row = document.createElement('div');
+    row.setAttribute('data-sub2api-sidebar-width-row', 'true');
+    setStyles(row, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const textWrap = document.createElement('div');
+    setStyles(textWrap, {
+      display: 'grid',
+      gap: '4px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = '侧边栏宽度';
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = `仅影响当前 Sub2API 域名，桌面窗口生效，自定义范围 ${SIDEBAR_WIDTH_MIN_PX}-${SIDEBAR_WIDTH_MAX_PX}px。`;
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    const controls = document.createElement('div');
+    setStyles(controls, {
+      display: 'grid',
+      gap: '8px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+    });
+
+    for (const option of SIDEBAR_WIDTH_MODE_OPTIONS) {
+      controls.appendChild(
+        createSidebarWidthModeOption({
+          checked: sidebarWidth.mode === option.value,
+          option,
+        }),
+      );
+    }
+
+    const customControl = document.createElement('label');
+    setStyles(customControl, {
+      alignItems: 'center',
+      color: '#334155',
+      display: 'inline-flex',
+      fontSize: '12px',
+      fontWeight: '700',
+      gap: '8px',
+    });
+
+    const customLabel = document.createElement('span');
+    customLabel.textContent = '自定义 px';
+
+    const customInput = document.createElement('input');
+    customInput.type = 'number';
+    customInput.min = String(SIDEBAR_WIDTH_MIN_PX);
+    customInput.max = String(SIDEBAR_WIDTH_MAX_PX);
+    customInput.step = '1';
+    customInput.value = String(sidebarWidth.savedWidthPx);
+    customInput.disabled = sidebarWidth.mode !== SIDEBAR_WIDTH_MODE_VALUES.CUSTOM;
+    customInput.setAttribute('data-sub2api-sidebar-width-custom-input', 'true');
+    setStyles(customInput, {
+      border: '1px solid rgba(148, 163, 184, 0.45)',
+      borderRadius: '8px',
+      color: '#0f172a',
+      font: '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      padding: '7px 9px',
+      width: '88px',
+    });
+    customInput.addEventListener('change', () => {
+      const widthPx = normalizeSidebarWidthPx(customInput.value);
+      if (widthPx !== null) {
+        setSavedSidebarWidthPx(widthPx);
+        setSavedSidebarWidthMode(SIDEBAR_WIDTH_MODE_VALUES.CUSTOM);
+      }
+      applySettingsStateChange();
+    });
+
+    customControl.appendChild(customLabel);
+    customControl.appendChild(customInput);
+    textWrap.appendChild(title);
+    textWrap.appendChild(hint);
+    row.appendChild(textWrap);
+    row.appendChild(controls);
+    row.appendChild(customControl);
+    return row;
+  }
+
   function getSettingsGroupMeta(groupId) {
     switch (groupId) {
       case SETTINGS_GROUPS.USAGE:
@@ -1855,11 +2192,12 @@
     for (const [groupId, features] of featuresByGroup.entries()) {
       featureGroups.appendChild(createFeatureSettingsGroup(groupId, features));
     }
-    if (state.isSub2apiPage) {
-      featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
-    }
     for (const feature of standaloneFeatures) {
       featureGroups.appendChild(createFeatureSettingsRow(feature));
+    }
+    if (state.isSub2apiPage) {
+      featureGroups.appendChild(createSidebarWidthSettingsRow(state.sidebarWidth));
+      featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
     }
 
     panel.appendChild(header);
@@ -3039,6 +3377,7 @@
     cleanupDisabledFeatures();
     await syncPageThemeWithBrowserTheme();
     restoreSavedSidebarState();
+    applySavedSidebarWidth();
 
     if (isAdminAccountsPage()) {
       stopAutoRefresh();
@@ -3319,6 +3658,17 @@
     foregroundWatcherInstalled = true;
   }
 
+  function installSidebarWidthResizeWatcher() {
+    if (sidebarWidthResizeWatcherInstalled) {
+      return;
+    }
+
+    window.addEventListener('resize', () => {
+      applySavedSidebarWidth();
+    });
+    sidebarWidthResizeWatcherInstalled = true;
+  }
+
   function installPageSizeWatcher() {
     if (pageSizeWatcherInstalled) {
       return;
@@ -3328,6 +3678,7 @@
       installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
+      applySavedSidebarWidth();
       restoreSavedRange();
       restoreSavedAdminAccountsFilters();
       handlePageSizeValueChange();
@@ -3390,6 +3741,7 @@
     installBrowserThemeWatcher();
     installPageVisibilityWatcher();
     installForegroundWatcher();
+    installSidebarWidthResizeWatcher();
     installPageSizeWatcher();
     installUrlWatcher();
     applyPageEnhancements();
