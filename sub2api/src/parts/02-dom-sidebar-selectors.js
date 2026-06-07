@@ -85,8 +85,8 @@
     );
   }
 
-  function getSidebarToggleButton() {
-    return [...document.querySelectorAll('button')].find((button) => {
+  function getSidebarToggleButtonFromRoot(root) {
+    return [...root.querySelectorAll('button')].find((button) => {
       const text = button.textContent.trim();
       const title = button.getAttribute('title')?.trim();
       return (
@@ -96,6 +96,10 @@
         title === '展开'
       );
     }) || null;
+  }
+
+  function getSidebarToggleButton() {
+    return getSidebarToggleButtonFromRoot(document);
   }
 
   function getSidebarCollapsedStateFromButton(button) {
@@ -121,6 +125,15 @@
 
   function getCurrentSidebarCollapsedState() {
     return getSidebarCollapsedStateFromButton(getSidebarToggleButton());
+  }
+
+  function getSidebarScopedToggleButton() {
+    const sidebar = getSidebarElement();
+    return sidebar ? getSidebarToggleButtonFromRoot(sidebar) : null;
+  }
+
+  function getSidebarCollapsedStateForWidth() {
+    return getSidebarCollapsedStateFromButton(getSidebarScopedToggleButton());
   }
 
   function getSavedSidebarCollapsedState() {
@@ -258,7 +271,7 @@
       return false;
     }
 
-    const currentCollapsedState = getCurrentSidebarCollapsedState();
+    const currentCollapsedState = getSidebarCollapsedStateForWidth();
     const effectiveWidthPx = getEffectiveSidebarWidthPx();
     if (currentCollapsedState !== false || effectiveWidthPx === null || !isDesktopSidebarWidthViewport()) {
       removeSidebarWidthOverride(sidebar);
@@ -299,6 +312,7 @@
     toggleButton.click();
     window.setTimeout(() => {
       sidebarRestoreInFlightUntil = 0;
+      applySavedSidebarWidth();
     }, SIDEBAR_STATE_RESTORE_IN_FLIGHT_MS);
     return true;
   }

@@ -927,9 +927,16 @@ function createTestEnvironment({
         toggle.textContent = nextCollapsed ? '展开' : '收起';
       };
       toggle.clickCount = 0;
+      toggle._sidebarStateUpdateDelayMs = 0;
       toggle.addEventListener('click', () => {
         toggle.clickCount += 1;
-        syncState(toggle.getAttribute('title') !== '展开');
+        const nextCollapsed = toggle.getAttribute('title') !== '展开';
+        const delayMs = Number(toggle._sidebarStateUpdateDelayMs) || 0;
+        if (delayMs > 0) {
+          setTimeoutImpl(() => syncState(nextCollapsed), delayMs);
+          return;
+        }
+        syncState(nextCollapsed);
       });
       syncState(collapsed);
 
@@ -1435,6 +1442,28 @@ test('activates sidebar persistence on Sub2API admin pages without usage or dash
   assert.equal(sidebarToggle.clickCount, 1);
 });
 
+test('sidebar width applies after restoring a saved expanded sidebar asynchronously', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-collapsed')]: false,
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar, toggle } = environment.createSidebar({ collapsed: true });
+  toggle._sidebarStateUpdateDelayMs = 300;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(toggle.getAttribute('title'), '收起');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
+});
+
 test('default sidebar width mode leaves expanded sidebar width untouched', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1499,6 +1528,43 @@ test('sidebar width override is skipped when sidebar expanded state is unknown',
   unrelatedButton.textContent = '渠道管理';
   sidebar.appendChild(nav);
   sidebar.appendChild(unrelatedButton);
+  environment.document.body.appendChild(sidebar);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
+test('sidebar width ignores unrelated expand or collapse buttons outside the sidebar', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  const outsideButton = environment.document.createElement('button');
+  outsideButton.textContent = '收起';
+  environment.document.body.appendChild(outsideButton);
+
+  const sidebar = environment.document.createElement('aside');
+  sidebar.className = 'sidebar';
+  const nav = environment.document.createElement('nav');
+  nav.className = 'sidebar-nav';
+  const link = environment.document.createElement('a');
+  link.className = 'sidebar-link';
+  link.setAttribute('href', '/usage');
+  link.textContent = '使用记录';
+  nav.appendChild(link);
+  const unrelatedSidebarButton = environment.document.createElement('button');
+  unrelatedSidebarButton.textContent = '渠道管理';
+  sidebar.appendChild(nav);
+  sidebar.appendChild(unrelatedSidebarButton);
   environment.document.body.appendChild(sidebar);
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
