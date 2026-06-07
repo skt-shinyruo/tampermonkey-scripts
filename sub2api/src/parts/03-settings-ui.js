@@ -220,6 +220,10 @@
     return `生效中 (${state.enabledRelevantFeatureCount}/${state.relevantFeatureCount} 项开启)`;
   }
 
+  function getSettingsAddressText() {
+    return `当前地址: ${getCurrentOrigin()}${location.pathname}`;
+  }
+
   function setStyles(element, styles) {
     Object.assign(element.style, styles);
   }
@@ -229,6 +233,129 @@
     element.textContent = text;
     setStyles(element, styles);
     return element;
+  }
+
+  function applySettingsRootDataset(state) {
+    if (!settingsPanelRoot) {
+      return;
+    }
+    settingsPanelRoot.dataset.sub2apiSettingsIsSub2api = String(state.isSub2apiPage);
+    settingsPanelRoot.dataset.sub2apiSettingsEffectiveEnabled = String(state.effectiveEnabled);
+    settingsPanelRoot.dataset.sub2apiSettingsEnabledFeatureCount = String(state.enabledRelevantFeatureCount);
+  }
+
+  function syncSettingsOptionCard(input, checked) {
+    if (!input) {
+      return;
+    }
+    input.checked = checked;
+    const label = input.closest?.('label');
+    if (!label) {
+      return;
+    }
+    setStyles(label, {
+      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      color: checked ? '#0f766e' : '#334155',
+    });
+  }
+
+  function syncSettingsStatusText(state) {
+    const statusCard = settingsPanelRoot?.querySelector('[data-sub2api-settings-status-card="true"]');
+    if (statusCard) {
+      setStyles(statusCard, {
+        background: state.effectiveEnabled ? '#ecfdf5' : '#f8fafc',
+        border: `1px solid ${state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
+      });
+    }
+
+    const addressText = settingsPanelRoot?.querySelector('[data-sub2api-settings-current-address="true"]');
+    if (addressText) {
+      addressText.textContent = getSettingsAddressText();
+    }
+
+    const pageStatusText = settingsPanelRoot?.querySelector('[data-sub2api-settings-page-status="true"]');
+    if (pageStatusText) {
+      pageStatusText.textContent = `当前页面: ${state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面'}`;
+    }
+
+    const effectStatusText = settingsPanelRoot?.querySelector('[data-sub2api-settings-effect-status="true"]');
+    if (effectStatusText) {
+      effectStatusText.textContent = `修改功能: ${getSettingsStatusText(state)}`;
+      setStyles(effectStatusText, {
+        color: state.effectiveEnabled ? '#047857' : '#64748b',
+      });
+    }
+  }
+
+  function syncSettingsFeatureSwitches(features) {
+    for (const feature of features) {
+      const globalInput = settingsPanelRoot?.querySelector(
+        `input[data-sub2api-feature-global-switch="${feature.id}"]`,
+      );
+      if (globalInput) {
+        globalInput.checked = feature.globalEnabled;
+      }
+
+      const pageInput = settingsPanelRoot?.querySelector(`input[data-sub2api-feature-page-switch="${feature.id}"]`);
+      if (pageInput) {
+        pageInput.checked = feature.pageEnabled;
+      }
+    }
+  }
+
+  function syncSettingsThemeModeOptions(themeMode) {
+    for (const option of THEME_MODE_OPTIONS) {
+      syncSettingsOptionCard(
+        settingsPanelRoot?.querySelector(`input[data-sub2api-theme-mode-option="${option.value}"]`),
+        themeMode === option.value,
+      );
+    }
+  }
+
+  function syncSettingsSidebarWidthControls(sidebarWidth) {
+    for (const option of SIDEBAR_WIDTH_MODE_OPTIONS) {
+      syncSettingsOptionCard(
+        settingsPanelRoot?.querySelector(`input[data-sub2api-sidebar-width-mode-option="${option.value}"]`),
+        sidebarWidth.mode === option.value,
+      );
+    }
+
+    const customInput = settingsPanelRoot?.querySelector('[data-sub2api-sidebar-width-custom-input="true"]');
+    if (customInput) {
+      customInput.disabled = sidebarWidth.mode !== SIDEBAR_WIDTH_MODE_VALUES.CUSTOM;
+      customInput.value = String(sidebarWidth.savedWidthPx);
+    }
+  }
+
+  function syncSettingsPanelState() {
+    if (!settingsPanelRoot?.isConnected) {
+      return;
+    }
+
+    const state = getSettingsState();
+    if (settingsPanelRoot.dataset.sub2apiSettingsIsSub2api !== String(state.isSub2apiPage)) {
+      refreshSettingsPanel();
+      return;
+    }
+
+    applySettingsRootDataset(state);
+    syncSettingsStatusText(state);
+    syncSettingsFeatureSwitches(state.features);
+
+    if (!state.isSub2apiPage) {
+      return;
+    }
+
+    if (
+      !settingsPanelRoot.querySelector('div[data-sub2api-sidebar-width-row="true"]') ||
+      !settingsPanelRoot.querySelector('div[data-sub2api-theme-mode-row="true"]')
+    ) {
+      refreshSettingsPanel();
+      return;
+    }
+
+    syncSettingsSidebarWidthControls(state.sidebarWidth);
+    syncSettingsThemeModeOptions(state.themeMode);
   }
 
   function removeAutoRefreshControl() {
@@ -310,7 +437,7 @@
     } else {
       removeSettingsLauncherButton();
     }
-    refreshSettingsPanel();
+    syncSettingsPanelState();
   }
 
   function createFeatureScopeSwitch({ checked, featureId, label, scope }) {
@@ -780,9 +907,7 @@
 
     const state = getSettingsState();
     settingsPanelRoot.textContent = '';
-    settingsPanelRoot.dataset.sub2apiSettingsIsSub2api = String(state.isSub2apiPage);
-    settingsPanelRoot.dataset.sub2apiSettingsEffectiveEnabled = String(state.effectiveEnabled);
-    settingsPanelRoot.dataset.sub2apiSettingsEnabledFeatureCount = String(state.enabledRelevantFeatureCount);
+    applySettingsRootDataset(state);
 
     const panel = document.createElement('section');
     setStyles(panel, {
@@ -816,14 +941,14 @@
         fontWeight: '800',
       }),
     );
-    titleWrap.appendChild(
-      createSettingsText(`当前地址: ${getCurrentOrigin()}${location.pathname}`, {
+    const addressText = createSettingsText(getSettingsAddressText(), {
         color: '#64748b',
         fontSize: '12px',
         marginTop: '2px',
         overflowWrap: 'anywhere',
-      }),
-    );
+      });
+    addressText.dataset.sub2apiSettingsCurrentAddress = 'true';
+    titleWrap.appendChild(addressText);
     titleWrap.appendChild(
       createSettingsText(`脚本版本: ${SCRIPT_VERSION}`, {
         color: '#64748b',
@@ -859,6 +984,7 @@
     header.appendChild(closeButton);
 
     const status = document.createElement('div');
+    status.dataset.sub2apiSettingsStatusCard = 'true';
     setStyles(status, {
       background: state.effectiveEnabled ? '#ecfdf5' : '#f8fafc',
       border: `1px solid ${state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
@@ -867,18 +993,18 @@
       gap: '4px',
       padding: '12px',
     });
-    status.appendChild(
-      createSettingsText(`当前页面: ${state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面'}`, {
-        color: '#0f172a',
-        fontWeight: '700',
-      }),
-    );
-    status.appendChild(
-      createSettingsText(`修改功能: ${getSettingsStatusText(state)}`, {
-        color: state.effectiveEnabled ? '#047857' : '#64748b',
-        fontWeight: '700',
-      }),
-    );
+    const pageStatusText = createSettingsText(`当前页面: ${state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面'}`, {
+      color: '#0f172a',
+      fontWeight: '700',
+    });
+    pageStatusText.dataset.sub2apiSettingsPageStatus = 'true';
+    status.appendChild(pageStatusText);
+    const effectStatusText = createSettingsText(`修改功能: ${getSettingsStatusText(state)}`, {
+      color: state.effectiveEnabled ? '#047857' : '#64748b',
+      fontWeight: '700',
+    });
+    effectStatusText.dataset.sub2apiSettingsEffectStatus = 'true';
+    status.appendChild(effectStatusText);
 
     const featureGroups = document.createElement('div');
     setStyles(featureGroups, {

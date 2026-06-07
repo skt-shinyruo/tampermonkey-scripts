@@ -945,6 +945,26 @@ function createTestEnvironment({
       body.appendChild(sidebar);
       return { sidebar, toggle };
     },
+    createAppLayout({ collapsed = false, nativeWidth = '', withMobileOverlay = false } = {}) {
+      const { sidebar, toggle } = this.createSidebar({ collapsed, nativeWidth });
+      if (withMobileOverlay) {
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 z-30 bg-black/50 lg:hidden';
+        body.appendChild(overlay);
+      }
+
+      const content = document.createElement('div');
+      const header = document.createElement('header');
+      const main = document.createElement('main');
+      content.className = 'relative min-h-screen transition-all duration-300 lg:ml-64';
+      header.className = 'glass sticky top-0 z-30 border-b';
+      main.className = 'p-4 md:p-6 lg:p-8';
+      main.textContent = 'Main content';
+      content.appendChild(header);
+      content.appendChild(main);
+      body.appendChild(content);
+      return { content, header, main, sidebar, toggle };
+    },
     createThemeToggle({ dark = false, localStorageTheme = dark ? 'dark' : 'light' } = {}) {
       const button = document.createElement('button');
       const syncTheme = (nextDark, storageTheme = nextDark ? 'dark' : 'light') => {
@@ -1504,6 +1524,49 @@ test('compact sidebar width mode applies the compact width to expanded sidebars'
   assert.ok(environment.document.querySelector('[data-sub2api-sidebar-width-style="true"]'));
 });
 
+test('compact sidebar width mode offsets the app content shell', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'compact',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { content, sidebar } = environment.createAppLayout({ collapsed: false, withMobileOverlay: true });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const styleElement = environment.document.querySelector('[data-sub2api-sidebar-width-style="true"]');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, 'true');
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
+  assert.match(styleElement.textContent, /margin-left: var\(--sub2api-helper-sidebar-width\) !important;/);
+});
+
+test('default sidebar width mode clears the app content shell offset', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'sidebar-width-mode')]: 'default',
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { content } = environment.createAppLayout({ collapsed: false });
+  content.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
+  content.style.setProperty('--sub2api-helper-sidebar-width', '220px');
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, undefined);
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+});
+
 test('sidebar width override is skipped when sidebar expanded state is unknown', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -1529,12 +1592,21 @@ test('sidebar width override is skipped when sidebar expanded state is unknown',
   sidebar.appendChild(nav);
   sidebar.appendChild(unrelatedButton);
   environment.document.body.appendChild(sidebar);
+  const content = environment.document.createElement('div');
+  const main = environment.document.createElement('main');
+  content.className = 'relative min-h-screen transition-all duration-300 lg:ml-64';
+  content.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
+  content.style.setProperty('--sub2api-helper-sidebar-width', '220px');
+  content.appendChild(main);
+  environment.document.body.appendChild(content);
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, undefined);
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width ignores unrelated expand or collapse buttons outside the sidebar', async () => {
@@ -1643,13 +1715,17 @@ test('sidebar width override is skipped while the native sidebar is collapsed', 
     pathname: '/usage',
   });
   createUsageFingerprint(environment);
-  const { sidebar } = environment.createSidebar({ collapsed: true });
+  const { content, sidebar } = environment.createAppLayout({ collapsed: true });
+  content.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
+  content.style.setProperty('--sub2api-helper-sidebar-width', '220px');
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, undefined);
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width override is skipped below the desktop viewport breakpoint', async () => {
@@ -1663,13 +1739,17 @@ test('sidebar width override is skipped below the desktop viewport breakpoint', 
     viewportWidth: 760,
   });
   createUsageFingerprint(environment);
-  const { sidebar } = environment.createSidebar({ collapsed: false });
+  const { content, sidebar } = environment.createAppLayout({ collapsed: false });
+  content.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
+  content.style.setProperty('--sub2api-helper-sidebar-width', '220px');
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, undefined);
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width override is removed after the native sidebar collapses', async () => {
@@ -1682,12 +1762,13 @@ test('sidebar width override is removed after the native sidebar collapses', asy
     pathname: '/usage',
   });
   createUsageFingerprint(environment);
-  const { sidebar, toggle } = environment.createSidebar({ collapsed: false });
+  const { content, sidebar, toggle } = environment.createAppLayout({ collapsed: false });
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
   await flushMicrotasks();
 
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, 'true');
 
   environment.sendDocumentClick(toggle);
   toggle.click();
@@ -1696,6 +1777,8 @@ test('sidebar width override is removed after the native sidebar collapses', asy
   assert.equal(toggle.getAttribute('title'), '展开');
   assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+  assert.equal(content.dataset.sub2apiSidebarLayoutWidthApplied, undefined);
+  assert.equal(content.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
 });
 
 test('sidebar width override is applied after resizing into the desktop breakpoint', async () => {
@@ -1914,6 +1997,71 @@ test('settings panel stores compact sidebar width mode for the current origin', 
     environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]').checked,
     true,
   );
+});
+
+test('settings panel keeps the same scroll container when applying option changes', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const scrollContainer = settingsRoot.children[0].children[2];
+  scrollContainer.scrollTop = 240;
+  const compactOption = scrollContainer.querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]');
+  assert.ok(compactOption);
+
+  compactOption.checked = true;
+  compactOption.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  const updatedScrollContainer = environment.findSettingsRoot().children[0].children[2];
+  assert.equal(updatedScrollContainer === scrollContainer, true);
+  assert.equal(updatedScrollContainer.scrollTop, 240);
+  assert.equal(compactOption.checked, true);
+});
+
+test('settings panel updates status card styles without rebuilding when all relevant features are disabled', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const statusCard = settingsRoot.children[0].children[1];
+  const scrollContainer = settingsRoot.children[0].children[2];
+  assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'true');
+  assert.equal(statusCard.style.background, '#ecfdf5');
+
+  for (const featureId of [
+    'sidebar-state',
+    'usage-date-range',
+    'usage-granularity',
+    'usage-page-size',
+    'usage-auto-refresh',
+  ]) {
+    const switchInput = environment
+      .findSettingsRoot()
+      .querySelector(`input[data-sub2api-feature-global-switch="${featureId}"]`);
+    assert.ok(switchInput);
+    switchInput.checked = false;
+    switchInput.dispatchEvent({ type: 'change' });
+    await flushMicrotasks();
+  }
+
+  assert.equal(environment.findSettingsRoot().children[0].children[2] === scrollContainer, true);
+  assert.equal(settingsRoot.dataset.sub2apiSettingsEffectiveEnabled, 'false');
+  assert.match(settingsRoot.textContent, /修改功能: 已关闭/);
+  assert.equal(statusCard.style.background, '#f8fafc');
+  assert.equal(statusCard.style.border, '1px solid #e2e8f0');
 });
 
 test('settings panel stores custom sidebar width for the current origin', async () => {

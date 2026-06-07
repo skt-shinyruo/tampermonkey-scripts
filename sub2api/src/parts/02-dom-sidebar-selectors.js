@@ -152,6 +152,30 @@
     return document.querySelector('aside.sidebar');
   }
 
+  function getSidebarLayoutContentElement(sidebar = getSidebarElement()) {
+    if (!sidebar?.parentElement) {
+      return null;
+    }
+
+    const siblings = [...sidebar.parentElement.children];
+    const sidebarIndex = siblings.indexOf(sidebar);
+    if (sidebarIndex < 0) {
+      return null;
+    }
+
+    return siblings.slice(sidebarIndex + 1).find((element) => {
+      const classList = element.classList;
+      return (
+        element.tagName === 'DIV' &&
+        (
+          element.querySelector('main') ||
+          classList.contains('lg:ml-64') ||
+          classList.contains('lg:ml-[72px]')
+        )
+      );
+    }) || null;
+  }
+
   function normalizeSidebarWidthMode(value) {
     const normalizedValue = String(value || '').trim();
     return SIDEBAR_WIDTH_MODE_OPTIONS.some((option) => option.value === normalizedValue)
@@ -230,11 +254,27 @@
 
   function removeSidebarWidthOverride(sidebar = getSidebarElement()) {
     if (!sidebar) {
+      removeSidebarLayoutWidthOverride();
       return;
     }
 
     delete sidebar.dataset.sub2apiSidebarWidthApplied;
     sidebar.style.removeProperty('--sub2api-helper-sidebar-width');
+    removeSidebarLayoutWidthOverride(getSidebarLayoutContentElement(sidebar));
+  }
+
+  function removeSidebarLayoutWidthOverride(content = getSidebarLayoutContentElement()) {
+    const targets = new Set([
+      ...document.querySelectorAll('[data-sub2api-sidebar-layout-width-applied="true"]'),
+    ]);
+    if (content) {
+      targets.add(content);
+    }
+
+    for (const target of targets) {
+      delete target.dataset.sub2apiSidebarLayoutWidthApplied;
+      target.style.removeProperty('--sub2api-helper-sidebar-width');
+    }
   }
 
   function ensureSidebarWidthStyleElement() {
@@ -257,6 +297,10 @@
     min-width: var(--sub2api-helper-sidebar-width) !important;
     max-width: var(--sub2api-helper-sidebar-width) !important;
     flex-basis: var(--sub2api-helper-sidebar-width) !important;
+  }
+
+  [data-sub2api-sidebar-layout-width-applied="true"] {
+    margin-left: var(--sub2api-helper-sidebar-width) !important;
   }
 }
 `;
@@ -281,6 +325,13 @@
     ensureSidebarWidthStyleElement();
     sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
     sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    const layoutContent = getSidebarLayoutContentElement(sidebar);
+    if (layoutContent) {
+      layoutContent.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
+      layoutContent.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    } else {
+      removeSidebarLayoutWidthOverride();
+    }
     return true;
   }
 
