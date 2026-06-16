@@ -455,6 +455,106 @@
     return input;
   }
 
+  function isUsageLogListRequestUrl(urlInput) {
+    if (!urlInput) {
+      return false;
+    }
+
+    const requestUrl = new URL(String(urlInput), location.href);
+    if (requestUrl.origin !== getCurrentOrigin()) {
+      return false;
+    }
+
+    return requestUrl.pathname === '/api/v1/usage' || requestUrl.pathname === '/api/v1/admin/usage';
+  }
+
+  function normalizeUsageLogListResponse(responseBody) {
+    if (!responseBody || typeof responseBody !== 'object') {
+      return null;
+    }
+
+    if (Array.isArray(responseBody.items)) {
+      return responseBody.items;
+    }
+
+    if (responseBody.data && typeof responseBody.data === 'object') {
+      if (Array.isArray(responseBody.data.items)) {
+        return responseBody.data.items;
+      }
+      if (Array.isArray(responseBody.data)) {
+        return responseBody.data;
+      }
+    }
+
+    if (Array.isArray(responseBody)) {
+      return responseBody;
+    }
+
+    return null;
+  }
+
+  function cacheUsageLogRowsFromResponse(urlInput, responseBody) {
+    if (!isUsageLogListRequestUrl(urlInput)) {
+      return;
+    }
+
+    const rows = normalizeUsageLogListResponse(responseBody);
+    if (!rows) {
+      return;
+    }
+
+    for (const row of rows) {
+      cacheUsageLogRow(row);
+    }
+
+    scheduleUsageTableEnhancement();
+  }
+
+  function cacheUsageLogRow(row) {
+    if (!row || typeof row !== 'object') {
+      return;
+    }
+
+    const id = row.id;
+    const requestId = row.request_id;
+    if (id !== null && id !== undefined && String(id)) {
+      usageLogRowsById.set(String(id), row);
+    }
+    if (requestId !== null && requestId !== undefined && String(requestId)) {
+      usageLogRowsByRequestId.set(String(requestId), row);
+    }
+
+    trimUsageLogRowCache(usageLogRowsById);
+    trimUsageLogRowCache(usageLogRowsByRequestId);
+  }
+
+  function trimUsageLogRowCache(cache) {
+    while (cache.size > USAGE_LOG_ROW_CACHE_LIMIT) {
+      const firstKey = cache.keys().next().value;
+      cache.delete(firstKey);
+    }
+  }
+
+  function inspectFetchUsageLogResponse(urlInput, responsePromise) {
+    responsePromise
+      .then((response) => {
+        if (!response || typeof response.clone !== 'function') {
+          return;
+        }
+        const responseClone = response.clone();
+        if (typeof responseClone.json !== 'function') {
+          return;
+        }
+        return responseClone
+          .json()
+          .then((body) => {
+            cacheUsageLogRowsFromResponse(urlInput, body);
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+  }
+
   function installUsageRequestRewriter() {
     if (usageRequestRewriteInstalled) {
       return;
@@ -463,7 +563,13 @@
     if (typeof window.fetch === 'function') {
       const originalFetch = window.fetch.bind(window);
       const patchedFetch = function patchedFetch(input, init) {
-        return originalFetch(rewriteFetchInput(input), init);
+        const rewrittenInput = rewriteFetchInput(input);
+        const urlInput = typeof rewrittenInput === 'string' || rewrittenInput instanceof URL
+          ? String(rewrittenInput)
+          : rewrittenInput?.url;
+        const responsePromise = originalFetch(rewrittenInput, init);
+        inspectFetchUsageLogResponse(urlInput, responsePromise);
+        return responsePromise;
       };
       window.fetch = patchedFetch;
       globalThis.fetch = patchedFetch;
@@ -472,7 +578,23 @@
     if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype?.open) {
       const originalOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
-        return originalOpen.call(this, method, rewriteUsageRequestUrl(url), ...rest);
+        const rewrittenUrl = rewriteUsageRequestUrl(url);
+        this.__sub2apiUsageRequestUrl = rewrittenUrl;
+        this.addEventListener?.('load', () => {
+          if (!isUsageLogListRequestUrl(this.__sub2apiUsageRequestUrl)) {
+            return;
+          }
+          const responseText = this.responseText;
+          if (!responseText) {
+            return;
+          }
+          try {
+            cacheUsageLogRowsFromResponse(this.__sub2apiUsageRequestUrl, JSON.parse(responseText));
+          } catch {
+            // Ignore non-JSON or inaccessible responses.
+          }
+        });
+        return originalOpen.call(this, method, rewrittenUrl, ...rest);
       };
     }
 

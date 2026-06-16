@@ -11,6 +11,7 @@ const partPaths = [
   'src/parts/03-settings-ui.js',
   'src/parts/04-range-granularity-rewrite.js',
   'src/parts/05-auto-refresh.js',
+  'src/parts/06-usage-table-enhancements.js',
   'src/parts/06-enhancements-watchers.js',
 ].map((path) => resolve(scriptDir, path));
 

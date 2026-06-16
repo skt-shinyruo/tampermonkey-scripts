@@ -201,6 +201,7 @@
   const FOREGROUND_WATCH_INTERVAL_MS = 1000;
   const FOREGROUND_WATCH_GAP_MS = 2500;
   const AUTO_REFRESH_DEBUG_EVENT_LIMIT = 8;
+  const USAGE_LOG_ROW_CACHE_LIMIT = 600;
   const AUTO_REFRESH_OPTIONS = [
     { value: 'off', label: '关闭', ms: 0 },
     { value: '5000', label: '5s', ms: 5000 },
@@ -283,6 +284,10 @@
   let sidebarRestoreInFlightUntil = 0;
   let sidebarWidthStyleElement = null;
   let sidebarWidthResizeWatcherInstalled = false;
+  let usageTableEnhancementScheduled = false;
+  let usageTableEnhancementStyleElement = null;
+  const usageLogRowsById = new Map();
+  const usageLogRowsByRequestId = new Map();
   let lastObservedPageSizeValue = null;
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;

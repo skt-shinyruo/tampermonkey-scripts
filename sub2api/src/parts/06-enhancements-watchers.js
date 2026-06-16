@@ -49,6 +49,7 @@
 
     await restoreSavedPageSize();
     await restoreSavedGranularity();
+    scheduleUsageTableEnhancement();
     if (!isUsageAutoRefreshPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
@@ -316,6 +317,7 @@
       restoreSavedAdminAccountsFilters();
       handlePageSizeValueChange();
       handleGranularityValueChange();
+      scheduleUsageTableEnhancement();
     });
     observer.observe(document.documentElement, {
       childList: true,

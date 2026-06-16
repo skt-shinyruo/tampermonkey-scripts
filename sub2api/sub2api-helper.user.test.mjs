@@ -346,6 +346,7 @@ function createTestEnvironment({
   const mutationObservers = new Set();
   const timeouts = new Map();
   const fetchCalls = [];
+  const fetchResponses = new Map();
   const mediaQueryListeners = new Set();
   const menuCommands = new Map();
   const windowListeners = new Map();
@@ -493,8 +494,23 @@ function createTestEnvironment({
     fetch(input, init = {}) {
       const url = typeof input === 'string' ? input : input?.url;
       const method = init.method || input?.method || 'GET';
-      fetchCalls.push({ method, url: String(url) });
-      return Promise.resolve({ method, url: String(url) });
+      const urlText = String(url);
+      fetchCalls.push({ method, url: urlText });
+      const requestPath = new URL(urlText, origin).pathname;
+      const responseBody = fetchResponses.get(urlText) || fetchResponses.get(requestPath);
+      const response = {
+        method,
+        ok: true,
+        status: 200,
+        url: urlText,
+        clone() {
+          return this;
+        },
+        json() {
+          return Promise.resolve(responseBody ?? {});
+        },
+      };
+      return Promise.resolve(response);
     },
     localStorage: {
       getItem(key) {
@@ -999,6 +1015,9 @@ function createTestEnvironment({
     getFetchCalls() {
       return [...fetchCalls];
     },
+    setFetchResponse(pathOrUrl, responseBody) {
+      fetchResponses.set(pathOrUrl, responseBody);
+    },
     getMenuCommand(label) {
       return menuCommands.get(label) || null;
     },
@@ -1116,6 +1135,102 @@ function createAdminAccountsFilters(environment, groupOptions = ['全部分组',
       options: groupOptions,
       value: '全部分组',
     }),
+  };
+}
+
+function createUsageEnhancementTable(environment, rows) {
+  const document = environment.document;
+  const table = document.createElement('table');
+  const thead = document.createElement('thead');
+  const headerRow = document.createElement('tr');
+  const tbody = document.createElement('tbody');
+  const headers = ['模型', '类型', 'Tokens', '费用', '首 TOKEN', '耗时'];
+  const columnKeys = ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration'];
+  const rowElements = new Map();
+
+  const appendCostContent = (td, row) => {
+    if (!row.costInfoIcon) {
+      td.textContent = row.cost ?? '';
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    const mainLine = document.createElement('div');
+    const amount = document.createElement('span');
+    const infoRoot = document.createElement('div');
+    const infoCircle = document.createElement('div');
+    const accountLine = document.createElement('div');
+    const accountAmount = document.createElement('span');
+
+    mainLine.className = 'flex items-center gap-1.5';
+    amount.textContent = row.cost ?? '';
+    infoRoot.className = 'group relative';
+    infoRoot.dataset.testCostInfoRoot = 'true';
+    infoCircle.className = 'flex h-4 w-4 cursor-help rounded-full';
+    infoCircle.dataset.testCostInfoCircle = 'true';
+    accountLine.dataset.testCostAccountLine = 'true';
+    accountAmount.textContent = row.accountCost ?? `A ${row.cost ?? ''}`;
+
+    infoRoot.appendChild(infoCircle);
+    mainLine.appendChild(amount);
+    mainLine.appendChild(infoRoot);
+    accountLine.appendChild(accountAmount);
+    wrapper.appendChild(mainLine);
+    wrapper.appendChild(accountLine);
+    td.appendChild(wrapper);
+  };
+
+  for (const header of headers) {
+    const th = document.createElement('th');
+    th.textContent = header;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+    tr.setAttribute('data-row-id', String(row.id));
+    const cells = {};
+    for (const columnKey of columnKeys) {
+      const td = document.createElement('td');
+      if (columnKey === 'cost') {
+        appendCostContent(td, row);
+      } else {
+        td.textContent = row[columnKey] ?? '';
+      }
+      cells[columnKey] = td;
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+    rowElements.set(String(row.id), { cells, row: tr });
+  }
+
+  table.appendChild(tbody);
+  document.body.appendChild(table);
+
+  return {
+    getCell(rowId, columnKey) {
+      return rowElements.get(String(rowId))?.cells[columnKey] || null;
+    },
+    getFastIcons(rowId) {
+      return [
+        ...rowElements
+          .get(String(rowId))
+          ?.cells.cost.querySelectorAll('[data-sub2api-usage-fast-tier-icon="true"]') || [],
+      ];
+    },
+    table,
+  };
+}
+
+function buildUsageListResponse(items) {
+  return {
+    items,
+    page: 1,
+    page_size: items.length,
+    pages: 1,
+    total: items.length,
   };
 }
 
@@ -2128,6 +2243,242 @@ test('metadata targets generic Sub2API deployments instead of one Ciii domain', 
   assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
   assert.match(source, /\/\/ @run-at\s+document-start/);
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
+});
+
+test('usage table adds TPS below duration for streaming rows from usage API data', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 101,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 101,
+      request_id: 'req-stream-101',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'default',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const durationCell = table.getCell(101, 'duration');
+  assert.match(durationCell.textContent, /20\.58s/);
+  assert.match(durationCell.textContent, /52\.94 TPS/);
+  assert.equal(durationCell.style.textAlign, 'left');
+  assert.equal(durationCell.dataset.sub2apiUsageTpsApplied, 'true');
+});
+
+test('usage table does not add TPS for sync rows or rows without first token latency', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 201,
+      model: 'gpt-5.5',
+      type: '同步',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '-',
+      duration: '20.58s',
+    },
+    {
+      id: 202,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '-',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 201,
+      request_id: 'req-sync-201',
+      request_type: 'sync',
+      stream: false,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: null,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
+    {
+      id: 202,
+      request_id: 'req-stream-202',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: null,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.doesNotMatch(table.getCell(201, 'duration').textContent, /TPS/);
+  assert.doesNotMatch(table.getCell(202, 'duration').textContent, /TPS/);
+});
+
+test('usage table highlights fast service tier beside the account-billed cost line', async () => {
+  const origin = 'https://admin.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 301,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      costInfoIcon: true,
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+    {
+      id: 302,
+      model: 'fast-standard-model',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/admin/usage', buildUsageListResponse([
+    {
+      id: 301,
+      request_id: 'req-fast-301',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
+    {
+      id: 302,
+      request_id: 'req-standard-302',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'default',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/admin/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const fastIcons = table.getFastIcons(301);
+  const costInfoRoot = table
+    .getCell(301, 'cost')
+    .querySelector('[data-test-cost-info-root="true"]');
+  const accountLine = table
+    .getCell(301, 'cost')
+    .querySelector('[data-test-cost-account-line="true"]');
+  assert.equal(fastIcons.length, 1);
+  assert.equal(fastIcons[0].textContent, '⚡');
+  assert.equal(fastIcons[0].title, 'Fast');
+  assert.equal(fastIcons[0].style.color, '#f59e0b');
+  assert.equal(costInfoRoot.dataset.sub2apiUsageFastTierStack, undefined);
+  assert.equal(costInfoRoot.children[0].dataset.testCostInfoCircle, 'true');
+  assert.equal(fastIcons[0].parentElement, accountLine);
+  assert.match(accountLine.children[0].textContent, /^A \$0\.012345$/);
+  assert.equal(accountLine.children[1], fastIcons[0]);
+  assert.match(accountLine.textContent, /^A \$0\.012345⚡$/);
+  assert.equal(table.getFastIcons(302).length, 0);
+});
+
+test('usage table enhancements are idempotent across repeated mutation observer runs', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 401,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 401,
+      request_id: 'req-fast-stream-401',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'fast',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+
+  environment.runMutationObservers();
+  environment.runMutationObservers();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(table.getFastIcons(401).length, 1);
+  assert.equal((table.getCell(401, 'duration').textContent.match(/TPS/g) || []).length, 1);
 });
 
 test('settings panel shows Sub2API detection and per-feature switches for the current page', async () => {
