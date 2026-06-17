@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.29
+// @version      0.22.30
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.29';
+  const SCRIPT_VERSION = '0.22.30';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3975,9 +3975,16 @@
       cell.appendChild(stack);
     }
 
-    durationValue.textContent = durationText;
-    tpsValue.textContent = `${tps.toFixed(2)} TPS`;
+    setUsageTextIfChanged(durationValue, durationText);
+    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} TPS`);
     cell.dataset.sub2apiUsageTpsApplied = 'true';
+  }
+
+  function setUsageTextIfChanged(element, text) {
+    if (element.textContent === text) {
+      return;
+    }
+    element.textContent = text;
   }
 
   function removeUsageTps(cell, durationText) {
