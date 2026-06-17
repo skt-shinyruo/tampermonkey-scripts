@@ -2529,6 +2529,84 @@ test('usage table enhancements are idempotent across repeated mutation observer 
   assert.equal((table.getCell(401, 'duration').textContent.match(/TPS/g) || []).length, 1);
 });
 
+test('usage table enhancement does not rewrite unchanged TPS text nodes', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 501,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 501,
+      request_id: 'req-stable-stream-501',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'default',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const durationCell = table.getCell(501, 'duration');
+  const tpsValue = durationCell.querySelector('[data-sub2api-usage-tps-value="true"]');
+  const durationValue = durationCell.querySelector('[data-sub2api-usage-duration-value="true"]');
+  const tpsTextContent = tpsValue.textContent;
+  const durationTextContent = durationValue.textContent;
+  const textContentDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tpsValue), 'textContent');
+  let tpsTextWrites = 0;
+  let durationTextWrites = 0;
+
+  Object.defineProperty(tpsValue, 'textContent', {
+    configurable: true,
+    get() {
+      return textContentDescriptor.get.call(this);
+    },
+    set(value) {
+      tpsTextWrites += 1;
+      textContentDescriptor.set.call(this, value);
+    },
+  });
+  Object.defineProperty(durationValue, 'textContent', {
+    configurable: true,
+    get() {
+      return textContentDescriptor.get.call(this);
+    },
+    set(value) {
+      durationTextWrites += 1;
+      textContentDescriptor.set.call(this, value);
+    },
+  });
+
+  environment.runMutationObservers();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(durationValue.textContent, durationTextContent);
+  assert.equal(tpsValue.textContent, tpsTextContent);
+  assert.equal(durationTextWrites, 0);
+  assert.equal(tpsTextWrites, 0);
+});
+
 test('settings panel shows Sub2API detection and per-feature switches for the current page', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });

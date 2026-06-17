@@ -304,9 +304,16 @@
       cell.appendChild(stack);
     }
 
-    durationValue.textContent = durationText;
-    tpsValue.textContent = `${tps.toFixed(2)} TPS`;
+    setUsageTextIfChanged(durationValue, durationText);
+    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} TPS`);
     cell.dataset.sub2apiUsageTpsApplied = 'true';
+  }
+
+  function setUsageTextIfChanged(element, text) {
+    if (element.textContent === text) {
+      return;
+    }
+    element.textContent = text;
   }
 
   function removeUsageTps(cell, durationText) {
