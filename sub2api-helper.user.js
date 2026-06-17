@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.28
+// @version      0.22.29
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.28';
+  const SCRIPT_VERSION = '0.22.29';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3707,18 +3707,25 @@
     style.dataset.sub2apiUsageTableEnhancementStyle = 'true';
     style.textContent = `
 [data-sub2api-usage-duration-stack="true"] {
-  align-items: flex-start;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-block;
   line-height: 1.25;
   text-align: left;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+[data-sub2api-usage-duration-value="true"],
+[data-sub2api-usage-tps-value="true"] {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 [data-sub2api-usage-tps-value="true"] {
   color: #64748b;
   font-size: 11px;
   font-weight: 500;
+  margin-top: 2px;
   white-space: nowrap;
 }
 
