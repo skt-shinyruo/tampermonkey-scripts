@@ -36,18 +36,25 @@
     style.dataset.sub2apiUsageTableEnhancementStyle = 'true';
     style.textContent = `
 [data-sub2api-usage-duration-stack="true"] {
-  align-items: flex-start;
-  display: inline-flex;
-  flex-direction: column;
-  gap: 2px;
+  display: inline-block;
   line-height: 1.25;
   text-align: left;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+[data-sub2api-usage-duration-value="true"],
+[data-sub2api-usage-tps-value="true"] {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 [data-sub2api-usage-tps-value="true"] {
   color: #64748b;
   font-size: 11px;
   font-weight: 500;
+  margin-top: 2px;
   white-space: nowrap;
 }
 

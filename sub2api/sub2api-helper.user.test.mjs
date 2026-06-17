@@ -2289,6 +2289,54 @@ test('usage table adds TPS below duration for streaming rows from usage API data
   assert.equal(durationCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
 
+test('usage table TPS text is styled as selectable table text', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  createUsageEnhancementTable(environment, [
+    {
+      id: 111,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 111,
+      request_id: 'req-stream-111',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'default',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
+  assert.ok(styleElement);
+  const durationStackStyle = styleElement.textContent.match(
+    /\[data-sub2api-usage-duration-stack="true"\]\s*\{[^}]+\}/,
+  )?.[0] || '';
+  assert.match(styleElement.textContent, /data-sub2api-usage-duration-value/);
+  assert.match(styleElement.textContent, /user-select:\s*text/);
+  assert.match(durationStackStyle, /display:\s*inline-block/);
+  assert.doesNotMatch(durationStackStyle, /display:\s*inline-flex/);
+});
+
 test('usage table does not add TPS for sync rows or rows without first token latency', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
