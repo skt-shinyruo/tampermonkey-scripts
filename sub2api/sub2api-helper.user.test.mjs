@@ -1964,6 +1964,42 @@ test('admin accounts restores and stores account filter selections', async () =>
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-privacy')), 'CF');
 });
 
+test('admin accounts keeps group filter changes after the group button loses its tag', async () => {
+  const origin = 'https://accounts-untagged-group.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-filter-group')]: 'OpenAI',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(environment);
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(filters.group.button.textContent, 'OpenAI');
+
+  delete filters.group.button.dataset.sub2apiAdminAccountsFilterId;
+  delete filters.group.button.attributes['data-sub2api-admin-accounts-filter-id'];
+
+  environment.sendDocumentClick(filters.group.button);
+  filters.group.button.click();
+  const allGroupsOption = filters.group.findOption('全部分组');
+  environment.sendDocumentClick(allGroupsOption);
+  allGroupsOption.click();
+
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(filters.group.button.textContent, '全部分组');
+  assert.equal(
+    environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-group')),
+    '全部分组',
+  );
+});
+
 test('admin accounts falls back to all groups when the saved group is unavailable', async () => {
   const origin = 'https://accounts-missing-group.sub2api.example.test';
   const environment = createTestEnvironment({

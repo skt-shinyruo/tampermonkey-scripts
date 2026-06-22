@@ -545,6 +545,25 @@
     return getVisibleSelectButtons()[filterIndex] || null;
   }
 
+  function tagAdminAccountsFilterButton(button, filter) {
+    if (!button || !filter) {
+      return null;
+    }
+
+    button.dataset.sub2apiAdminAccountsFilterId = filter.id;
+    button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    return filter;
+  }
+
+  function getAdminAccountsFilterByButtonPosition(button) {
+    const filterIndex = getVisibleSelectButtons().indexOf(button);
+    if (filterIndex < 0) {
+      return null;
+    }
+
+    return ADMIN_ACCOUNTS_FILTERS[filterIndex] || null;
+  }
+
   function getAdminAccountsFilterButton(filter) {
     const taggedButton = getVisibleSelectButtons().find(
       (button) => button.dataset.sub2apiAdminAccountsFilterId === filter.id,
@@ -555,8 +574,7 @@
 
     const defaultButton = findSelectButtonByText(filter.defaultLabel);
     if (defaultButton) {
-      defaultButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      defaultButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      tagAdminAccountsFilterButton(defaultButton, filter);
     }
     if (defaultButton) {
       return defaultButton;
@@ -564,8 +582,7 @@
 
     const positionedButton = getAdminAccountsFilterButtonByPosition(filter);
     if (positionedButton) {
-      positionedButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      positionedButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      tagAdminAccountsFilterButton(positionedButton, filter);
     }
     return positionedButton || null;
   }
@@ -593,10 +610,10 @@
     const currentText = normalizeSelectText(button.textContent);
     const filter = ADMIN_ACCOUNTS_FILTERS.find((item) => item.defaultLabel === currentText) || null;
     if (filter) {
-      button.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      return tagAdminAccountsFilterButton(button, filter);
     }
-    return filter;
+
+    return tagAdminAccountsFilterButton(button, getAdminAccountsFilterByButtonPosition(button));
   }
 
   function getAdminAccountsFilterById(filterId) {
