@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.30
+// @version      0.22.31
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.30';
+  const SCRIPT_VERSION = '0.22.31';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -1226,6 +1226,25 @@
     return getVisibleSelectButtons()[filterIndex] || null;
   }
 
+  function tagAdminAccountsFilterButton(button, filter) {
+    if (!button || !filter) {
+      return null;
+    }
+
+    button.dataset.sub2apiAdminAccountsFilterId = filter.id;
+    button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+    return filter;
+  }
+
+  function getAdminAccountsFilterByButtonPosition(button) {
+    const filterIndex = getVisibleSelectButtons().indexOf(button);
+    if (filterIndex < 0) {
+      return null;
+    }
+
+    return ADMIN_ACCOUNTS_FILTERS[filterIndex] || null;
+  }
+
   function getAdminAccountsFilterButton(filter) {
     const taggedButton = getVisibleSelectButtons().find(
       (button) => button.dataset.sub2apiAdminAccountsFilterId === filter.id,
@@ -1236,8 +1255,7 @@
 
     const defaultButton = findSelectButtonByText(filter.defaultLabel);
     if (defaultButton) {
-      defaultButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      defaultButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      tagAdminAccountsFilterButton(defaultButton, filter);
     }
     if (defaultButton) {
       return defaultButton;
@@ -1245,8 +1263,7 @@
 
     const positionedButton = getAdminAccountsFilterButtonByPosition(filter);
     if (positionedButton) {
-      positionedButton.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      positionedButton.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      tagAdminAccountsFilterButton(positionedButton, filter);
     }
     return positionedButton || null;
   }
@@ -1274,10 +1291,10 @@
     const currentText = normalizeSelectText(button.textContent);
     const filter = ADMIN_ACCOUNTS_FILTERS.find((item) => item.defaultLabel === currentText) || null;
     if (filter) {
-      button.dataset.sub2apiAdminAccountsFilterId = filter.id;
-      button.setAttribute('data-sub2api-admin-accounts-filter-id', filter.id);
+      return tagAdminAccountsFilterButton(button, filter);
     }
-    return filter;
+
+    return tagAdminAccountsFilterButton(button, getAdminAccountsFilterByButtonPosition(button));
   }
 
   function getAdminAccountsFilterById(filterId) {
