@@ -1144,8 +1144,8 @@ function createUsageEnhancementTable(environment, rows) {
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
   const tbody = document.createElement('tbody');
-  const headers = ['模型', '类型', 'Tokens', '费用', '首 TOKEN', '耗时'];
-  const columnKeys = ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration'];
+  const headers = ['模型', '类型', 'Tokens', '费用', '首 TOKEN', '耗时', 'USER-AGENT'];
+  const columnKeys = ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration', 'userAgent'];
   const rowElements = new Map();
 
   const appendCostContent = (td, row) => {
@@ -1196,6 +1196,8 @@ function createUsageEnhancementTable(environment, rows) {
       const td = document.createElement('td');
       if (columnKey === 'cost') {
         appendCostContent(td, row);
+      } else if (columnKey === 'userAgent') {
+        td.textContent = row.userAgent ?? 'codex-tui/0.140.0 (Ubuntu 24.4.0; x86_64)';
       } else {
         td.textContent = row[columnKey] ?? '';
       }
@@ -2519,6 +2521,68 @@ test('usage table highlights fast service tier beside the account-billed cost li
   assert.equal(accountLine.children[1], fastIcons[0]);
   assert.match(accountLine.textContent, /^A \$0\.012345⚡$/);
   assert.equal(table.getFastIcons(302).length, 0);
+});
+
+test('usage table shows request id below the user-agent on admin usage rows', async () => {
+  const origin = 'https://admin.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['今天', '近24小时'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 401,
+      model: 'gpt-5.5',
+      type: '流式',
+      userAgent: 'codex-tui/0.140.0 (Ubuntu 24.4.0; x86_64)',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '20.58s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/admin/usage', buildUsageListResponse([
+    {
+      id: 401,
+      request_id: 'client:6978e273-d9c5-45ff-9d99-c0520c170830',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/admin/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const userAgentCell = table.getCell(401, 'userAgent');
+  assert.match(userAgentCell.textContent, /codex-tui\/0\.140\.0/);
+  assert.match(userAgentCell.textContent, /client:6978e273-d9c5-45ff-9d99-c0520c170830/);
+  const stack = userAgentCell.querySelector('[data-sub2api-usage-user-agent-stack="true"]');
+  const userAgentValue = userAgentCell.querySelector('[data-sub2api-usage-user-agent-value="true"]');
+  const requestIdValue = userAgentCell.querySelector('[data-sub2api-usage-request-id-value="true"]');
+  assert.ok(stack);
+  assert.ok(userAgentValue);
+  assert.ok(requestIdValue);
+  assert.equal(stack.children[0], userAgentValue);
+  assert.equal(stack.children[1], requestIdValue);
+  assert.match(requestIdValue.textContent, /^Request ID: client:6978e273/);
+  assert.equal(userAgentCell.style.textAlign, 'left');
 });
 
 test('usage table enhancements are idempotent across repeated mutation observer runs', async () => {
