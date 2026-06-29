@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.31
+// @version      0.22.32
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.31';
+  const SCRIPT_VERSION = '0.22.32';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3760,6 +3760,33 @@
   text-shadow: 0 0 6px rgba(245, 158, 11, 0.35);
   vertical-align: middle;
 }
+
+[data-sub2api-usage-user-agent-stack="true"] {
+  display: inline-block;
+  line-height: 1.25;
+  text-align: left;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+[data-sub2api-usage-user-agent-value="true"],
+[data-sub2api-usage-request-id-value="true"] {
+  display: block;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+[data-sub2api-usage-request-id-value="true"] {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+.dark [data-sub2api-usage-request-id-value="true"] {
+  color: #94a3b8;
+}
 `;
     document.documentElement.appendChild(style);
     usageTableEnhancementStyleElement = style;
@@ -3792,6 +3819,10 @@
         rowElement,
         usageRow,
       });
+      enhanceUsageUserAgentCell({
+        cell: cells[columnIndexes.userAgent],
+        usageRow,
+      });
     }
   }
 
@@ -3819,6 +3850,11 @@
         label.includes('请求类型') ||
         label === '类型' ||
         label.includes('type'),
+      ),
+      userAgent: findUsageColumnIndex(labels, (label) =>
+        label.includes('useragent') ||
+        label.includes('user-agent') ||
+        label.includes('ua'),
       ),
     };
   }
@@ -4047,6 +4083,61 @@
     }
 
     moveUsageFastTierIcon(icon, cell);
+  }
+
+  function enhanceUsageUserAgentCell({ cell, usageRow }) {
+    if (!cell) {
+      return;
+    }
+
+    if (!isAdminUsagePage()) {
+      return;
+    }
+
+    const requestId = normalizeUsageRequestId(usageRow?.request_id);
+    if (!requestId) {
+      removeUsageRequestId(cell);
+      return;
+    }
+
+    let stack = cell.querySelector('[data-sub2api-usage-user-agent-stack="true"]');
+    let userAgentValue = cell.querySelector('[data-sub2api-usage-user-agent-value="true"]');
+    let requestIdValue = cell.querySelector('[data-sub2api-usage-request-id-value="true"]');
+
+    if (!stack || !userAgentValue || !requestIdValue) {
+      const existingText = normalizeUsageCellText(cell);
+      cell.textContent = '';
+      stack = document.createElement('div');
+      stack.dataset.sub2apiUsageUserAgentStack = 'true';
+      userAgentValue = document.createElement('span');
+      userAgentValue.dataset.sub2apiUsageUserAgentValue = 'true';
+      requestIdValue = document.createElement('span');
+      requestIdValue.dataset.sub2apiUsageRequestIdValue = 'true';
+      stack.appendChild(userAgentValue);
+      stack.appendChild(requestIdValue);
+      cell.appendChild(stack);
+      setUsageTextIfChanged(userAgentValue, existingText);
+    }
+
+    setUsageTextIfChanged(requestIdValue, `Request ID: ${requestId}`);
+    cell.style.textAlign = 'left';
+  }
+
+  function removeUsageRequestId(cell) {
+    const stack = cell.querySelector('[data-sub2api-usage-user-agent-stack="true"]');
+    if (!stack) {
+      return;
+    }
+
+    const userAgentValue = cell.querySelector('[data-sub2api-usage-user-agent-value="true"]');
+    if (userAgentValue) {
+      cell.textContent = userAgentValue.textContent;
+    }
+  }
+
+  function normalizeUsageRequestId(value) {
+    const normalizedValue = String(value || '').trim();
+    return normalizedValue || null;
   }
 
   function removeUsageFastTierIcon(cell) {
