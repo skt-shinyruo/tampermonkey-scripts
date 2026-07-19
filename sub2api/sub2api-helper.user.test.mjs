@@ -2366,7 +2366,7 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   const tpsLabel = grid.querySelector('[data-sub2api-usage-latency-tps-label="true"]');
   const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
   assert.equal(tpsLabel.textContent, 'TPS');
-  assert.equal(tpsValue.textContent, '52.94');
+  assert.equal(tpsValue.textContent, '52.94 t/s');
   assert.equal(tpsLabel.parentElement, grid);
   assert.equal(tpsValue.parentElement, grid);
   const gridChildren = [...grid.children];
@@ -2379,7 +2379,7 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
 
-test('usage table TPS text is styled as selectable table text', async () => {
+test('usage table TPS text uses an independent metric color', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
   createUsageFingerprint(environment);
@@ -2421,10 +2421,17 @@ test('usage table TPS text is styled as selectable table text', async () => {
   const latencyTpsStyle = styleElement.textContent.match(
     /\[data-sub2api-usage-latency-tps="true"\],[\s\S]*?\{[^}]+\}/,
   )?.[0] || '';
+  const latencyTpsColorStyle = styleElement.textContent.match(
+    /\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
+  )?.[0] || '';
+  const darkLatencyTpsColorStyle = styleElement.textContent.match(
+    /\.dark\s+\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
+  )?.[0] || '';
   assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps/);
   assert.match(latencyTpsStyle, /user-select:\s*text/);
   assert.match(latencyTpsStyle, /-webkit-user-select:\s*text/);
-  assert.doesNotMatch(latencyTpsStyle, /color:\s*#(?:64748b|94a3b8)/);
+  assert.match(latencyTpsColorStyle, /color:\s*#0f766e\s*!important/);
+  assert.match(darkLatencyTpsColorStyle, /color:\s*#5eead4\s*!important/);
 });
 
 test('usage table does not add TPS for invalid latest latency rows', async () => {
