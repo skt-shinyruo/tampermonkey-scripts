@@ -35,30 +35,19 @@
     const style = document.createElement('style');
     style.dataset.sub2apiUsageTableEnhancementStyle = 'true';
     style.textContent = `
-[data-sub2api-usage-duration-stack="true"] {
-  display: inline-block;
-  line-height: 1.25;
-  text-align: left;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-[data-sub2api-usage-duration-value="true"],
-[data-sub2api-usage-tps-value="true"] {
+[data-sub2api-usage-latency-tps="true"] {
   display: block;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-[data-sub2api-usage-tps-value="true"] {
   color: #64748b;
   font-size: 11px;
   font-weight: 500;
+  line-height: 1.25;
   margin-top: 2px;
+  user-select: text;
+  -webkit-user-select: text;
   white-space: nowrap;
 }
 
-.dark [data-sub2api-usage-tps-value="true"] {
+.dark [data-sub2api-usage-latency-tps="true"] {
   color: #94a3b8;
 }
 
@@ -107,7 +96,7 @@
 
   function enhanceUsageTable(table) {
     const columnIndexes = getUsageTableColumnIndexes(table);
-    if (!columnIndexes || columnIndexes.duration < 0 || columnIndexes.cost < 0) {
+    if (!columnIndexes || columnIndexes.latency < 0 || columnIndexes.cost < 0) {
       return;
     }
 
@@ -118,12 +107,10 @@
       }
 
       const usageRow = getUsageLogRowForTableRow(rowElement);
-      enhanceUsageDurationCell({
-        cell: cells[columnIndexes.duration],
-        firstTokenCell: cells[columnIndexes.firstToken],
+      enhanceUsageLatencyCell({
+        cell: cells[columnIndexes.latency],
         rowElement,
         typeCell: cells[columnIndexes.type],
-        tokensCell: cells[columnIndexes.tokens],
         usageRow,
       });
       enhanceUsageCostCell({
@@ -146,12 +133,8 @@
 
     return {
       cost: findUsageColumnIndex(labels, (label) => label.includes('费用') || label.includes('cost')),
-      duration: findUsageColumnIndex(labels, (label) => label.includes('耗时') || label.includes('duration')),
-      firstToken: findUsageColumnIndex(labels, (label) =>
-        label.includes('首token') ||
-        label.includes('首个token') ||
-        label.includes('firsttoken') ||
-        label.includes('firsttok'),
+      latency: findUsageColumnIndex(labels, (label) =>
+        label === '延迟' || label === 'latency',
       ),
       tokens: findUsageColumnIndex(labels, (label) =>
         (label.includes('tokens') || label.includes('token') || label.includes('令牌')) &&
@@ -192,34 +175,60 @@
     return null;
   }
 
-  function enhanceUsageDurationCell({ cell, firstTokenCell, rowElement, tokensCell, typeCell, usageRow }) {
+  function enhanceUsageLatencyCell({ cell, rowElement, typeCell, usageRow }) {
     if (!cell) {
       return;
     }
 
     cell.style.textAlign = 'left';
-    const durationText = getUsageDurationDisplayText(cell);
-    const tps = calculateUsageRowTps({ durationText, firstTokenCell, rowElement, tokensCell, typeCell, usageRow });
+    const { firstTokenValue, durationValue } = getUsageLatencyElements(cell);
+    const tps = durationValue
+      ? calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow })
+      : null;
     if (tps === null) {
-      removeUsageTps(cell, durationText);
+      removeUsageLatencyTps(durationValue || cell);
+      delete cell.dataset.sub2apiUsageTpsApplied;
       return;
     }
 
-    applyUsageTps(cell, durationText, tps);
+    applyUsageLatencyTps(durationValue, tps);
+    cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
-  function calculateUsageRowTps({ durationText, firstTokenCell, rowElement, tokensCell, typeCell, usageRow }) {
+  function getUsageLatencyValueElement(cell, labelMatcher) {
+    const label = [...cell.querySelectorAll('span')]
+      .find((candidate) => labelMatcher(normalizeUsageCellText(candidate)));
+    if (!label?.parentElement) {
+      return null;
+    }
+
+    const siblings = [...label.parentElement.children];
+    return siblings[siblings.indexOf(label) + 1] || null;
+  }
+
+  function getUsageLatencyElements(cell) {
+    return {
+      firstTokenValue: getUsageLatencyValueElement(cell, (text) =>
+        text === '首字' || text.toLowerCase() === 'first',
+      ),
+      durationValue: getUsageLatencyValueElement(cell, (text) =>
+        text === '总耗时' || text.toLowerCase() === 'total',
+      ),
+    };
+  }
+
+  function calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow }) {
     if (!isStreamingUsageRow({ rowElement, typeCell, usageRow })) {
       return null;
     }
 
-    if (firstTokenCell && normalizeUsageCellText(firstTokenCell) === '-') {
+    if (!firstTokenValue || normalizeUsageCellText(firstTokenValue) === '-') {
       return null;
     }
 
-    const outputTokens = getUsageRowOutputTokens(usageRow, tokensCell);
-    const durationMs = getUsageRowDurationMs(usageRow, durationText);
-    const firstTokenMs = getUsageRowFirstTokenMs(usageRow, firstTokenCell);
+    const outputTokens = toFiniteUsageNumber(usageRow?.output_tokens);
+    const durationMs = toFiniteUsageNumber(usageRow?.duration_ms);
+    const firstTokenMs = toFiniteUsageNumber(usageRow?.first_token_ms);
     if (outputTokens === null || durationMs === null || firstTokenMs === null) {
       return null;
     }
@@ -254,38 +263,6 @@
     return /流式|stream|ws|cyber/.test(typeText);
   }
 
-  function getUsageRowOutputTokens(usageRow, tokensCell) {
-    const outputTokens = toFiniteUsageNumber(usageRow?.output_tokens);
-    if (outputTokens !== null) {
-      return outputTokens;
-    }
-
-    const tokenNumbers = normalizeUsageCellText(tokensCell)
-      .match(/\d[\d,]*/g)
-      ?.map((value) => Number(value.replace(/,/g, '')))
-      .filter((value) => Number.isFinite(value));
-    if (!tokenNumbers?.length) {
-      return null;
-    }
-    return tokenNumbers[tokenNumbers.length - 1];
-  }
-
-  function getUsageRowDurationMs(usageRow, durationText) {
-    const durationMs = toFiniteUsageNumber(usageRow?.duration_ms);
-    if (durationMs !== null) {
-      return durationMs;
-    }
-    return parseUsageDurationMs(durationText);
-  }
-
-  function getUsageRowFirstTokenMs(usageRow, firstTokenCell) {
-    const firstTokenMs = toFiniteUsageNumber(usageRow?.first_token_ms);
-    if (firstTokenMs !== null) {
-      return firstTokenMs;
-    }
-    return parseUsageDurationMs(normalizeUsageCellText(firstTokenCell));
-  }
-
   function toFiniteUsageNumber(value) {
     if (value === null || value === undefined || value === '') {
       return null;
@@ -294,55 +271,24 @@
     return Number.isFinite(numberValue) ? numberValue : null;
   }
 
-  function parseUsageDurationMs(value) {
-    const text = String(value || '').trim();
-    if (!text || text === '-') {
-      return null;
+  function applyUsageLatencyTps(durationValue, tps) {
+    if (!durationValue) {
+      return;
     }
 
-    const match = text.match(/([\d.]+)\s*(ms|s)?/i);
-    if (!match) {
-      return null;
+    const tpsValues = [...durationValue.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')];
+    let tpsValue = tpsValues[0];
+    for (const duplicate of tpsValues.slice(1)) {
+      duplicate.remove();
     }
 
-    const numberValue = Number(match[1]);
-    if (!Number.isFinite(numberValue)) {
-      return null;
-    }
-
-    return match[2]?.toLowerCase() === 'ms' ? numberValue : numberValue * 1000;
-  }
-
-  function getUsageDurationDisplayText(cell) {
-    const existingValue = cell.querySelector('[data-sub2api-usage-duration-value="true"]');
-    if (existingValue) {
-      return existingValue.textContent.trim();
-    }
-
-    return normalizeUsageCellText(cell).replace(/\s*\d+(?:\.\d+)?\s*TPS\s*$/i, '').trim();
-  }
-
-  function applyUsageTps(cell, durationText, tps) {
-    let stack = cell.querySelector('[data-sub2api-usage-duration-stack="true"]');
-    let durationValue = cell.querySelector('[data-sub2api-usage-duration-value="true"]');
-    let tpsValue = cell.querySelector('[data-sub2api-usage-tps-value="true"]');
-
-    if (!stack || !durationValue || !tpsValue) {
-      cell.textContent = '';
-      stack = document.createElement('div');
-      stack.dataset.sub2apiUsageDurationStack = 'true';
-      durationValue = document.createElement('span');
-      durationValue.dataset.sub2apiUsageDurationValue = 'true';
+    if (!tpsValue) {
       tpsValue = document.createElement('span');
-      tpsValue.dataset.sub2apiUsageTpsValue = 'true';
-      stack.appendChild(durationValue);
-      stack.appendChild(tpsValue);
-      cell.appendChild(stack);
+      tpsValue.dataset.sub2apiUsageLatencyTps = 'true';
+      durationValue.appendChild(tpsValue);
     }
 
-    setUsageTextIfChanged(durationValue, durationText);
     setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} TPS`);
-    cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
   function setUsageTextIfChanged(element, text) {
@@ -352,11 +298,14 @@
     element.textContent = text;
   }
 
-  function removeUsageTps(cell, durationText) {
-    if (cell.querySelector('[data-sub2api-usage-duration-stack="true"]')) {
-      cell.textContent = durationText;
+  function removeUsageLatencyTps(element) {
+    if (!element) {
+      return;
     }
-    delete cell.dataset.sub2apiUsageTpsApplied;
+
+    for (const tpsValue of element.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')) {
+      tpsValue.remove();
+    }
   }
 
   function enhanceUsageCostCell({ cell, rowElement, usageRow }) {

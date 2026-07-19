@@ -1138,15 +1138,44 @@ function createAdminAccountsFilters(environment, groupOptions = ['全部分组',
   };
 }
 
-function createUsageEnhancementTable(environment, rows) {
+function createUsageEnhancementTable(environment, rows, { legacyColumns = false } = {}) {
   const document = environment.document;
   const table = document.createElement('table');
   const thead = document.createElement('thead');
   const headerRow = document.createElement('tr');
   const tbody = document.createElement('tbody');
-  const headers = ['模型', '类型', 'Tokens', '费用', '首 TOKEN', '耗时', 'USER-AGENT'];
-  const columnKeys = ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration', 'userAgent'];
+  const headers = legacyColumns
+    ? ['模型', '类型', 'Tokens', '费用', '首 TOKEN', '耗时', 'USER-AGENT']
+    : ['模型', '类型', 'Tokens', '费用', '延迟', 'USER-AGENT'];
+  const columnKeys = legacyColumns
+    ? ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration', 'userAgent']
+    : ['model', 'type', 'tokens', 'cost', 'latency', 'userAgent'];
   const rowElements = new Map();
+  const latencyDurationValues = new Map();
+
+  const appendLatencyContent = (td, row) => {
+    const wrapper = document.createElement('div');
+    const grid = document.createElement('div');
+    const firstLabel = document.createElement('span');
+    const firstValue = document.createElement('span');
+    const totalLabel = document.createElement('span');
+    const totalValue = document.createElement('span');
+    const nativeDurationText = document.createElement('span');
+
+    grid.className = 'grid grid-cols-[max-content_max-content]';
+    firstLabel.textContent = '首字';
+    firstValue.textContent = row.firstToken ?? '-';
+    totalLabel.textContent = '总耗时';
+    nativeDurationText.textContent = row.duration ?? '-';
+    totalValue.appendChild(nativeDurationText);
+    grid.appendChild(firstLabel);
+    grid.appendChild(firstValue);
+    grid.appendChild(totalLabel);
+    grid.appendChild(totalValue);
+    wrapper.appendChild(grid);
+    td.appendChild(wrapper);
+    return totalValue;
+  };
 
   const appendCostContent = (td, row) => {
     if (!row.costInfoIcon) {
@@ -1196,6 +1225,8 @@ function createUsageEnhancementTable(environment, rows) {
       const td = document.createElement('td');
       if (columnKey === 'cost') {
         appendCostContent(td, row);
+      } else if (columnKey === 'latency') {
+        latencyDurationValues.set(String(row.id), appendLatencyContent(td, row));
       } else if (columnKey === 'userAgent') {
         td.textContent = row.userAgent ?? 'codex-tui/0.140.0 (Ubuntu 24.4.0; x86_64)';
       } else {
@@ -1214,6 +1245,9 @@ function createUsageEnhancementTable(environment, rows) {
   return {
     getCell(rowId, columnKey) {
       return rowElements.get(String(rowId))?.cells[columnKey] || null;
+    },
+    getLatencyDurationValue(rowId) {
+      return latencyDurationValues.get(String(rowId)) || null;
     },
     getFastIcons(rowId) {
       return [
@@ -2283,7 +2317,7 @@ test('metadata targets generic Sub2API deployments instead of one Ciii domain', 
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
 });
 
-test('usage table adds TPS below duration for streaming rows from usage API data', async () => {
+test('usage table adds TPS below total duration for streaming rows from usage API data', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
   createUsageFingerprint(environment);
@@ -2320,11 +2354,14 @@ test('usage table adds TPS below duration for streaming rows from usage API data
   environment.runMutationObservers();
   await flushMicrotasks();
 
-  const durationCell = table.getCell(101, 'duration');
-  assert.match(durationCell.textContent, /20\.58s/);
-  assert.match(durationCell.textContent, /52\.94 TPS/);
-  assert.equal(durationCell.style.textAlign, 'left');
-  assert.equal(durationCell.dataset.sub2apiUsageTpsApplied, 'true');
+  const latencyCell = table.getCell(101, 'latency');
+  const durationValue = table.getLatencyDurationValue(101);
+  const tpsValue = latencyCell.querySelector('[data-sub2api-usage-latency-tps="true"]');
+  assert.match(durationValue.textContent, /20\.58s/);
+  assert.equal(tpsValue.textContent, '52.94 TPS');
+  assert.equal(tpsValue.parentElement, durationValue);
+  assert.equal(latencyCell.style.textAlign, 'left');
+  assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
 
 test('usage table TPS text is styled as selectable table text', async () => {
@@ -2366,16 +2403,15 @@ test('usage table TPS text is styled as selectable table text', async () => {
 
   const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
   assert.ok(styleElement);
-  const durationStackStyle = styleElement.textContent.match(
-    /\[data-sub2api-usage-duration-stack="true"\]\s*\{[^}]+\}/,
+  const latencyTpsStyle = styleElement.textContent.match(
+    /\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
   )?.[0] || '';
-  assert.match(styleElement.textContent, /data-sub2api-usage-duration-value/);
-  assert.match(styleElement.textContent, /user-select:\s*text/);
-  assert.match(durationStackStyle, /display:\s*inline-block/);
-  assert.doesNotMatch(durationStackStyle, /display:\s*inline-flex/);
+  assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps/);
+  assert.match(latencyTpsStyle, /user-select:\s*text/);
+  assert.match(latencyTpsStyle, /display:\s*block/);
 });
 
-test('usage table does not add TPS for sync rows or rows without first token latency', async () => {
+test('usage table does not add TPS for invalid latest latency rows', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
   createUsageFingerprint(environment);
@@ -2397,6 +2433,24 @@ test('usage table does not add TPS for sync rows or rows without first token lat
       cost: '$0.012345',
       firstToken: '-',
       duration: '20.58s',
+    },
+    {
+      id: 203,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '-',
+    },
+    {
+      id: 204,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      cost: '$0.012345',
+      firstToken: '1.50s',
+      duration: '1.00s',
     },
   ]);
 
@@ -2426,14 +2480,83 @@ test('usage table does not add TPS for sync rows or rows without first token lat
       actual_cost: 0.012345,
       service_tier: 'priority',
     },
+    {
+      id: 203,
+      request_id: 'req-stream-203',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: null,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
+    {
+      id: 204,
+      request_id: 'req-stream-204',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 1000,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'priority',
+    },
   ]));
   await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
   await flushMicrotasks();
   environment.runMutationObservers();
   await flushMicrotasks();
 
-  assert.doesNotMatch(table.getCell(201, 'duration').textContent, /TPS/);
-  assert.doesNotMatch(table.getCell(202, 'duration').textContent, /TPS/);
+  for (const rowId of [201, 202, 203, 204]) {
+    const latencyCell = table.getCell(rowId, 'latency');
+    assert.match(latencyCell.textContent, /首字/);
+    assert.match(latencyCell.textContent, /总耗时/);
+    assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 0);
+  }
+});
+
+test('usage table ignores legacy separate latency columns', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 205,
+      model: 'gpt-5.5',
+      type: '流式',
+      tokens: '40 / 1,010',
+      firstToken: '1.50s',
+      duration: '20.58s',
+      cost: '$0.012345',
+    },
+  ], { legacyColumns: true });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse([
+    {
+      id: 205,
+      request_id: 'req-legacy-205',
+      request_type: 'stream',
+      stream: true,
+      output_tokens: 1010,
+      duration_ms: 20580,
+      first_token_ms: 1500,
+      actual_cost: 0.012345,
+      service_tier: 'default',
+    },
+  ]));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  const durationCell = table.getCell(205, 'duration');
+  assert.doesNotMatch(durationCell.textContent, /TPS/);
+  assert.equal(table.table.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 0);
+  assert.equal(table.table.querySelectorAll('[data-sub2api-usage-tps-value="true"]').length, 0);
 });
 
 test('usage table highlights fast service tier beside the account-billed cost line', async () => {
@@ -2626,7 +2749,10 @@ test('usage table enhancements are idempotent across repeated mutation observer 
   await flushMicrotasks();
 
   assert.equal(table.getFastIcons(401).length, 1);
-  assert.equal((table.getCell(401, 'duration').textContent.match(/TPS/g) || []).length, 1);
+  assert.equal(
+    table.getCell(401, 'latency').querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length,
+    1,
+  );
 });
 
 test('usage table enhancement does not rewrite unchanged TPS text nodes', async () => {
@@ -2667,9 +2793,8 @@ test('usage table enhancement does not rewrite unchanged TPS text nodes', async 
   environment.runMutationObservers();
   await flushMicrotasks();
 
-  const durationCell = table.getCell(501, 'duration');
-  const tpsValue = durationCell.querySelector('[data-sub2api-usage-tps-value="true"]');
-  const durationValue = durationCell.querySelector('[data-sub2api-usage-duration-value="true"]');
+  const durationValue = table.getLatencyDurationValue(501);
+  const tpsValue = durationValue.querySelector('[data-sub2api-usage-latency-tps="true"]');
   const tpsTextContent = tpsValue.textContent;
   const durationTextContent = durationValue.textContent;
   const textContentDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tpsValue), 'textContent');
