@@ -1151,7 +1151,7 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     ? ['model', 'type', 'tokens', 'cost', 'firstToken', 'duration', 'userAgent']
     : ['model', 'type', 'tokens', 'cost', 'latency', 'userAgent'];
   const rowElements = new Map();
-  const latencyDurationValues = new Map();
+  const latencyElements = new Map();
 
   const appendLatencyContent = (td, row) => {
     const wrapper = document.createElement('div');
@@ -1163,6 +1163,10 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     const nativeDurationText = document.createElement('span');
 
     grid.className = 'grid grid-cols-[max-content_max-content]';
+    firstLabel.className = 'text-gray-400 dark:text-gray-500';
+    totalLabel.className = 'text-gray-400 dark:text-gray-500';
+    firstValue.className = 'font-medium tabular-nums text-amber-500';
+    totalValue.className = 'font-medium tabular-nums text-emerald-500';
     firstLabel.textContent = '首字';
     firstValue.textContent = row.firstToken ?? '-';
     totalLabel.textContent = '总耗时';
@@ -1174,7 +1178,7 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     grid.appendChild(totalValue);
     wrapper.appendChild(grid);
     td.appendChild(wrapper);
-    return totalValue;
+    return { grid, totalLabel, totalValue };
   };
 
   const appendCostContent = (td, row) => {
@@ -1226,7 +1230,7 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
       if (columnKey === 'cost') {
         appendCostContent(td, row);
       } else if (columnKey === 'latency') {
-        latencyDurationValues.set(String(row.id), appendLatencyContent(td, row));
+        latencyElements.set(String(row.id), appendLatencyContent(td, row));
       } else if (columnKey === 'userAgent') {
         td.textContent = row.userAgent ?? 'codex-tui/0.140.0 (Ubuntu 24.4.0; x86_64)';
       } else {
@@ -1247,7 +1251,10 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
       return rowElements.get(String(rowId))?.cells[columnKey] || null;
     },
     getLatencyDurationValue(rowId) {
-      return latencyDurationValues.get(String(rowId)) || null;
+      return latencyElements.get(String(rowId))?.totalValue || null;
+    },
+    getLatencyElements(rowId) {
+      return latencyElements.get(String(rowId)) || null;
     },
     getFastIcons(rowId) {
       return [
@@ -2355,11 +2362,18 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   await flushMicrotasks();
 
   const latencyCell = table.getCell(101, 'latency');
-  const durationValue = table.getLatencyDurationValue(101);
-  const tpsValue = latencyCell.querySelector('[data-sub2api-usage-latency-tps="true"]');
-  assert.match(durationValue.textContent, /20\.58s/);
-  assert.equal(tpsValue.textContent, '52.94 TPS');
-  assert.equal(tpsValue.parentElement, durationValue);
+  const { grid, totalLabel, totalValue } = table.getLatencyElements(101);
+  const tpsLabel = grid.querySelector('[data-sub2api-usage-latency-tps-label="true"]');
+  const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
+  assert.equal(tpsLabel.textContent, 'TPS');
+  assert.equal(tpsValue.textContent, '52.94');
+  assert.equal(tpsLabel.parentElement, grid);
+  assert.equal(tpsValue.parentElement, grid);
+  assert.equal(tpsLabel.nextElementSibling, tpsValue);
+  assert.equal(tpsLabel.className, totalLabel.className);
+  assert.equal(tpsValue.className, totalValue.className);
+  assert.equal(totalValue.querySelector('[data-sub2api-usage-latency-tps="true"]'), null);
+  assert.match(totalValue.textContent, /20\.58s/);
   assert.equal(latencyCell.style.textAlign, 'left');
   assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
@@ -2404,11 +2418,12 @@ test('usage table TPS text is styled as selectable table text', async () => {
   const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
   assert.ok(styleElement);
   const latencyTpsStyle = styleElement.textContent.match(
-    /\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
+    /\[data-sub2api-usage-latency-tps="true"\],[\s\S]*?\{[^}]+\}/,
   )?.[0] || '';
   assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps/);
   assert.match(latencyTpsStyle, /user-select:\s*text/);
-  assert.match(latencyTpsStyle, /display:\s*block/);
+  assert.match(latencyTpsStyle, /-webkit-user-select:\s*text/);
+  assert.doesNotMatch(latencyTpsStyle, /color:\s*#(?:64748b|94a3b8)/);
 });
 
 test('usage table does not add TPS for invalid latest latency rows', async () => {
@@ -2513,6 +2528,7 @@ test('usage table does not add TPS for invalid latest latency rows', async () =>
     assert.match(latencyCell.textContent, /首字/);
     assert.match(latencyCell.textContent, /总耗时/);
     assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 0);
+    assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]').length, 0);
   }
 });
 
@@ -2749,10 +2765,9 @@ test('usage table enhancements are idempotent across repeated mutation observer 
   await flushMicrotasks();
 
   assert.equal(table.getFastIcons(401).length, 1);
-  assert.equal(
-    table.getCell(401, 'latency').querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length,
-    1,
-  );
+  const { grid } = table.getLatencyElements(401);
+  assert.equal(grid.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 1);
+  assert.equal(grid.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]').length, 1);
 });
 
 test('usage table enhancement does not rewrite unchanged TPS text nodes', async () => {
@@ -2794,7 +2809,8 @@ test('usage table enhancement does not rewrite unchanged TPS text nodes', async 
   await flushMicrotasks();
 
   const durationValue = table.getLatencyDurationValue(501);
-  const tpsValue = durationValue.querySelector('[data-sub2api-usage-latency-tps="true"]');
+  const { grid } = table.getLatencyElements(501);
+  const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
   const tpsTextContent = tpsValue.textContent;
   const durationTextContent = durationValue.textContent;
   const textContentDescriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(tpsValue), 'textContent');
