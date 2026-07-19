@@ -35,20 +35,11 @@
     const style = document.createElement('style');
     style.dataset.sub2apiUsageTableEnhancementStyle = 'true';
     style.textContent = `
-[data-sub2api-usage-latency-tps="true"] {
-  display: block;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.25;
-  margin-top: 2px;
+[data-sub2api-usage-latency-tps="true"],
+[data-sub2api-usage-latency-tps-label="true"] {
   user-select: text;
   -webkit-user-select: text;
   white-space: nowrap;
-}
-
-.dark [data-sub2api-usage-latency-tps="true"] {
-  color: #94a3b8;
 }
 
 [data-sub2api-usage-fast-tier-icon="true"] {
@@ -181,21 +172,22 @@
     }
 
     cell.style.textAlign = 'left';
-    const { firstTokenValue, durationValue } = getUsageLatencyElements(cell);
+    const latencyElements = getUsageLatencyElements(cell);
+    const { firstTokenValue, durationValue } = latencyElements;
     const tps = durationValue
       ? calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow })
       : null;
     if (tps === null) {
-      removeUsageLatencyTps(durationValue || cell);
+      removeUsageLatencyTps(latencyElements.grid || durationValue || cell);
       delete cell.dataset.sub2apiUsageTpsApplied;
       return;
     }
 
-    applyUsageLatencyTps(durationValue, tps);
+    applyUsageLatencyTps(latencyElements, tps);
     cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
-  function getUsageLatencyValueElement(cell, labelMatcher) {
+  function getUsageLatencyEntry(cell, labelMatcher) {
     const label = [...cell.querySelectorAll('span')]
       .find((candidate) => labelMatcher(normalizeUsageCellText(candidate)));
     if (!label?.parentElement) {
@@ -203,17 +195,23 @@
     }
 
     const siblings = [...label.parentElement.children];
-    return siblings[siblings.indexOf(label) + 1] || null;
+    const value = siblings[siblings.indexOf(label) + 1] || null;
+    return value ? { grid: label.parentElement, label, value } : null;
   }
 
   function getUsageLatencyElements(cell) {
+    const firstToken = getUsageLatencyEntry(cell, (text) =>
+      text === '首字' || text.toLowerCase() === 'first',
+    );
+    const duration = getUsageLatencyEntry(cell, (text) =>
+      text === '总耗时' || text.toLowerCase() === 'total',
+    );
     return {
-      firstTokenValue: getUsageLatencyValueElement(cell, (text) =>
-        text === '首字' || text.toLowerCase() === 'first',
-      ),
-      durationValue: getUsageLatencyValueElement(cell, (text) =>
-        text === '总耗时' || text.toLowerCase() === 'total',
-      ),
+      grid: duration?.grid || firstToken?.grid || null,
+      firstTokenLabel: firstToken?.label || null,
+      firstTokenValue: firstToken?.value || null,
+      durationLabel: duration?.label || null,
+      durationValue: duration?.value || null,
     };
   }
 
@@ -271,24 +269,49 @@
     return Number.isFinite(numberValue) ? numberValue : null;
   }
 
-  function applyUsageLatencyTps(durationValue, tps) {
-    if (!durationValue) {
+  function applyUsageLatencyTps({ grid, durationLabel, durationValue }, tps) {
+    if (!grid || !durationValue) {
       return;
     }
 
-    const tpsValues = [...durationValue.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')];
-    let tpsValue = tpsValues[0];
+    removeUsageLatencyTps(durationValue);
+    const tpsValues = [...grid.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')]
+      .filter((element) => element.parentElement === grid);
+    const tpsLabels = [...grid.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]')]
+      .filter((element) => element.parentElement === grid);
+    const tpsValue = tpsValues[0] || document.createElement('span');
+    const tpsLabel = tpsLabels[0] || document.createElement('span');
+
     for (const duplicate of tpsValues.slice(1)) {
       duplicate.remove();
     }
-
-    if (!tpsValue) {
-      tpsValue = document.createElement('span');
-      tpsValue.dataset.sub2apiUsageLatencyTps = 'true';
-      durationValue.appendChild(tpsValue);
+    for (const duplicate of tpsLabels.slice(1)) {
+      duplicate.remove();
     }
 
-    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} TPS`);
+    tpsLabel.dataset.sub2apiUsageLatencyTpsLabel = 'true';
+    tpsValue.dataset.sub2apiUsageLatencyTps = 'true';
+    tpsLabel.className = durationLabel?.className || '';
+    tpsValue.className = durationValue.className || '';
+    appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue);
+    setUsageTextIfChanged(tpsLabel, 'TPS');
+    setUsageTextIfChanged(tpsValue, tps.toFixed(2));
+  }
+
+  function appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue) {
+    const children = [...grid.children];
+    if (children[children.length - 2] === tpsLabel && children[children.length - 1] === tpsValue) {
+      return;
+    }
+
+    if (tpsLabel.parentElement === grid) {
+      tpsLabel.remove();
+    }
+    if (tpsValue.parentElement === grid) {
+      tpsValue.remove();
+    }
+    grid.appendChild(tpsLabel);
+    grid.appendChild(tpsValue);
   }
 
   function setUsageTextIfChanged(element, text) {
@@ -303,8 +326,10 @@
       return;
     }
 
-    for (const tpsValue of element.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')) {
-      tpsValue.remove();
+    for (const tpsElement of element.querySelectorAll(
+      '[data-sub2api-usage-latency-tps="true"], [data-sub2api-usage-latency-tps-label="true"]',
+    )) {
+      tpsElement.remove();
     }
   }
 

@@ -2369,7 +2369,8 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   assert.equal(tpsValue.textContent, '52.94');
   assert.equal(tpsLabel.parentElement, grid);
   assert.equal(tpsValue.parentElement, grid);
-  assert.equal(tpsLabel.nextElementSibling, tpsValue);
+  const gridChildren = [...grid.children];
+  assert.equal(gridChildren[gridChildren.indexOf(tpsLabel) + 1], tpsValue);
   assert.equal(tpsLabel.className, totalLabel.className);
   assert.equal(tpsValue.className, totalValue.className);
   assert.equal(totalValue.querySelector('[data-sub2api-usage-latency-tps="true"]'), null);
@@ -2766,8 +2767,14 @@ test('usage table enhancements are idempotent across repeated mutation observer 
 
   assert.equal(table.getFastIcons(401).length, 1);
   const { grid } = table.getLatencyElements(401);
-  assert.equal(grid.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 1);
-  assert.equal(grid.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]').length, 1);
+  assert.equal(
+    [...grid.children].filter((element) => element.dataset.sub2apiUsageLatencyTps === 'true').length,
+    1,
+  );
+  assert.equal(
+    [...grid.children].filter((element) => element.dataset.sub2apiUsageLatencyTpsLabel === 'true').length,
+    1,
+  );
 });
 
 test('usage table enhancement does not rewrite unchanged TPS text nodes', async () => {
