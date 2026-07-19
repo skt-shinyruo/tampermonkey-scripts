@@ -2380,10 +2380,21 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   assert.equal(totalValue.querySelector('[data-sub2api-usage-latency-tps="true"]'), null);
   assert.match(totalValue.textContent, /20\.58s/);
   assert.equal(bar.dataset.sub2apiUsageLatencyTpsBar, 'true');
-  assert.match(bar.style.backgroundImage, /linear-gradient\(to bottom/);
-  assert.match(bar.style.backgroundImage, /#10b981 0%/);
-  assert.match(bar.style.backgroundImage, /#fbbf24 33\.333%/);
-  assert.match(bar.style.backgroundImage, /#0f766e 66\.667%/);
+  assert.equal(bar.style.display, 'grid');
+  assert.equal(bar.style.gridTemplateRows, 'repeat(3, minmax(0, 1fr))');
+  assert.equal(bar.style.rowGap, '0.125rem');
+  const barSegments = [...bar.children];
+  assert.deepEqual(
+    barSegments.map((segment) => segment.dataset.sub2apiUsageLatencyBarSegment),
+    ['first-token', 'duration', 'tps'],
+  );
+  assert.equal(barSegments[0].style.backgroundColor, '#10b981');
+  assert.equal(barSegments[1].style.backgroundColor, '#fbbf24');
+  assert.equal(barSegments[2].style.backgroundColor, 'var(--sub2api-usage-latency-tps-bar-color)');
+  const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
+  assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps-bar/);
+  assert.match(styleElement.textContent, /--sub2api-usage-latency-tps-bar-color:\s*#0f766e/);
+  assert.match(styleElement.textContent, /--sub2api-usage-latency-tps-bar-color:\s*#5eead4/);
   assert.equal(latencyCell.style.textAlign, 'left');
   assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
@@ -2548,7 +2559,7 @@ test('usage table does not add TPS for invalid latest latency rows', async () =>
     assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 0);
     assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]').length, 0);
     assert.equal(bar.dataset.sub2apiUsageLatencyTpsBar, undefined);
-    assert.equal(bar.style.backgroundImage, '');
+    assert.equal(bar.style.backgroundImage, undefined);
   }
 });
 

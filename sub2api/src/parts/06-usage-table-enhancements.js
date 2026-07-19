@@ -50,6 +50,14 @@
   color: #5eead4 !important;
 }
 
+[data-sub2api-usage-latency-tps-bar="true"] {
+  --sub2api-usage-latency-tps-bar-color: #0f766e;
+}
+
+.dark [data-sub2api-usage-latency-tps-bar="true"] {
+  --sub2api-usage-latency-tps-bar-color: #5eead4;
+}
+
 [data-sub2api-usage-fast-tier-icon="true"] {
   color: #f59e0b;
   display: inline-flex;
@@ -187,11 +195,13 @@
       : null;
     if (tps === null) {
       removeUsageLatencyTps(latencyElements.grid || durationValue || cell);
+      removeUsageLatencyBar(latencyElements.bar);
       delete cell.dataset.sub2apiUsageTpsApplied;
       return;
     }
 
     applyUsageLatencyTps(latencyElements, tps);
+    applyUsageLatencyBar(latencyElements.bar);
     cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
@@ -216,11 +226,25 @@
     );
     return {
       grid: duration?.grid || firstToken?.grid || null,
+      bar: getUsageLatencyBarElement(duration?.grid || firstToken?.grid || null),
       firstTokenLabel: firstToken?.label || null,
       firstTokenValue: firstToken?.value || null,
       durationLabel: duration?.label || null,
       durationValue: duration?.value || null,
     };
+  }
+
+  function getUsageLatencyBarElement(grid) {
+    if (!grid?.parentElement) {
+      return null;
+    }
+
+    return [...grid.parentElement.children]
+      .find((candidate) =>
+        candidate !== grid &&
+        candidate.tagName === 'SPAN' &&
+        String(candidate.className || '').split(/\s+/).includes('w-1'),
+      ) || null;
   }
 
   function calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow }) {
@@ -304,6 +328,78 @@
     appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue);
     setUsageTextIfChanged(tpsLabel, 'TPS');
     setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} t/s`);
+  }
+
+  function applyUsageLatencyBar(bar) {
+    if (!bar) {
+      return;
+    }
+
+    const firstTokenColor = getUsageLatencyBarColor(bar, 'from-', '#10b981');
+    const durationColor = getUsageLatencyBarColor(bar, 'to-', '#fbbf24');
+    const segments = [
+      { color: firstTokenColor, key: 'first-token' },
+      { color: durationColor, key: 'duration' },
+      { color: 'var(--sub2api-usage-latency-tps-bar-color)', key: 'tps' },
+    ].map(({ color, key }) => {
+      const matches = [...bar.children]
+        .filter((child) => child.dataset.sub2apiUsageLatencyBarSegment === key);
+      const segment = matches[0] || document.createElement('span');
+      for (const duplicate of matches.slice(1)) {
+        duplicate.remove();
+      }
+
+      segment.dataset.sub2apiUsageLatencyBarSegment = key;
+      segment.style.backgroundColor = color;
+      if (segment.parentElement !== bar) {
+        bar.appendChild(segment);
+      }
+      return segment;
+    });
+
+    bar.style.backgroundImage = 'none';
+    bar.style.display = 'grid';
+    bar.style.gridTemplateRows = 'repeat(3, minmax(0, 1fr))';
+    bar.style.rowGap = '0.125rem';
+    bar.dataset.sub2apiUsageLatencyTpsBar = 'true';
+    return segments;
+  }
+
+  function getUsageLatencyBarColor(bar, prefix, fallback) {
+    const colors = {
+      'amber-400': '#fbbf24',
+      'emerald-500': '#10b981',
+      'orange-500': '#f97316',
+      'red-500': '#ef4444',
+    };
+    for (const className of String(bar.className || '').split(/\s+/)) {
+      if (!className.startsWith(prefix)) {
+        continue;
+      }
+
+      const color = colors[className.slice(prefix.length)];
+      if (color) {
+        return color;
+      }
+    }
+    return fallback;
+  }
+
+  function removeUsageLatencyBar(bar) {
+    if (!bar || bar.dataset.sub2apiUsageLatencyTpsBar !== 'true') {
+      return;
+    }
+
+    for (const segment of [...bar.children]) {
+      if (segment.dataset.sub2apiUsageLatencyBarSegment) {
+        segment.remove();
+      }
+    }
+    bar.style.backgroundImage = '';
+    bar.style.display = '';
+    bar.style.gridTemplateRows = '';
+    bar.style.rowGap = '';
+    delete bar.dataset.sub2apiUsageLatencyTpsBar;
   }
 
   function appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue) {
