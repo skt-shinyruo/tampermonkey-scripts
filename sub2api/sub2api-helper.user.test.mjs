@@ -1155,6 +1155,7 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
 
   const appendLatencyContent = (td, row) => {
     const wrapper = document.createElement('div');
+    const latencyBar = document.createElement('span');
     const grid = document.createElement('div');
     const firstLabel = document.createElement('span');
     const firstValue = document.createElement('span');
@@ -1162,6 +1163,8 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     const totalValue = document.createElement('span');
     const nativeDurationText = document.createElement('span');
 
+    wrapper.className = 'flex items-stretch gap-2';
+    latencyBar.className = 'w-1 shrink-0 rounded-full bg-gradient-to-b from-40% to-60% from-emerald-500 to-amber-400';
     grid.className = 'grid grid-cols-[max-content_max-content]';
     firstLabel.className = 'text-gray-400 dark:text-gray-500';
     totalLabel.className = 'text-gray-400 dark:text-gray-500';
@@ -1176,9 +1179,10 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     grid.appendChild(firstValue);
     grid.appendChild(totalLabel);
     grid.appendChild(totalValue);
+    wrapper.appendChild(latencyBar);
     wrapper.appendChild(grid);
     td.appendChild(wrapper);
-    return { grid, totalLabel, totalValue };
+    return { bar: latencyBar, grid, totalLabel, totalValue };
   };
 
   const appendCostContent = (td, row) => {
@@ -2362,7 +2366,7 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   await flushMicrotasks();
 
   const latencyCell = table.getCell(101, 'latency');
-  const { grid, totalLabel, totalValue } = table.getLatencyElements(101);
+  const { bar, grid, totalLabel, totalValue } = table.getLatencyElements(101);
   const tpsLabel = grid.querySelector('[data-sub2api-usage-latency-tps-label="true"]');
   const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
   assert.equal(tpsLabel.textContent, 'TPS');
@@ -2375,6 +2379,11 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   assert.equal(tpsValue.className, totalValue.className);
   assert.equal(totalValue.querySelector('[data-sub2api-usage-latency-tps="true"]'), null);
   assert.match(totalValue.textContent, /20\.58s/);
+  assert.equal(bar.dataset.sub2apiUsageLatencyTpsBar, 'true');
+  assert.match(bar.style.backgroundImage, /linear-gradient\(to bottom/);
+  assert.match(bar.style.backgroundImage, /#10b981 0%/);
+  assert.match(bar.style.backgroundImage, /#fbbf24 33\.333%/);
+  assert.match(bar.style.backgroundImage, /#0f766e 66\.667%/);
   assert.equal(latencyCell.style.textAlign, 'left');
   assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
@@ -2533,10 +2542,13 @@ test('usage table does not add TPS for invalid latest latency rows', async () =>
 
   for (const rowId of [201, 202, 203, 204]) {
     const latencyCell = table.getCell(rowId, 'latency');
+    const { bar } = table.getLatencyElements(rowId);
     assert.match(latencyCell.textContent, /首字/);
     assert.match(latencyCell.textContent, /总耗时/);
     assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps="true"]').length, 0);
     assert.equal(latencyCell.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]').length, 0);
+    assert.equal(bar.dataset.sub2apiUsageLatencyTpsBar, undefined);
+    assert.equal(bar.style.backgroundImage, '');
   }
 });
 
