@@ -42,6 +42,14 @@
   white-space: nowrap;
 }
 
+[data-sub2api-usage-latency-tps="true"] {
+  color: #0f766e !important;
+}
+
+.dark [data-sub2api-usage-latency-tps="true"] {
+  color: #5eead4 !important;
+}
+
 [data-sub2api-usage-fast-tier-icon="true"] {
   color: #f59e0b;
   display: inline-flex;
@@ -295,7 +303,7 @@
     tpsValue.className = durationValue.className || '';
     appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue);
     setUsageTextIfChanged(tpsLabel, 'TPS');
-    setUsageTextIfChanged(tpsValue, tps.toFixed(2));
+    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} t/s`);
   }
 
   function appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue) {
