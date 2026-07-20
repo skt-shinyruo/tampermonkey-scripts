@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.34
+// @version      0.22.35
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.34';
+  const SCRIPT_VERSION = '0.22.35';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3717,9 +3717,199 @@
     }
 
     ensureUsageTableEnhancementStyleElement();
+    enhanceUsageTokenSummaryCards();
     for (const table of document.querySelectorAll('table')) {
       enhanceUsageTable(table);
     }
+  }
+
+  function enhanceUsageTokenSummaryCards() {
+    const summaryLines = new Map();
+    for (const candidate of document.querySelectorAll('span')) {
+      if (!isUsageCacheSummaryLabel(getUsageElementOwnText(candidate))) {
+        continue;
+      }
+
+      const summary = getUsageTokenSummaryLine(candidate);
+      if (summary) {
+        summaryLines.set(summary.line, summary);
+      }
+    }
+
+    for (const summary of summaryLines.values()) {
+      enhanceUsageTokenSummaryLine(summary);
+    }
+
+    for (const marker of document.querySelectorAll(
+      '[data-sub2api-usage-cache-hit-rate="true"], [data-sub2api-usage-cache-hit-rate-separator="true"]',
+    )) {
+      if (!summaryLines.has(marker.parentElement)) {
+        marker.remove();
+      }
+    }
+  }
+
+  function getUsageTokenSummaryLine(cacheLabel) {
+    let current = cacheLabel;
+    while (current?.parentElement) {
+      const line = current.parentElement;
+      const hasInputLabel = [...line.querySelectorAll('span')]
+        .some((candidate) => isUsageInputSummaryLabel(getUsageElementOwnText(candidate)));
+      if (hasInputLabel) {
+        return { cacheLabel, cacheRoot: current, line };
+      }
+      current = line;
+    }
+    return null;
+  }
+
+  function enhanceUsageTokenSummaryLine({ cacheLabel, cacheRoot, line }) {
+    const inputLabel = [...line.querySelectorAll('span')]
+      .find((candidate) => isUsageInputSummaryLabel(getUsageElementOwnText(candidate)));
+    const inputTokens = parseUsageSummaryTokenValue(getUsageElementOwnText(inputLabel));
+    const displayedCacheTokens = parseUsageSummaryTokenValue(getUsageElementOwnText(cacheLabel));
+    if (inputTokens === null || displayedCacheTokens === null) {
+      removeUsageCacheHitRate(line);
+      return;
+    }
+
+    const cacheBreakdown = getUsageCacheBreakdown(cacheRoot);
+    const hasCacheBreakdown = cacheBreakdown.creation !== null || cacheBreakdown.read !== null;
+    const cacheCreationTokens = hasCacheBreakdown ? (cacheBreakdown.creation || 0) : 0;
+    const cacheReadTokens = hasCacheBreakdown
+      ? (cacheBreakdown.read || 0)
+      : displayedCacheTokens;
+    const promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
+    if (!Number.isFinite(promptTokens) || promptTokens <= 0 || cacheReadTokens < 0) {
+      removeUsageCacheHitRate(line);
+      return;
+    }
+
+    const hitRate = (cacheReadTokens / promptTokens) * 100;
+    if (!Number.isFinite(hitRate)) {
+      removeUsageCacheHitRate(line);
+      return;
+    }
+
+    const separator = getOrCreateUsageCacheHitRateSeparator(line);
+    const rateElement = getOrCreateUsageCacheHitRateElement(line);
+    const isChinese = /缓存/.test(getUsageElementOwnText(cacheLabel));
+    separator.className = findUsageSummarySeparatorClass(line);
+    rateElement.className = inputLabel?.className || '';
+    rateElement.style.whiteSpace = 'nowrap';
+    rateElement.title = isChinese
+      ? '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)'
+      : 'Cache hit rate = cache read / (input + cache creation + cache read)';
+    rateElement.setAttribute('aria-label', isChinese ? '缓存命中率' : 'Cache hit rate');
+    setUsageTextIfChanged(separator, '/');
+    setUsageTextIfChanged(rateElement, `${isChinese ? '命中率' : 'Hit Rate'}: ${hitRate.toFixed(2)}%`);
+    placeUsageSummaryElementAfter(cacheRoot, separator);
+    placeUsageSummaryElementAfter(separator, rateElement);
+  }
+
+  function getUsageCacheBreakdown(cacheRoot) {
+    let creation = null;
+    let read = null;
+    for (const label of cacheRoot.querySelectorAll('span')) {
+      const labelText = getUsageElementOwnText(label).toLowerCase();
+      if (!/^(缓存创建|cache creation)$/.test(labelText) &&
+        !/^(缓存读取|cache read)$/.test(labelText)) {
+        continue;
+      }
+
+      const parent = label.parentElement;
+      if (!parent) {
+        continue;
+      }
+      const siblings = [...parent.children];
+      const valueElement = siblings[siblings.indexOf(label) + 1];
+      const value = parseUsageSummaryTokenValue(valueElement?.textContent);
+      if (labelText === '缓存创建' || labelText === 'cache creation') {
+        creation = value;
+      } else {
+        read = value;
+      }
+    }
+    return { creation, read };
+  }
+
+  function getOrCreateUsageCacheHitRateSeparator(line) {
+    const existing = [...line.querySelectorAll(
+      '[data-sub2api-usage-cache-hit-rate-separator="true"]',
+    )].find((element) => element.parentElement === line);
+    if (existing) {
+      return existing;
+    }
+
+    const separator = document.createElement('span');
+    separator.dataset.sub2apiUsageCacheHitRateSeparator = 'true';
+    return separator;
+  }
+
+  function getOrCreateUsageCacheHitRateElement(line) {
+    const existing = [...line.querySelectorAll('[data-sub2api-usage-cache-hit-rate="true"]')]
+      .find((element) => element.parentElement === line);
+    if (existing) {
+      return existing;
+    }
+
+    const rateElement = document.createElement('span');
+    rateElement.dataset.sub2apiUsageCacheHitRate = 'true';
+    return rateElement;
+  }
+
+  function findUsageSummarySeparatorClass(line) {
+    return [...line.children]
+      .find((element) => normalizeUsageCellText(element) === '/')
+      ?.className || '';
+  }
+
+  function placeUsageSummaryElementAfter(anchor, element) {
+    if (!anchor?.parentElement || anchor === element) {
+      return;
+    }
+
+    element.remove();
+    anchor.insertAdjacentElement('afterend', element);
+  }
+
+  function removeUsageCacheHitRate(line) {
+    if (!line) {
+      return;
+    }
+
+    for (const marker of line.querySelectorAll(
+      '[data-sub2api-usage-cache-hit-rate="true"], [data-sub2api-usage-cache-hit-rate-separator="true"]',
+    )) {
+      marker.remove();
+    }
+  }
+
+  function isUsageInputSummaryLabel(text) {
+    return /^(输入|input)\s*[:：]/i.test(String(text || '').trim());
+  }
+
+  function isUsageCacheSummaryLabel(text) {
+    return /^(缓存|cache)\s*[:：]/i.test(String(text || '').trim());
+  }
+
+  function parseUsageSummaryTokenValue(text) {
+    const match = String(text || '').replace(/,/g, '').match(
+      /([0-9]+(?:\.[0-9]+)?)\s*([KMBT])?/i,
+    );
+    if (!match) {
+      return null;
+    }
+
+    const baseValue = Number(match[1]);
+    const multiplier = {
+      K: 1e3,
+      M: 1e6,
+      B: 1e9,
+      T: 1e12,
+    }[String(match[2] || '').toUpperCase()] || 1;
+    const value = baseValue * multiplier;
+    return Number.isFinite(value) ? value : null;
   }
 
   function ensureUsageTableEnhancementStyleElement() {
