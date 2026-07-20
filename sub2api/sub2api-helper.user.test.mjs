@@ -1168,8 +1168,8 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     grid.className = 'grid grid-cols-[max-content_max-content]';
     firstLabel.className = 'text-gray-400 dark:text-gray-500';
     totalLabel.className = 'text-gray-400 dark:text-gray-500';
-    firstValue.className = 'font-medium tabular-nums text-amber-500';
-    totalValue.className = 'font-medium tabular-nums text-emerald-500';
+    firstValue.className = row.firstTokenClass || 'font-medium tabular-nums text-amber-500';
+    totalValue.className = row.durationClass || 'font-medium tabular-nums text-emerald-500';
     firstLabel.textContent = '首字';
     firstValue.textContent = row.firstToken ?? '-';
     totalLabel.textContent = '总耗时';
@@ -1182,7 +1182,7 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     wrapper.appendChild(latencyBar);
     wrapper.appendChild(grid);
     td.appendChild(wrapper);
-    return { bar: latencyBar, grid, totalLabel, totalValue };
+    return { bar: latencyBar, grid, firstTokenValue: firstValue, totalLabel, totalValue };
   };
 
   const appendCostContent = (td, row) => {
@@ -2341,6 +2341,8 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
       cost: '$0.012345',
       firstToken: '1.50s',
       duration: '20.58s',
+      firstTokenClass: 'font-medium tabular-nums text-red-600 dark:text-red-400',
+      durationClass: 'font-medium tabular-nums text-orange-600 dark:text-orange-400',
     },
   ]);
 
@@ -2366,9 +2368,10 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   await flushMicrotasks();
 
   const latencyCell = table.getCell(101, 'latency');
-  const { bar, grid, totalLabel, totalValue } = table.getLatencyElements(101);
+  const { bar, grid, firstTokenValue, totalLabel, totalValue } = table.getLatencyElements(101);
   const tpsLabel = grid.querySelector('[data-sub2api-usage-latency-tps-label="true"]');
   const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
+  const expectedTpsClass = 'font-medium tabular-nums text-emerald-600 dark:text-emerald-400';
   assert.equal(tpsLabel.textContent, 'TPS');
   assert.equal(tpsValue.textContent, '52.94 t/s');
   assert.equal(tpsLabel.parentElement, grid);
@@ -2376,7 +2379,7 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
   const gridChildren = [...grid.children];
   assert.equal(gridChildren[gridChildren.indexOf(tpsLabel) + 1], tpsValue);
   assert.equal(tpsLabel.className, totalLabel.className);
-  assert.equal(tpsValue.className, totalValue.className);
+  assert.equal(tpsValue.className, expectedTpsClass);
   assert.equal(totalValue.querySelector('[data-sub2api-usage-latency-tps="true"]'), null);
   assert.match(totalValue.textContent, /20\.58s/);
   assert.equal(bar.dataset.sub2apiUsageLatencyTpsBar, 'true');
@@ -2388,30 +2391,33 @@ test('usage table adds TPS below total duration for streaming rows from usage AP
     barSegments.map((segment) => segment.dataset.sub2apiUsageLatencyBarSegment),
     ['first-token', 'duration', 'tps'],
   );
-  assert.equal(barSegments[0].style.backgroundColor, '#10b981');
-  assert.equal(barSegments[1].style.backgroundColor, '#fbbf24');
-  assert.equal(barSegments[2].style.backgroundColor, 'var(--sub2api-usage-latency-tps-bar-color)');
+  assert.equal(barSegments[0].className, firstTokenValue.className);
+  assert.equal(barSegments[1].className, totalValue.className);
+  assert.equal(barSegments[2].className, expectedTpsClass);
+  assert.equal(barSegments[0].style.backgroundColor, 'currentColor');
+  assert.equal(barSegments[1].style.backgroundColor, 'currentColor');
+  assert.equal(barSegments[2].style.backgroundColor, 'currentColor');
   const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
-  assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps-bar/);
-  assert.match(styleElement.textContent, /--sub2api-usage-latency-tps-bar-color:\s*#0f766e/);
-  assert.match(styleElement.textContent, /--sub2api-usage-latency-tps-bar-color:\s*#5eead4/);
+  assert.doesNotMatch(styleElement.textContent, /sub2api-usage-latency-tps-bar-color/);
   assert.equal(latencyCell.style.textAlign, 'left');
   assert.equal(latencyCell.dataset.sub2apiUsageTpsApplied, 'true');
 });
 
-test('usage table TPS text uses an independent metric color', async () => {
+test('usage table classifies TPS at the strict 40 t/s good boundary', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
   createUsageFingerprint(environment);
-  createUsageEnhancementTable(environment, [
+  const table = createUsageEnhancementTable(environment, [
     {
       id: 111,
       model: 'gpt-5.5',
       type: '流式',
       tokens: '40 / 1,010',
       cost: '$0.012345',
-      firstToken: '1.50s',
-      duration: '20.58s',
+      firstToken: '1.00s',
+      duration: '11.00s',
+      firstTokenClass: 'font-medium tabular-nums text-red-600 dark:text-red-400',
+      durationClass: 'font-medium tabular-nums text-orange-600 dark:text-orange-400',
     },
   ]);
 
@@ -2424,9 +2430,9 @@ test('usage table TPS text uses an independent metric color', async () => {
       request_id: 'req-stream-111',
       request_type: 'stream',
       stream: true,
-      output_tokens: 1010,
-      duration_ms: 20580,
-      first_token_ms: 1500,
+      output_tokens: 400,
+      duration_ms: 11000,
+      first_token_ms: 1000,
       actual_cost: 0.012345,
       service_tier: 'default',
     },
@@ -2436,22 +2442,14 @@ test('usage table TPS text uses an independent metric color', async () => {
   environment.runMutationObservers();
   await flushMicrotasks();
 
-  const styleElement = environment.document.querySelector('[data-sub2api-usage-table-enhancement-style="true"]');
-  assert.ok(styleElement);
-  const latencyTpsStyle = styleElement.textContent.match(
-    /\[data-sub2api-usage-latency-tps="true"\],[\s\S]*?\{[^}]+\}/,
-  )?.[0] || '';
-  const latencyTpsColorStyle = styleElement.textContent.match(
-    /\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
-  )?.[0] || '';
-  const darkLatencyTpsColorStyle = styleElement.textContent.match(
-    /\.dark\s+\[data-sub2api-usage-latency-tps="true"\]\s*\{[^}]+\}/,
-  )?.[0] || '';
-  assert.match(styleElement.textContent, /data-sub2api-usage-latency-tps/);
-  assert.match(latencyTpsStyle, /user-select:\s*text/);
-  assert.match(latencyTpsStyle, /-webkit-user-select:\s*text/);
-  assert.match(latencyTpsColorStyle, /color:\s*#0f766e\s*!important/);
-  assert.match(darkLatencyTpsColorStyle, /color:\s*#5eead4\s*!important/);
+  const { bar, grid } = table.getLatencyElements(111);
+  const tpsValue = grid.querySelector('[data-sub2api-usage-latency-tps="true"]');
+  const tpsSegment = [...bar.children]
+    .find((segment) => segment.dataset.sub2apiUsageLatencyBarSegment === 'tps');
+  const expectedTpsClass = 'font-medium tabular-nums text-amber-600 dark:text-amber-400';
+  assert.equal(tpsValue.textContent, '40.00 t/s');
+  assert.equal(tpsValue.className, expectedTpsClass);
+  assert.equal(tpsSegment.className, expectedTpsClass);
 });
 
 test('usage table does not add TPS for invalid latest latency rows', async () => {

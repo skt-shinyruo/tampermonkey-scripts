@@ -1,3 +1,16 @@
+  const USAGE_TPS_THRESHOLDS = {
+    good: 40,
+    warn: 20,
+    slow: 5,
+  };
+
+  const USAGE_TPS_TEXT_CLASSES = {
+    good: 'font-medium tabular-nums text-emerald-600 dark:text-emerald-400',
+    warn: 'font-medium tabular-nums text-amber-600 dark:text-amber-400',
+    slow: 'font-medium tabular-nums text-orange-600 dark:text-orange-400',
+    critical: 'font-medium tabular-nums text-red-600 dark:text-red-400',
+  };
+
   function scheduleUsageTableEnhancement() {
     if (usageTableEnhancementScheduled) {
       return;
@@ -40,22 +53,6 @@
   user-select: text;
   -webkit-user-select: text;
   white-space: nowrap;
-}
-
-[data-sub2api-usage-latency-tps="true"] {
-  color: #0f766e !important;
-}
-
-.dark [data-sub2api-usage-latency-tps="true"] {
-  color: #5eead4 !important;
-}
-
-[data-sub2api-usage-latency-tps-bar="true"] {
-  --sub2api-usage-latency-tps-bar-color: #0f766e;
-}
-
-.dark [data-sub2api-usage-latency-tps-bar="true"] {
-  --sub2api-usage-latency-tps-bar-color: #5eead4;
 }
 
 [data-sub2api-usage-fast-tier-icon="true"] {
@@ -200,8 +197,14 @@
       return;
     }
 
-    applyUsageLatencyTps(latencyElements, tps);
-    applyUsageLatencyBar(latencyElements.bar);
+    const tpsClassName = getUsageTpsClassName(tps);
+    applyUsageLatencyTps(latencyElements, tps, tpsClassName);
+    applyUsageLatencyBar({
+      bar: latencyElements.bar,
+      firstTokenValue,
+      durationValue,
+      tpsClassName,
+    });
     cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
@@ -301,7 +304,20 @@
     return Number.isFinite(numberValue) ? numberValue : null;
   }
 
-  function applyUsageLatencyTps({ grid, durationLabel, durationValue }, tps) {
+  function getUsageTpsClassName(tps) {
+    if (tps > USAGE_TPS_THRESHOLDS.good) {
+      return USAGE_TPS_TEXT_CLASSES.good;
+    }
+    if (tps > USAGE_TPS_THRESHOLDS.warn) {
+      return USAGE_TPS_TEXT_CLASSES.warn;
+    }
+    if (tps > USAGE_TPS_THRESHOLDS.slow) {
+      return USAGE_TPS_TEXT_CLASSES.slow;
+    }
+    return USAGE_TPS_TEXT_CLASSES.critical;
+  }
+
+  function applyUsageLatencyTps({ grid, durationLabel, durationValue }, tps, tpsClassName) {
     if (!grid || !durationValue) {
       return;
     }
@@ -324,24 +340,22 @@
     tpsLabel.dataset.sub2apiUsageLatencyTpsLabel = 'true';
     tpsValue.dataset.sub2apiUsageLatencyTps = 'true';
     tpsLabel.className = durationLabel?.className || '';
-    tpsValue.className = durationValue.className || '';
+    tpsValue.className = tpsClassName;
     appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue);
     setUsageTextIfChanged(tpsLabel, 'TPS');
     setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} t/s`);
   }
 
-  function applyUsageLatencyBar(bar) {
+  function applyUsageLatencyBar({ bar, firstTokenValue, durationValue, tpsClassName }) {
     if (!bar) {
       return;
     }
 
-    const firstTokenColor = getUsageLatencyBarColor(bar, 'from-', '#10b981');
-    const durationColor = getUsageLatencyBarColor(bar, 'to-', '#fbbf24');
     const segments = [
-      { color: firstTokenColor, key: 'first-token' },
-      { color: durationColor, key: 'duration' },
-      { color: 'var(--sub2api-usage-latency-tps-bar-color)', key: 'tps' },
-    ].map(({ color, key }) => {
+      { className: firstTokenValue?.className || '', key: 'first-token' },
+      { className: durationValue?.className || '', key: 'duration' },
+      { className: tpsClassName, key: 'tps' },
+    ].map(({ className, key }) => {
       const matches = [...bar.children]
         .filter((child) => child.dataset.sub2apiUsageLatencyBarSegment === key);
       const segment = matches[0] || document.createElement('span');
@@ -350,7 +364,8 @@
       }
 
       segment.dataset.sub2apiUsageLatencyBarSegment = key;
-      segment.style.backgroundColor = color;
+      segment.className = className;
+      segment.style.backgroundColor = 'currentColor';
       if (segment.parentElement !== bar) {
         bar.appendChild(segment);
       }
@@ -363,26 +378,6 @@
     bar.style.rowGap = '0.125rem';
     bar.dataset.sub2apiUsageLatencyTpsBar = 'true';
     return segments;
-  }
-
-  function getUsageLatencyBarColor(bar, prefix, fallback) {
-    const colors = {
-      'amber-400': '#fbbf24',
-      'emerald-500': '#10b981',
-      'orange-500': '#f97316',
-      'red-500': '#ef4444',
-    };
-    for (const className of String(bar.className || '').split(/\s+/)) {
-      if (!className.startsWith(prefix)) {
-        continue;
-      }
-
-      const color = colors[className.slice(prefix.length)];
-      if (color) {
-        return color;
-      }
-    }
-    return fallback;
   }
 
   function removeUsageLatencyBar(bar) {
