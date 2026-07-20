@@ -1113,6 +1113,58 @@ function createUsageFingerprint(environment) {
   return { datePicker, pageSize };
 }
 
+function createUsageTokenSummary(environment, {
+  input = '63.76M',
+  cache = '924.98M',
+  cacheCreation,
+  cacheRead,
+} = {}) {
+  const line = environment.document.createElement('p');
+  const inputLabel = environment.document.createElement('span');
+  const firstSeparator = environment.document.createElement('span');
+  const outputLabel = environment.document.createElement('span');
+  const secondSeparator = environment.document.createElement('span');
+  const cacheRoot = environment.document.createElement('span');
+  const cacheLabel = environment.document.createElement('span');
+
+  inputLabel.textContent = `输入: ${input}`;
+  firstSeparator.textContent = '/';
+  outputLabel.textContent = '输出: 3.64M';
+  secondSeparator.textContent = '/';
+  cacheLabel.textContent = `缓存: ${cache}`;
+  cacheRoot.appendChild(cacheLabel);
+
+  if (cacheCreation !== undefined || cacheRead !== undefined) {
+    const tooltip = environment.document.createElement('span');
+    const title = environment.document.createElement('span');
+    title.textContent = '缓存 Token 明细';
+    tooltip.appendChild(title);
+    for (const [label, value] of [
+      ['缓存创建', cacheCreation ?? '0'],
+      ['缓存读取', cacheRead ?? cache],
+    ]) {
+      const detail = environment.document.createElement('div');
+      const detailLabel = environment.document.createElement('span');
+      const detailValue = environment.document.createElement('span');
+      detailLabel.textContent = label;
+      detailValue.textContent = value;
+      detail.appendChild(detailLabel);
+      detail.appendChild(detailValue);
+      tooltip.appendChild(detail);
+    }
+    cacheRoot.appendChild(tooltip);
+  }
+
+  line.appendChild(inputLabel);
+  line.appendChild(firstSeparator);
+  line.appendChild(outputLabel);
+  line.appendChild(secondSeparator);
+  line.appendChild(cacheRoot);
+  environment.document.body.appendChild(line);
+
+  return { cacheRoot, line };
+}
+
 function createAdminAccountsFilters(environment, groupOptions = ['全部分组', '未分配分组', '订阅', 'Anthropic', 'OpenAI']) {
   return {
     platform: environment.createSelectControl({
@@ -2326,6 +2378,44 @@ test('metadata targets generic Sub2API deployments instead of one Ciii domain', 
   assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
   assert.match(source, /\/\/ @run-at\s+document-start/);
   assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
+});
+
+test('usage summary adds cache hit rate on user and admin usage pages', async () => {
+  for (const pathname of ['/usage', '/admin/usage']) {
+    const origin = `https://${pathname === '/usage' ? 'user' : 'admin'}.sub2api.example.test`;
+    const environment = createTestEnvironment({ origin, pathname });
+    createUsageFingerprint(environment);
+    const summary = pathname === '/usage'
+      ? createUsageTokenSummary(environment)
+      : createUsageTokenSummary(environment, {
+        cache: '1000',
+        cacheCreation: '400',
+        cacheRead: '600',
+        input: '1000',
+      });
+
+    vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+    await flushMicrotasks();
+
+    const separator = summary.line.querySelector(
+      '[data-sub2api-usage-cache-hit-rate-separator="true"]',
+    );
+    const rate = summary.line.querySelector('[data-sub2api-usage-cache-hit-rate="true"]');
+    assert.equal(separator.textContent, '/');
+    assert.equal(rate.textContent, pathname === '/usage' ? '命中率: 93.55%' : '命中率: 30.00%');
+    assert.equal(separator.parentElement, summary.line);
+    assert.equal(rate.parentElement, summary.line);
+    assert.equal(summary.line.children[summary.line.children.length - 2], separator);
+    assert.equal(summary.line.children[summary.line.children.length - 1], rate);
+
+    environment.runMutationObservers();
+    environment.runMutationObservers();
+    await flushMicrotasks();
+    assert.equal(summary.line.querySelectorAll('[data-sub2api-usage-cache-hit-rate="true"]').length, 1);
+    assert.equal(summary.line.querySelectorAll(
+      '[data-sub2api-usage-cache-hit-rate-separator="true"]',
+    ).length, 1);
+  }
 });
 
 test('usage table adds TPS below total duration for streaming rows from usage API data', async () => {
