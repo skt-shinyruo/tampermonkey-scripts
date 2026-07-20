@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.32
+// @version      0.22.33
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.32';
+  const SCRIPT_VERSION = '0.22.33';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3686,6 +3686,19 @@
     return installAutoRefreshControl();
   }
 
+  const USAGE_TPS_THRESHOLDS = {
+    good: 40,
+    warn: 20,
+    slow: 5,
+  };
+
+  const USAGE_TPS_TEXT_CLASSES = {
+    good: 'font-medium tabular-nums text-emerald-600 dark:text-emerald-400',
+    warn: 'font-medium tabular-nums text-amber-600 dark:text-amber-400',
+    slow: 'font-medium tabular-nums text-orange-600 dark:text-orange-400',
+    critical: 'font-medium tabular-nums text-red-600 dark:text-red-400',
+  };
+
   function scheduleUsageTableEnhancement() {
     if (usageTableEnhancementScheduled) {
       return;
@@ -3723,31 +3736,11 @@
     const style = document.createElement('style');
     style.dataset.sub2apiUsageTableEnhancementStyle = 'true';
     style.textContent = `
-[data-sub2api-usage-duration-stack="true"] {
-  display: inline-block;
-  line-height: 1.25;
-  text-align: left;
+[data-sub2api-usage-latency-tps="true"],
+[data-sub2api-usage-latency-tps-label="true"] {
   user-select: text;
   -webkit-user-select: text;
-}
-
-[data-sub2api-usage-duration-value="true"],
-[data-sub2api-usage-tps-value="true"] {
-  display: block;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-[data-sub2api-usage-tps-value="true"] {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 500;
-  margin-top: 2px;
   white-space: nowrap;
-}
-
-.dark [data-sub2api-usage-tps-value="true"] {
-  color: #94a3b8;
 }
 
 [data-sub2api-usage-fast-tier-icon="true"] {
@@ -3795,7 +3788,7 @@
 
   function enhanceUsageTable(table) {
     const columnIndexes = getUsageTableColumnIndexes(table);
-    if (!columnIndexes || columnIndexes.duration < 0 || columnIndexes.cost < 0) {
+    if (!columnIndexes || columnIndexes.latency < 0 || columnIndexes.cost < 0) {
       return;
     }
 
@@ -3806,12 +3799,10 @@
       }
 
       const usageRow = getUsageLogRowForTableRow(rowElement);
-      enhanceUsageDurationCell({
-        cell: cells[columnIndexes.duration],
-        firstTokenCell: cells[columnIndexes.firstToken],
+      enhanceUsageLatencyCell({
+        cell: cells[columnIndexes.latency],
         rowElement,
         typeCell: cells[columnIndexes.type],
-        tokensCell: cells[columnIndexes.tokens],
         usageRow,
       });
       enhanceUsageCostCell({
@@ -3834,12 +3825,8 @@
 
     return {
       cost: findUsageColumnIndex(labels, (label) => label.includes('费用') || label.includes('cost')),
-      duration: findUsageColumnIndex(labels, (label) => label.includes('耗时') || label.includes('duration')),
-      firstToken: findUsageColumnIndex(labels, (label) =>
-        label.includes('首token') ||
-        label.includes('首个token') ||
-        label.includes('firsttoken') ||
-        label.includes('firsttok'),
+      latency: findUsageColumnIndex(labels, (label) =>
+        label === '延迟' || label === 'latency',
       ),
       tokens: findUsageColumnIndex(labels, (label) =>
         (label.includes('tokens') || label.includes('token') || label.includes('令牌')) &&
@@ -3880,34 +3867,89 @@
     return null;
   }
 
-  function enhanceUsageDurationCell({ cell, firstTokenCell, rowElement, tokensCell, typeCell, usageRow }) {
+  function enhanceUsageLatencyCell({ cell, rowElement, typeCell, usageRow }) {
     if (!cell) {
       return;
     }
 
     cell.style.textAlign = 'left';
-    const durationText = getUsageDurationDisplayText(cell);
-    const tps = calculateUsageRowTps({ durationText, firstTokenCell, rowElement, tokensCell, typeCell, usageRow });
+    const latencyElements = getUsageLatencyElements(cell);
+    const { firstTokenValue, durationValue } = latencyElements;
+    const tps = durationValue
+      ? calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow })
+      : null;
     if (tps === null) {
-      removeUsageTps(cell, durationText);
+      removeUsageLatencyTps(latencyElements.grid || durationValue || cell);
+      removeUsageLatencyBar(latencyElements.bar);
+      delete cell.dataset.sub2apiUsageTpsApplied;
       return;
     }
 
-    applyUsageTps(cell, durationText, tps);
+    const tpsClassName = getUsageTpsClassName(tps);
+    applyUsageLatencyTps(latencyElements, tps, tpsClassName);
+    applyUsageLatencyBar({
+      bar: latencyElements.bar,
+      firstTokenValue,
+      durationValue,
+      tpsClassName,
+    });
+    cell.dataset.sub2apiUsageTpsApplied = 'true';
   }
 
-  function calculateUsageRowTps({ durationText, firstTokenCell, rowElement, tokensCell, typeCell, usageRow }) {
+  function getUsageLatencyEntry(cell, labelMatcher) {
+    const label = [...cell.querySelectorAll('span')]
+      .find((candidate) => labelMatcher(normalizeUsageCellText(candidate)));
+    if (!label?.parentElement) {
+      return null;
+    }
+
+    const siblings = [...label.parentElement.children];
+    const value = siblings[siblings.indexOf(label) + 1] || null;
+    return value ? { grid: label.parentElement, label, value } : null;
+  }
+
+  function getUsageLatencyElements(cell) {
+    const firstToken = getUsageLatencyEntry(cell, (text) =>
+      text === '首字' || text.toLowerCase() === 'first',
+    );
+    const duration = getUsageLatencyEntry(cell, (text) =>
+      text === '总耗时' || text.toLowerCase() === 'total',
+    );
+    return {
+      grid: duration?.grid || firstToken?.grid || null,
+      bar: getUsageLatencyBarElement(duration?.grid || firstToken?.grid || null),
+      firstTokenLabel: firstToken?.label || null,
+      firstTokenValue: firstToken?.value || null,
+      durationLabel: duration?.label || null,
+      durationValue: duration?.value || null,
+    };
+  }
+
+  function getUsageLatencyBarElement(grid) {
+    if (!grid?.parentElement) {
+      return null;
+    }
+
+    return [...grid.parentElement.children]
+      .find((candidate) =>
+        candidate !== grid &&
+        candidate.tagName === 'SPAN' &&
+        String(candidate.className || '').split(/\s+/).includes('w-1'),
+      ) || null;
+  }
+
+  function calculateUsageRowTps({ firstTokenValue, rowElement, typeCell, usageRow }) {
     if (!isStreamingUsageRow({ rowElement, typeCell, usageRow })) {
       return null;
     }
 
-    if (firstTokenCell && normalizeUsageCellText(firstTokenCell) === '-') {
+    if (!firstTokenValue || normalizeUsageCellText(firstTokenValue) === '-') {
       return null;
     }
 
-    const outputTokens = getUsageRowOutputTokens(usageRow, tokensCell);
-    const durationMs = getUsageRowDurationMs(usageRow, durationText);
-    const firstTokenMs = getUsageRowFirstTokenMs(usageRow, firstTokenCell);
+    const outputTokens = toFiniteUsageNumber(usageRow?.output_tokens);
+    const durationMs = toFiniteUsageNumber(usageRow?.duration_ms);
+    const firstTokenMs = toFiniteUsageNumber(usageRow?.first_token_ms);
     if (outputTokens === null || durationMs === null || firstTokenMs === null) {
       return null;
     }
@@ -3942,38 +3984,6 @@
     return /流式|stream|ws|cyber/.test(typeText);
   }
 
-  function getUsageRowOutputTokens(usageRow, tokensCell) {
-    const outputTokens = toFiniteUsageNumber(usageRow?.output_tokens);
-    if (outputTokens !== null) {
-      return outputTokens;
-    }
-
-    const tokenNumbers = normalizeUsageCellText(tokensCell)
-      .match(/\d[\d,]*/g)
-      ?.map((value) => Number(value.replace(/,/g, '')))
-      .filter((value) => Number.isFinite(value));
-    if (!tokenNumbers?.length) {
-      return null;
-    }
-    return tokenNumbers[tokenNumbers.length - 1];
-  }
-
-  function getUsageRowDurationMs(usageRow, durationText) {
-    const durationMs = toFiniteUsageNumber(usageRow?.duration_ms);
-    if (durationMs !== null) {
-      return durationMs;
-    }
-    return parseUsageDurationMs(durationText);
-  }
-
-  function getUsageRowFirstTokenMs(usageRow, firstTokenCell) {
-    const firstTokenMs = toFiniteUsageNumber(usageRow?.first_token_ms);
-    if (firstTokenMs !== null) {
-      return firstTokenMs;
-    }
-    return parseUsageDurationMs(normalizeUsageCellText(firstTokenCell));
-  }
-
   function toFiniteUsageNumber(value) {
     if (value === null || value === undefined || value === '') {
       return null;
@@ -3982,55 +3992,113 @@
     return Number.isFinite(numberValue) ? numberValue : null;
   }
 
-  function parseUsageDurationMs(value) {
-    const text = String(value || '').trim();
-    if (!text || text === '-') {
-      return null;
+  function getUsageTpsClassName(tps) {
+    if (tps > USAGE_TPS_THRESHOLDS.good) {
+      return USAGE_TPS_TEXT_CLASSES.good;
     }
-
-    const match = text.match(/([\d.]+)\s*(ms|s)?/i);
-    if (!match) {
-      return null;
+    if (tps > USAGE_TPS_THRESHOLDS.warn) {
+      return USAGE_TPS_TEXT_CLASSES.warn;
     }
-
-    const numberValue = Number(match[1]);
-    if (!Number.isFinite(numberValue)) {
-      return null;
+    if (tps > USAGE_TPS_THRESHOLDS.slow) {
+      return USAGE_TPS_TEXT_CLASSES.slow;
     }
-
-    return match[2]?.toLowerCase() === 'ms' ? numberValue : numberValue * 1000;
+    return USAGE_TPS_TEXT_CLASSES.critical;
   }
 
-  function getUsageDurationDisplayText(cell) {
-    const existingValue = cell.querySelector('[data-sub2api-usage-duration-value="true"]');
-    if (existingValue) {
-      return existingValue.textContent.trim();
+  function applyUsageLatencyTps({ grid, durationLabel, durationValue }, tps, tpsClassName) {
+    if (!grid || !durationValue) {
+      return;
     }
 
-    return normalizeUsageCellText(cell).replace(/\s*\d+(?:\.\d+)?\s*TPS\s*$/i, '').trim();
+    removeUsageLatencyTps(durationValue);
+    const tpsValues = [...grid.querySelectorAll('[data-sub2api-usage-latency-tps="true"]')]
+      .filter((element) => element.parentElement === grid);
+    const tpsLabels = [...grid.querySelectorAll('[data-sub2api-usage-latency-tps-label="true"]')]
+      .filter((element) => element.parentElement === grid);
+    const tpsValue = tpsValues[0] || document.createElement('span');
+    const tpsLabel = tpsLabels[0] || document.createElement('span');
+
+    for (const duplicate of tpsValues.slice(1)) {
+      duplicate.remove();
+    }
+    for (const duplicate of tpsLabels.slice(1)) {
+      duplicate.remove();
+    }
+
+    tpsLabel.dataset.sub2apiUsageLatencyTpsLabel = 'true';
+    tpsValue.dataset.sub2apiUsageLatencyTps = 'true';
+    tpsLabel.className = durationLabel?.className || '';
+    tpsValue.className = tpsClassName;
+    appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue);
+    setUsageTextIfChanged(tpsLabel, 'TPS');
+    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} t/s`);
   }
 
-  function applyUsageTps(cell, durationText, tps) {
-    let stack = cell.querySelector('[data-sub2api-usage-duration-stack="true"]');
-    let durationValue = cell.querySelector('[data-sub2api-usage-duration-value="true"]');
-    let tpsValue = cell.querySelector('[data-sub2api-usage-tps-value="true"]');
-
-    if (!stack || !durationValue || !tpsValue) {
-      cell.textContent = '';
-      stack = document.createElement('div');
-      stack.dataset.sub2apiUsageDurationStack = 'true';
-      durationValue = document.createElement('span');
-      durationValue.dataset.sub2apiUsageDurationValue = 'true';
-      tpsValue = document.createElement('span');
-      tpsValue.dataset.sub2apiUsageTpsValue = 'true';
-      stack.appendChild(durationValue);
-      stack.appendChild(tpsValue);
-      cell.appendChild(stack);
+  function applyUsageLatencyBar({ bar, firstTokenValue, durationValue, tpsClassName }) {
+    if (!bar) {
+      return;
     }
 
-    setUsageTextIfChanged(durationValue, durationText);
-    setUsageTextIfChanged(tpsValue, `${tps.toFixed(2)} TPS`);
-    cell.dataset.sub2apiUsageTpsApplied = 'true';
+    const segments = [
+      { className: firstTokenValue?.className || '', key: 'first-token' },
+      { className: durationValue?.className || '', key: 'duration' },
+      { className: tpsClassName, key: 'tps' },
+    ].map(({ className, key }) => {
+      const matches = [...bar.children]
+        .filter((child) => child.dataset.sub2apiUsageLatencyBarSegment === key);
+      const segment = matches[0] || document.createElement('span');
+      for (const duplicate of matches.slice(1)) {
+        duplicate.remove();
+      }
+
+      segment.dataset.sub2apiUsageLatencyBarSegment = key;
+      segment.className = className;
+      segment.style.backgroundColor = 'currentColor';
+      if (segment.parentElement !== bar) {
+        bar.appendChild(segment);
+      }
+      return segment;
+    });
+
+    bar.style.backgroundImage = 'none';
+    bar.style.display = 'grid';
+    bar.style.gridTemplateRows = 'repeat(3, minmax(0, 1fr))';
+    bar.style.rowGap = '0.125rem';
+    bar.dataset.sub2apiUsageLatencyTpsBar = 'true';
+    return segments;
+  }
+
+  function removeUsageLatencyBar(bar) {
+    if (!bar || bar.dataset.sub2apiUsageLatencyTpsBar !== 'true') {
+      return;
+    }
+
+    for (const segment of [...bar.children]) {
+      if (segment.dataset.sub2apiUsageLatencyBarSegment) {
+        segment.remove();
+      }
+    }
+    bar.style.backgroundImage = '';
+    bar.style.display = '';
+    bar.style.gridTemplateRows = '';
+    bar.style.rowGap = '';
+    delete bar.dataset.sub2apiUsageLatencyTpsBar;
+  }
+
+  function appendUsageLatencyTpsPair(grid, tpsLabel, tpsValue) {
+    const children = [...grid.children];
+    if (children[children.length - 2] === tpsLabel && children[children.length - 1] === tpsValue) {
+      return;
+    }
+
+    if (tpsLabel.parentElement === grid) {
+      tpsLabel.remove();
+    }
+    if (tpsValue.parentElement === grid) {
+      tpsValue.remove();
+    }
+    grid.appendChild(tpsLabel);
+    grid.appendChild(tpsValue);
   }
 
   function setUsageTextIfChanged(element, text) {
@@ -4040,11 +4108,16 @@
     element.textContent = text;
   }
 
-  function removeUsageTps(cell, durationText) {
-    if (cell.querySelector('[data-sub2api-usage-duration-stack="true"]')) {
-      cell.textContent = durationText;
+  function removeUsageLatencyTps(element) {
+    if (!element) {
+      return;
     }
-    delete cell.dataset.sub2apiUsageTpsApplied;
+
+    for (const tpsElement of element.querySelectorAll(
+      '[data-sub2api-usage-latency-tps="true"], [data-sub2api-usage-latency-tps-label="true"]',
+    )) {
+      tpsElement.remove();
+    }
   }
 
   function enhanceUsageCostCell({ cell, rowElement, usageRow }) {
