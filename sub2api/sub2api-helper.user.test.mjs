@@ -2691,7 +2691,7 @@ test('usage table highlights fast service tier beside the account-billed cost li
   assert.equal(table.getFastIcons(302).length, 0);
 });
 
-test('usage table shows request id below the user-agent on admin usage rows', async () => {
+test('usage table leaves the user-agent cell unchanged on admin usage rows', async () => {
   const origin = 'https://admin.sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
   environment.createDatePicker({
@@ -2739,18 +2739,13 @@ test('usage table shows request id below the user-agent on admin usage rows', as
   await flushMicrotasks();
 
   const userAgentCell = table.getCell(401, 'userAgent');
-  assert.match(userAgentCell.textContent, /codex-tui\/0\.140\.0/);
-  assert.match(userAgentCell.textContent, /client:6978e273-d9c5-45ff-9d99-c0520c170830/);
+  assert.equal(userAgentCell.textContent, 'codex-tui/0.140.0 (Ubuntu 24.4.0; x86_64)');
   const stack = userAgentCell.querySelector('[data-sub2api-usage-user-agent-stack="true"]');
   const userAgentValue = userAgentCell.querySelector('[data-sub2api-usage-user-agent-value="true"]');
   const requestIdValue = userAgentCell.querySelector('[data-sub2api-usage-request-id-value="true"]');
-  assert.ok(stack);
-  assert.ok(userAgentValue);
-  assert.ok(requestIdValue);
-  assert.equal(stack.children[0], userAgentValue);
-  assert.equal(stack.children[1], requestIdValue);
-  assert.match(requestIdValue.textContent, /^Request ID: client:6978e273/);
-  assert.equal(userAgentCell.style.textAlign, 'left');
+  assert.equal(stack, null);
+  assert.equal(userAgentValue, null);
+  assert.equal(requestIdValue, null);
 });
 
 test('usage table enhancements are idempotent across repeated mutation observer runs', async () => {
