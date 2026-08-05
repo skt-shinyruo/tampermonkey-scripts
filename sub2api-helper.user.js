@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.35
-// @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @version      0.22.36
+// @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,12 +16,13 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.35';
+  const SCRIPT_VERSION = '0.22.36';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_ACCOUNTS_FILTER_GROUP: 'admin-accounts-filter-group',
     ADMIN_ACCOUNTS_FILTER_PLATFORM: 'admin-accounts-filter-platform',
     ADMIN_ACCOUNTS_FILTER_PRIVACY: 'admin-accounts-filter-privacy',
@@ -100,6 +101,7 @@
   };
   const FEATURE_IDS = {
     ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
+    ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -167,6 +169,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS,
       label: '账号管理 tab (/admin/accounts) - 筛选条件',
+    },
+    {
+      description: '记住 /admin/accounts tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
+      label: '账号管理 tab (/admin/accounts) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -297,6 +305,10 @@
   let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
+  let pageSizeSelectionPathname = null;
+  let pageSizeSelectionStorageName = null;
+  let pageSizeRestoreInFlight = false;
+  let pageSizeRestoreToken = 0;
   let sidebarSelectionActiveUntil = 0;
   let sidebarSelectionPreviousState = null;
   let sidebarRestoreInFlightUntil = 0;
@@ -312,6 +324,7 @@
   let adminAccountsFilterSelectionActiveUntil = 0;
   let activeAdminAccountsFilterId = null;
   let adminAccountsFilterRestoreInFlight = false;
+  let adminAccountsFilterRestoreToken = 0;
   let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
@@ -539,6 +552,9 @@
   }
 
   function getActivePageSizeStorageName() {
+    if (isAdminAccountsPage()) {
+      return STORAGE_NAMES.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
     if (isAdminUsagePage()) {
       return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;
     }
@@ -1154,29 +1170,58 @@
   }
 
   function markPageSizeSelectionActive() {
+    cancelPageSizeRestore();
+    cancelAdminAccountsFilterRestore();
+    clearAdminAccountsFilterSelectionActive();
     pageSizeSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    pageSizeSelectionPathname = location.pathname;
+    pageSizeSelectionStorageName = getActivePageSizeStorageName();
     lastObservedPageSizeValue = getCurrentPageSizeValue();
   }
 
+  function cancelPageSizeRestore() {
+    pageSizeRestoreInFlight = false;
+    pageSizeRestoreToken += 1;
+  }
+
+  function clearPageSizeSelectionActive() {
+    pageSizeSelectionActiveUntil = 0;
+    pageSizeSelectionPathname = null;
+    pageSizeSelectionStorageName = null;
+    lastObservedPageSizeValue = null;
+  }
+
   function isPageSizeSelectionActive() {
-    return Date.now() <= pageSizeSelectionActiveUntil;
+    return Boolean(
+      pageSizeSelectionActiveUntil &&
+      Date.now() <= pageSizeSelectionActiveUntil &&
+      location.pathname === pageSizeSelectionPathname &&
+      getActivePageSizeStorageName() === pageSizeSelectionStorageName
+    );
   }
 
   function saveCurrentPageSizeSoon(fallbackValue = null) {
     const normalizedFallbackValue = normalizePageSizeValue(fallbackValue);
+    const storageName = getActivePageSizeStorageName();
     window.setTimeout(() => {
-      const currentValue = getCurrentPageSizeValue();
-      if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
-        setSavedPageSizeValue(currentValue);
+      if (!storageName || getActivePageSizeStorageName() !== storageName) {
         return;
       }
 
-      setSavedPageSizeValue(normalizedFallbackValue);
+      const currentValue = getCurrentPageSizeValue();
+      if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
+        setStorageValue(storageName, currentValue);
+        return;
+      }
+
+      if (normalizedFallbackValue) {
+        setStorageValue(storageName, normalizedFallbackValue);
+      }
     }, PAGE_SIZE_SAVE_DELAY_MS);
   }
 
   function handlePageSizeValueChange() {
-    if (!isUsagePage() || !isActivePageSizeFeatureEnabled()) {
+    if (!getActivePageSizeStorageName() || !isActivePageSizeFeatureEnabled()) {
       return;
     }
 
@@ -1213,6 +1258,11 @@
     });
   }
 
+  function getAdminAccountsFilterCandidateButtons() {
+    const pageSizeButton = getPageSizeButton();
+    return getVisibleSelectButtons().filter((button) => button !== pageSizeButton);
+  }
+
   function findSelectButtonByText(text) {
     return getVisibleSelectButtons().find((button) => normalizeSelectText(button.textContent) === text) || null;
   }
@@ -1223,7 +1273,7 @@
       return null;
     }
 
-    return getVisibleSelectButtons()[filterIndex] || null;
+    return getAdminAccountsFilterCandidateButtons()[filterIndex] || null;
   }
 
   function tagAdminAccountsFilterButton(button, filter) {
@@ -1237,7 +1287,7 @@
   }
 
   function getAdminAccountsFilterByButtonPosition(button) {
-    const filterIndex = getVisibleSelectButtons().indexOf(button);
+    const filterIndex = getAdminAccountsFilterCandidateButtons().indexOf(button);
     if (filterIndex < 0) {
       return null;
     }
@@ -1334,6 +1384,9 @@
       return;
     }
 
+    cancelAdminAccountsFilterRestore();
+    cancelPageSizeRestore();
+    clearPageSizeSelectionActive();
     adminAccountsFilterSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
     activeAdminAccountsFilterId = filter.id;
   }
@@ -1348,6 +1401,11 @@
   function clearAdminAccountsFilterSelectionActive() {
     adminAccountsFilterSelectionActiveUntil = 0;
     activeAdminAccountsFilterId = null;
+  }
+
+  function cancelAdminAccountsFilterRestore() {
+    adminAccountsFilterRestoreInFlight = false;
+    adminAccountsFilterRestoreToken += 1;
   }
 
   function getActiveAdminAccountsFilter() {
@@ -1472,6 +1530,7 @@
       case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
         return isAdminUsagePage();
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
+      case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
@@ -1527,6 +1586,9 @@
   }
 
   function getActivePageSizeFeatureId() {
+    if (isAdminAccountsPage()) {
+      return FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
     if (isAdminUsagePage()) {
       return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
     }
@@ -3054,30 +3116,66 @@
   }
 
   async function restoreSavedPageSize() {
-    if (!isActivePageSizeFeatureEnabled()) {
-      return;
+    if (
+      !isActivePageSizeFeatureEnabled() ||
+      isPageSizeSelectionActive() ||
+      pageSizeRestoreInFlight ||
+      (
+        isAdminAccountsPage() &&
+        (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive())
+      )
+    ) {
+      return false;
     }
 
+    const storageName = getActivePageSizeStorageName();
     const savedPageSize = getSavedPageSizeValue();
-    if (!savedPageSize) {
-      return;
+    if (!storageName || !savedPageSize) {
+      return false;
     }
 
-    const pageSizeButton = await waitFor(getPageSizeButton);
-    if (!pageSizeButton || getCurrentPageSizeValue() === savedPageSize) {
-      return;
-    }
-
-    pageSizeButton.click();
-    const targetOption = await waitFor(() =>
-      [...document.querySelectorAll('[role="option"]')].find(
-        (option) => option.textContent.trim() === savedPageSize,
-      ),
+    const restorePathname = location.pathname;
+    const restoreToken = ++pageSizeRestoreToken;
+    const isCurrentRestore = () => (
+      restoreToken === pageSizeRestoreToken &&
+      location.pathname === restorePathname &&
+      getActivePageSizeStorageName() === storageName &&
+      isActivePageSizeFeatureEnabled() &&
+      !isPageSizeSelectionActive() &&
+      !(
+        isAdminAccountsPage() &&
+        (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive())
+      )
     );
+    pageSizeRestoreInFlight = true;
 
-    if (targetOption) {
+    try {
+      const pageSizeButton = await waitFor(getPageSizeButton);
+      if (
+        !pageSizeButton ||
+        !isCurrentRestore() ||
+        getCurrentPageSizeValue() === savedPageSize
+      ) {
+        return false;
+      }
+
+      pageSizeButton.click();
+      const targetOption = await waitFor(() =>
+        [...document.querySelectorAll('[role="option"]')].find(
+          (option) => option.textContent.trim() === savedPageSize,
+        ),
+      );
+      if (!targetOption || !isCurrentRestore()) {
+        return false;
+      }
+
       targetOption.click();
-      setSavedPageSizeValue(savedPageSize);
+      setStorageValue(storageName, savedPageSize);
+      return true;
+    } finally {
+      if (restoreToken === pageSizeRestoreToken) {
+        pageSizeRestoreInFlight = false;
+      }
     }
   }
 
@@ -3109,14 +3207,29 @@
     }
   }
 
-  async function restoreAdminAccountsFilter(filter) {
+  function isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname) {
+    return Boolean(
+      restoreToken === adminAccountsFilterRestoreToken &&
+      location.pathname === restorePathname &&
+      isAdminAccountsFiltersFeatureEnabled() &&
+      !isAdminAccountsFilterSelectionActive() &&
+      !pageSizeRestoreInFlight &&
+      !isPageSizeSelectionActive()
+    );
+  }
+
+  async function restoreAdminAccountsFilter(filter, restoreToken, restorePathname) {
+    if (!isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
+      return false;
+    }
+
     const savedValue = getSavedAdminAccountsFilterValue(filter);
     if (!savedValue) {
       return false;
     }
 
     const filterButton = await waitFor(() => getAdminAccountsFilterButton(filter), RANGE_RESTORE_SETTLE_TIMEOUT_MS);
-    if (!filterButton) {
+    if (!filterButton || !isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
       return false;
     }
 
@@ -3131,7 +3244,7 @@
       ),
       RANGE_RESTORE_SETTLE_TIMEOUT_MS,
     );
-    if (targetOption) {
+    if (targetOption && isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
       targetOption.click();
       setSavedAdminAccountsFilterValue(filter, savedValue);
       return true;
@@ -3141,14 +3254,16 @@
       const fallbackOption = [...document.querySelectorAll('[role="option"]')].find(
         (option) => option.textContent.trim() === filter.defaultLabel,
       );
-      if (fallbackOption) {
+      if (fallbackOption && isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
         fallbackOption.click();
         setSavedAdminAccountsFilterValue(filter, filter.defaultLabel);
         return true;
       }
     }
 
-    filterButton.click();
+    if (isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
+      filterButton.click();
+    }
     return false;
   }
 
@@ -3157,20 +3272,29 @@
       return;
     }
 
-    if (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive()) {
+    if (
+      adminAccountsFilterRestoreInFlight ||
+      isAdminAccountsFilterSelectionActive() ||
+      pageSizeRestoreInFlight ||
+      isPageSizeSelectionActive()
+    ) {
       return;
     }
 
+    const restorePathname = location.pathname;
+    const restoreToken = ++adminAccountsFilterRestoreToken;
     adminAccountsFilterRestoreInFlight = true;
     try {
       for (const filter of ADMIN_ACCOUNTS_FILTERS) {
-        if (isAdminAccountsFilterSelectionActive()) {
+        if (!isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
           return;
         }
-        await restoreAdminAccountsFilter(filter);
+        await restoreAdminAccountsFilter(filter, restoreToken, restorePathname);
       }
     } finally {
-      adminAccountsFilterRestoreInFlight = false;
+      if (restoreToken === adminAccountsFilterRestoreToken) {
+        adminAccountsFilterRestoreInFlight = false;
+      }
     }
   }
 
@@ -4468,6 +4592,7 @@
       stopAutoRefresh();
       closeAutoRefreshMenu();
       await restoreSavedAdminAccountsFilters();
+      await restoreSavedPageSize();
       return;
     }
 
@@ -4565,15 +4690,14 @@
         }
 
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
-        const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
           isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
-          (pageSizeButtonExpanded || isPageSizeSelectionActive())
+          isPageSizeSelectionActive()
         ) {
           setSavedPageSizeValue(pageSizeValue);
           saveCurrentPageSizeSoon(pageSizeValue);
-          pageSizeSelectionActiveUntil = 0;
+          clearPageSizeSelectionActive();
           return;
         }
 
@@ -4760,14 +4884,19 @@
       return;
     }
 
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver(async () => {
       installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
       restoreSavedRange();
-      restoreSavedAdminAccountsFilters();
+      if (isAdminAccountsPage()) {
+        await restoreSavedAdminAccountsFilters();
+      }
       handlePageSizeValueChange();
+      if (isAdminAccountsPage()) {
+        restoreSavedPageSize();
+      }
       handleGranularityValueChange();
       scheduleUsageTableEnhancement();
     });
@@ -4803,6 +4932,10 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
+      cancelPageSizeRestore();
+      cancelAdminAccountsFilterRestore();
+      clearPageSizeSelectionActive();
+      clearAdminAccountsFilterSelectionActive();
       applyPageEnhancements();
     });
 
