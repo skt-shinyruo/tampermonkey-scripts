@@ -473,29 +473,58 @@
   }
 
   function markPageSizeSelectionActive() {
+    cancelPageSizeRestore();
+    cancelAdminAccountsFilterRestore();
+    clearAdminAccountsFilterSelectionActive();
     pageSizeSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
+    pageSizeSelectionPathname = location.pathname;
+    pageSizeSelectionStorageName = getActivePageSizeStorageName();
     lastObservedPageSizeValue = getCurrentPageSizeValue();
   }
 
+  function cancelPageSizeRestore() {
+    pageSizeRestoreInFlight = false;
+    pageSizeRestoreToken += 1;
+  }
+
+  function clearPageSizeSelectionActive() {
+    pageSizeSelectionActiveUntil = 0;
+    pageSizeSelectionPathname = null;
+    pageSizeSelectionStorageName = null;
+    lastObservedPageSizeValue = null;
+  }
+
   function isPageSizeSelectionActive() {
-    return Date.now() <= pageSizeSelectionActiveUntil;
+    return Boolean(
+      pageSizeSelectionActiveUntil &&
+      Date.now() <= pageSizeSelectionActiveUntil &&
+      location.pathname === pageSizeSelectionPathname &&
+      getActivePageSizeStorageName() === pageSizeSelectionStorageName
+    );
   }
 
   function saveCurrentPageSizeSoon(fallbackValue = null) {
     const normalizedFallbackValue = normalizePageSizeValue(fallbackValue);
+    const storageName = getActivePageSizeStorageName();
     window.setTimeout(() => {
-      const currentValue = getCurrentPageSizeValue();
-      if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
-        setSavedPageSizeValue(currentValue);
+      if (!storageName || getActivePageSizeStorageName() !== storageName) {
         return;
       }
 
-      setSavedPageSizeValue(normalizedFallbackValue);
+      const currentValue = getCurrentPageSizeValue();
+      if (currentValue && (!normalizedFallbackValue || currentValue === normalizedFallbackValue)) {
+        setStorageValue(storageName, currentValue);
+        return;
+      }
+
+      if (normalizedFallbackValue) {
+        setStorageValue(storageName, normalizedFallbackValue);
+      }
     }, PAGE_SIZE_SAVE_DELAY_MS);
   }
 
   function handlePageSizeValueChange() {
-    if (!isUsagePage() || !isActivePageSizeFeatureEnabled()) {
+    if (!getActivePageSizeStorageName() || !isActivePageSizeFeatureEnabled()) {
       return;
     }
 
@@ -532,6 +561,11 @@
     });
   }
 
+  function getAdminAccountsFilterCandidateButtons() {
+    const pageSizeButton = getPageSizeButton();
+    return getVisibleSelectButtons().filter((button) => button !== pageSizeButton);
+  }
+
   function findSelectButtonByText(text) {
     return getVisibleSelectButtons().find((button) => normalizeSelectText(button.textContent) === text) || null;
   }
@@ -542,7 +576,7 @@
       return null;
     }
 
-    return getVisibleSelectButtons()[filterIndex] || null;
+    return getAdminAccountsFilterCandidateButtons()[filterIndex] || null;
   }
 
   function tagAdminAccountsFilterButton(button, filter) {
@@ -556,7 +590,7 @@
   }
 
   function getAdminAccountsFilterByButtonPosition(button) {
-    const filterIndex = getVisibleSelectButtons().indexOf(button);
+    const filterIndex = getAdminAccountsFilterCandidateButtons().indexOf(button);
     if (filterIndex < 0) {
       return null;
     }
@@ -653,6 +687,9 @@
       return;
     }
 
+    cancelAdminAccountsFilterRestore();
+    cancelPageSizeRestore();
+    clearPageSizeSelectionActive();
     adminAccountsFilterSelectionActiveUntil = Date.now() + PAGE_SIZE_SELECTION_WINDOW_MS;
     activeAdminAccountsFilterId = filter.id;
   }
@@ -667,6 +704,11 @@
   function clearAdminAccountsFilterSelectionActive() {
     adminAccountsFilterSelectionActiveUntil = 0;
     activeAdminAccountsFilterId = null;
+  }
+
+  function cancelAdminAccountsFilterRestore() {
+    adminAccountsFilterRestoreInFlight = false;
+    adminAccountsFilterRestoreToken += 1;
   }
 
   function getActiveAdminAccountsFilter() {

@@ -109,6 +109,7 @@
       case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
         return isAdminUsagePage();
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
+      case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
@@ -164,6 +165,9 @@
   }
 
   function getActivePageSizeFeatureId() {
+    if (isAdminAccountsPage()) {
+      return FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
     if (isAdminUsagePage()) {
       return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
     }

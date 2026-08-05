@@ -2063,6 +2063,206 @@ test('admin accounts restores and stores account filter selections', async () =>
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-privacy')), 'CF');
 });
 
+test('admin accounts restores and stores its own page size', async () => {
+  const origin = 'https://accounts-page-size.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-filter-group')]: 'OpenAI',
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-usage-page-size')]: '20',
+      [getScopedStorageKey(origin, 'usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(environment);
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  // Leave a filter selection window open before choosing a page size.
+  environment.sendDocumentClick(filters.group.button);
+  filters.group.button.click();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+  assert.equal(filters.group.button.getAttribute('aria-expanded'), 'true');
+  assert.equal(pageSize.button.getAttribute('aria-expanded'), 'false');
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  const pageSize50Option = pageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-group')), 'OpenAI');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-page-size')), '50');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const accountsGroup = environment
+    .findSettingsRoot()
+    .querySelector('section[data-sub2api-settings-group="admin-accounts"]');
+  assert.ok(accountsGroup);
+  assert.ok(accountsGroup.querySelector('input[data-sub2api-feature-global-switch="admin-accounts-page-size"]'));
+});
+
+test('admin accounts stores a numeric group option as a filter instead of a page size', async () => {
+  const origin = 'https://accounts-numeric-group.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(
+    environment,
+    ['全部分组', '未分配分组', '50'],
+  );
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  environment.sendDocumentClick(filters.group.button);
+  filters.group.button.click();
+  const numericOptions = environment.document.body
+    .querySelectorAll('[role="option"]')
+    .filter((option) => option.textContent.trim() === '50');
+  const numericGroupOption = numericOptions.at(-1);
+  environment.sendDocumentClick(numericGroupOption);
+  numericGroupOption.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-filter-group')), '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '100');
+});
+
+test('admin accounts restores page size after returning from another tab', async () => {
+  const origin = 'https://accounts-page-size-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const initialFilters = createAdminAccountsFilters(environment);
+  const initialPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(initialPageSize.button.textContent, '100');
+
+  initialPageSize.button.parentElement.remove();
+  const sameRoutePageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sameRoutePageSize.button.textContent, '100');
+
+  for (const filter of Object.values(initialFilters)) {
+    filter.button.parentElement.remove();
+  }
+  sameRoutePageSize.button.parentElement.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/accounts');
+  createAdminAccountsFilters(environment);
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '100');
+});
+
+test('page size selection state does not cross from admin accounts to admin usage', async () => {
+  const origin = 'https://page-size-spa-isolation.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  const filters = createAdminAccountsFilters(environment);
+  const accountsPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(accountsPageSize.button.textContent, '100');
+  environment.sendDocumentClick(accountsPageSize.button);
+  accountsPageSize.button.click();
+  accountsPageSize.button.click();
+
+  for (const filter of Object.values(filters)) {
+    filter.button.parentElement.remove();
+  }
+  accountsPageSize.button.parentElement.remove();
+  environment.setLocation('/admin/usage');
+  environment.createDatePicker({
+    activePresetLabel: '近24小时',
+    presetLabels: ['近24小时', '近 7 天'],
+    triggerText: '近24小时',
+  });
+  environment.createSelectControl({
+    labelText: '粒度:',
+    options: ['按小时', '按天'],
+    value: '按小时',
+  });
+  const adminUsagePageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(adminUsagePageSize.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '100');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '50');
+});
+
 test('admin accounts keeps group filter changes after the group button loses its tag', async () => {
   const origin = 'https://accounts-untagged-group.sub2api.example.test';
   const environment = createTestEnvironment({

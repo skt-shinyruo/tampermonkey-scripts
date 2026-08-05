@@ -16,6 +16,7 @@
       stopAutoRefresh();
       closeAutoRefreshMenu();
       await restoreSavedAdminAccountsFilters();
+      await restoreSavedPageSize();
       return;
     }
 
@@ -113,15 +114,14 @@
         }
 
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
-        const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
           isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
-          (pageSizeButtonExpanded || isPageSizeSelectionActive())
+          isPageSizeSelectionActive()
         ) {
           setSavedPageSizeValue(pageSizeValue);
           saveCurrentPageSizeSoon(pageSizeValue);
-          pageSizeSelectionActiveUntil = 0;
+          clearPageSizeSelectionActive();
           return;
         }
 
@@ -308,14 +308,19 @@
       return;
     }
 
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver(async () => {
       installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
       restoreSavedRange();
-      restoreSavedAdminAccountsFilters();
+      if (isAdminAccountsPage()) {
+        await restoreSavedAdminAccountsFilters();
+      }
       handlePageSizeValueChange();
+      if (isAdminAccountsPage()) {
+        restoreSavedPageSize();
+      }
       handleGranularityValueChange();
       scheduleUsageTableEnhancement();
     });
@@ -351,6 +356,10 @@
       lastHref = location.href;
       rangeRestoreInFlight = false;
       rangeRestoreToken += 1;
+      cancelPageSizeRestore();
+      cancelAdminAccountsFilterRestore();
+      clearPageSizeSelectionActive();
+      clearAdminAccountsFilterSelectionActive();
       applyPageEnhancements();
     });
 

@@ -602,30 +602,66 @@
   }
 
   async function restoreSavedPageSize() {
-    if (!isActivePageSizeFeatureEnabled()) {
-      return;
+    if (
+      !isActivePageSizeFeatureEnabled() ||
+      isPageSizeSelectionActive() ||
+      pageSizeRestoreInFlight ||
+      (
+        isAdminAccountsPage() &&
+        (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive())
+      )
+    ) {
+      return false;
     }
 
+    const storageName = getActivePageSizeStorageName();
     const savedPageSize = getSavedPageSizeValue();
-    if (!savedPageSize) {
-      return;
+    if (!storageName || !savedPageSize) {
+      return false;
     }
 
-    const pageSizeButton = await waitFor(getPageSizeButton);
-    if (!pageSizeButton || getCurrentPageSizeValue() === savedPageSize) {
-      return;
-    }
-
-    pageSizeButton.click();
-    const targetOption = await waitFor(() =>
-      [...document.querySelectorAll('[role="option"]')].find(
-        (option) => option.textContent.trim() === savedPageSize,
-      ),
+    const restorePathname = location.pathname;
+    const restoreToken = ++pageSizeRestoreToken;
+    const isCurrentRestore = () => (
+      restoreToken === pageSizeRestoreToken &&
+      location.pathname === restorePathname &&
+      getActivePageSizeStorageName() === storageName &&
+      isActivePageSizeFeatureEnabled() &&
+      !isPageSizeSelectionActive() &&
+      !(
+        isAdminAccountsPage() &&
+        (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive())
+      )
     );
+    pageSizeRestoreInFlight = true;
 
-    if (targetOption) {
+    try {
+      const pageSizeButton = await waitFor(getPageSizeButton);
+      if (
+        !pageSizeButton ||
+        !isCurrentRestore() ||
+        getCurrentPageSizeValue() === savedPageSize
+      ) {
+        return false;
+      }
+
+      pageSizeButton.click();
+      const targetOption = await waitFor(() =>
+        [...document.querySelectorAll('[role="option"]')].find(
+          (option) => option.textContent.trim() === savedPageSize,
+        ),
+      );
+      if (!targetOption || !isCurrentRestore()) {
+        return false;
+      }
+
       targetOption.click();
-      setSavedPageSizeValue(savedPageSize);
+      setStorageValue(storageName, savedPageSize);
+      return true;
+    } finally {
+      if (restoreToken === pageSizeRestoreToken) {
+        pageSizeRestoreInFlight = false;
+      }
     }
   }
 
@@ -657,14 +693,29 @@
     }
   }
 
-  async function restoreAdminAccountsFilter(filter) {
+  function isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname) {
+    return Boolean(
+      restoreToken === adminAccountsFilterRestoreToken &&
+      location.pathname === restorePathname &&
+      isAdminAccountsFiltersFeatureEnabled() &&
+      !isAdminAccountsFilterSelectionActive() &&
+      !pageSizeRestoreInFlight &&
+      !isPageSizeSelectionActive()
+    );
+  }
+
+  async function restoreAdminAccountsFilter(filter, restoreToken, restorePathname) {
+    if (!isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
+      return false;
+    }
+
     const savedValue = getSavedAdminAccountsFilterValue(filter);
     if (!savedValue) {
       return false;
     }
 
     const filterButton = await waitFor(() => getAdminAccountsFilterButton(filter), RANGE_RESTORE_SETTLE_TIMEOUT_MS);
-    if (!filterButton) {
+    if (!filterButton || !isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
       return false;
     }
 
@@ -679,7 +730,7 @@
       ),
       RANGE_RESTORE_SETTLE_TIMEOUT_MS,
     );
-    if (targetOption) {
+    if (targetOption && isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
       targetOption.click();
       setSavedAdminAccountsFilterValue(filter, savedValue);
       return true;
@@ -689,14 +740,16 @@
       const fallbackOption = [...document.querySelectorAll('[role="option"]')].find(
         (option) => option.textContent.trim() === filter.defaultLabel,
       );
-      if (fallbackOption) {
+      if (fallbackOption && isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
         fallbackOption.click();
         setSavedAdminAccountsFilterValue(filter, filter.defaultLabel);
         return true;
       }
     }
 
-    filterButton.click();
+    if (isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
+      filterButton.click();
+    }
     return false;
   }
 
@@ -705,20 +758,29 @@
       return;
     }
 
-    if (adminAccountsFilterRestoreInFlight || isAdminAccountsFilterSelectionActive()) {
+    if (
+      adminAccountsFilterRestoreInFlight ||
+      isAdminAccountsFilterSelectionActive() ||
+      pageSizeRestoreInFlight ||
+      isPageSizeSelectionActive()
+    ) {
       return;
     }
 
+    const restorePathname = location.pathname;
+    const restoreToken = ++adminAccountsFilterRestoreToken;
     adminAccountsFilterRestoreInFlight = true;
     try {
       for (const filter of ADMIN_ACCOUNTS_FILTERS) {
-        if (isAdminAccountsFilterSelectionActive()) {
+        if (!isCurrentAdminAccountsFilterRestore(restoreToken, restorePathname)) {
           return;
         }
-        await restoreAdminAccountsFilter(filter);
+        await restoreAdminAccountsFilter(filter, restoreToken, restorePathname);
       }
     } finally {
-      adminAccountsFilterRestoreInFlight = false;
+      if (restoreToken === adminAccountsFilterRestoreToken) {
+        adminAccountsFilterRestoreInFlight = false;
+      }
     }
   }
 

@@ -4,6 +4,7 @@
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
+    ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_ACCOUNTS_FILTER_GROUP: 'admin-accounts-filter-group',
     ADMIN_ACCOUNTS_FILTER_PLATFORM: 'admin-accounts-filter-platform',
     ADMIN_ACCOUNTS_FILTER_PRIVACY: 'admin-accounts-filter-privacy',
@@ -82,6 +83,7 @@
   };
   const FEATURE_IDS = {
     ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
+    ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
@@ -149,6 +151,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS,
       label: '账号管理 tab (/admin/accounts) - 筛选条件',
+    },
+    {
+      description: '记住 /admin/accounts tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
+      label: '账号管理 tab (/admin/accounts) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -279,6 +287,10 @@
   let helperActivated = false;
   let themeSyncInFlight = false;
   let pageSizeSelectionActiveUntil = 0;
+  let pageSizeSelectionPathname = null;
+  let pageSizeSelectionStorageName = null;
+  let pageSizeRestoreInFlight = false;
+  let pageSizeRestoreToken = 0;
   let sidebarSelectionActiveUntil = 0;
   let sidebarSelectionPreviousState = null;
   let sidebarRestoreInFlightUntil = 0;
@@ -294,6 +306,7 @@
   let adminAccountsFilterSelectionActiveUntil = 0;
   let activeAdminAccountsFilterId = null;
   let adminAccountsFilterRestoreInFlight = false;
+  let adminAccountsFilterRestoreToken = 0;
   let dateRangeSelectionActiveUntil = 0;
   let autoRefreshState = AUTO_REFRESH_STATE.OFF;
   let lastForegroundRefreshAt = 0;
@@ -521,6 +534,9 @@
   }
 
   function getActivePageSizeStorageName() {
+    if (isAdminAccountsPage()) {
+      return STORAGE_NAMES.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
     if (isAdminUsagePage()) {
       return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;
     }
