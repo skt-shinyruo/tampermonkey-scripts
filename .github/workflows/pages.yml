@@ -3,6 +3,7 @@ name: Deploy Userscript Pages
 on:
   workflow_run:
     workflows:
+      - Publish A6API Userscript
       - Publish Sub2API Userscript
       - Publish Linux.do Userscript
     branches:

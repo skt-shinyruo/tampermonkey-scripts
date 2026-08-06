@@ -58,6 +58,9 @@ jobs:
           git fetch origin build:refs/remotes/origin/build || true
           if git show-ref --verify --quiet refs/remotes/origin/build; then
             git switch --detach origin/build
+            if [ -f a6api-fixed-exchange-rate.user.js ]; then
+              cp a6api-fixed-exchange-rate.user.js "$publish_dir/a6api-fixed-exchange-rate.user.js"
+            fi
             if [ -f linuxdo-open-links-new-tab.user.js ]; then
               cp linuxdo-open-links-new-tab.user.js "$publish_dir/linuxdo-open-links-new-tab.user.js"
             fi
@@ -67,6 +70,9 @@ jobs:
           fi
 
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          if [ -f "$publish_dir/a6api-fixed-exchange-rate.user.js" ]; then
+            cp "$publish_dir/a6api-fixed-exchange-rate.user.js" .
+          fi
           if [ -f "$publish_dir/linuxdo-open-links-new-tab.user.js" ]; then
             cp "$publish_dir/linuxdo-open-links-new-tab.user.js" .
           fi
