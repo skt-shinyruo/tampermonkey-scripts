@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cursor Spending 显示用量总额
 // @namespace    https://cursor.com/
-// @version      2.1.0
-// @description  在 Cursor Spending 页把 "x% used" 替换为两位小数精确百分比，并在右侧内联显示已用金额和总量（数据来源 /api/usage-summary）
+// @version      3.0.0
+// @description  在 Cursor Spending 页把 "x% used" 替换为两位小数精确百分比，并在右侧内联显示真实已用金额和总量（数据来源 /api/usage-summary + /api/dashboard/get-aggregated-usage-events）
 // @match        https://cursor.com/dashboard/spending*
 // @grant        none
 // @run-at       document-idle
@@ -14,16 +14,32 @@
   const INJECTED_CLASS = 'cst-total';
   const PCT_RE = /^\d+(\.\d+)?%\s*(used|已使用|已用)/i;
 
-  let summaryPromise = null;
+  let dataPromise = null;
 
-  function fetchSummary() {
-    summaryPromise = fetch('/api/usage-summary', {
-      credentials: 'include',
-      cache: 'no-store',
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null);
-    return summaryPromise;
+  // 一次拉取两个接口：summary 拿 plan/计费周期起点，events 拿分桶真实花费
+  function fetchData() {
+    dataPromise = (async () => {
+      const summaryRes = await fetch('/api/usage-summary', {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      if (!summaryRes.ok) return null;
+      const summary = await summaryRes.json();
+      const plan = summary.individualUsage && summary.individualUsage.plan;
+      if (!plan || !plan.enabled || !summary.billingCycleStart) return null;
+
+      const startDate = new Date(summary.billingCycleStart).getTime();
+      const usageRes = await fetch('/api/dashboard/get-aggregated-usage-events', {
+        method: 'POST',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamId: -1, startDate }),
+      });
+      const agg = usageRes.ok ? await usageRes.json().catch(() => null) : null;
+      return { plan, agg };
+    })().catch(() => null);
+    return dataPromise;
   }
 
   // 找到所有 "x% used" 的最内层元素
@@ -54,45 +70,48 @@
   const fmtTotal = (cents) =>
     cents >= 10000 ? '$' + Math.round(cents / 100) : fmt(cents);
 
-  // 解方程拆分两个桶：usedAuto+usedApi=used，totalAuto+totalApi=used/totalPct
-  // 返回 { auto: {used,total}, api: {used,total} }（单位：美分；无法拆分时对应项为 null）
-  function computeBuckets(plan) {
-    const used = plan.used;
-    const pA = plan.autoPercentUsed / 100;
-    const pI = plan.apiPercentUsed / 100;
-    const pT = (plan.totalPercentUsed || 0) / 100;
-    const D = pT > 0 ? used / pT : null; // totalAuto + totalApi
+  // 分桶真实花费：tier 2 = Cursor Models，tier 1 = Other Models（单位：美分）
+  // auto 总量按当前占比折算（0<pct<100 才有意义）；api 总量即保底额度 plan.limit
+  function computeBuckets({ plan, agg }) {
     const out = { auto: null, api: null };
-    if (pA > 0 && pI > 0 && D && Math.abs(pA - pI) > 1e-9) {
-      const tA = (used - pI * D) / (pA - pI);
-      const tI = D - tA;
-      if (tA > 0 && tI > 0) {
-        out.auto = { used: pA * tA, total: tA };
-        out.api = { used: pI * tI, total: tI };
-      }
-    } else if (pA > 0 && pI === 0) {
-      const tA = used / pA;
-      out.auto = { used, total: tA };
-      if (D && D > tA) out.api = { used: 0, total: D - tA };
-    } else if (pI > 0 && pA === 0) {
-      const tI = used / pI;
-      out.api = { used, total: tI };
-      if (D && D > tI) out.auto = { used: 0, total: D - tI };
+    if (!agg || !Array.isArray(agg.aggregations)) return out;
+    let usedAuto = 0;
+    let usedApi = 0;
+    for (const x of agg.aggregations) {
+      if (!x.modelIntent || ![1, 2].includes(x.tier)) continue;
+      const c = Number(x.totalCents || 0);
+      if (x.tier === 2) usedAuto += c;
+      else usedApi += c;
     }
+    const pA = Number(plan.autoPercentUsed || 0);
+    out.auto = {
+      used: usedAuto,
+      total: pA > 0 && pA < 100 ? (usedAuto * 100) / pA : null,
+    };
+    out.api = {
+      used: usedApi,
+      total: Number(plan.limit || 0) || null,
+    };
     return out;
   }
 
-  function labelFor(bucket, buckets, plan) {
+  function labelFor(bucket, buckets) {
     const b = buckets[bucket];
-    if (b && b.total > 0) {
+    if (!b) return null;
+    if (b.total != null && b.total > 0) {
+      if (bucket === 'auto') {
+        return {
+          text: ` · ${fmt(b.used)} / ≈${fmtTotal(b.total)}`,
+          title: `已用 ${fmt(b.used)}，总量 ≈ ${fmt(b.total)}（按当前占比折算）`,
+        };
+      }
       return {
-        text: ` · ${fmt(b.used)} / ≈${fmtTotal(b.total)}`,
-        title: `已用 ${fmt(b.used)}，总量 ≈ ${fmt(b.total)}（按当前占比折算）`,
+        text: ` · ${fmt(b.used)} / ${fmtTotal(b.total)}`,
+        title: `已用 ${fmt(b.used)}，保底额度 ${fmt(b.total)}`,
       };
     }
-    // 无法折算总量时，至少在 Cursor Models 条上显示合计已用
-    if (bucket === 'auto' && plan.used > 0) {
-      return { text: ` · ${fmt(plan.used)} used`, title: '总量暂时无法折算' };
+    if (b.used > 0) {
+      return { text: ` · ${fmt(b.used)} used`, title: '总量暂时无法折算' };
     }
     return null;
   }
@@ -144,15 +163,15 @@
 
   async function annotate() {
     if (!location.pathname.startsWith('/dashboard/spending')) return;
-    const data = await (summaryPromise || fetchSummary());
-    const plan = data && data.individualUsage && data.individualUsage.plan;
-    if (!plan || !plan.enabled) return;
-    const buckets = computeBuckets(plan);
+    const data = await (dataPromise || fetchData());
+    if (!data) return;
+    const { plan } = data;
+    const buckets = computeBuckets(data);
     const pctOf = { auto: plan.autoPercentUsed, api: plan.apiPercentUsed };
     for (const el of findPercentEls()) {
       const bucket = bucketOf(el);
       if (bucket && pctOf[bucket] != null) rewritePercent(el, pctOf[bucket]);
-      upsertSpan(el, labelFor(bucket, buckets, plan));
+      upsertSpan(el, labelFor(bucket, buckets));
     }
   }
 
@@ -168,7 +187,7 @@
   setInterval(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      summaryPromise = null;
+      dataPromise = null;
       annotate();
     }
   }, 1000);
