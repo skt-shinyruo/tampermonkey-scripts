@@ -1165,6 +1165,50 @@ function createUsageTokenSummary(environment, {
   return { cacheRoot, line };
 }
 
+function createUsageCostSummary(environment, {
+  accountCost = '$13.7392',
+  includeAccountCost = true,
+  language = 'zh',
+  standardCost = '$187.5804',
+  total = '$21.5680',
+} = {}) {
+  const document = environment.document;
+  const card = document.createElement('div');
+  const label = document.createElement('p');
+  const totalAmount = document.createElement('p');
+  const line = document.createElement('p');
+  const isChinese = language !== 'en';
+
+  label.textContent = isChinese ? '总消费' : 'Total Cost';
+  totalAmount.textContent = total;
+  card.appendChild(label);
+  card.appendChild(totalAmount);
+
+  let accountCostElement = null;
+  if (includeAccountCost) {
+    accountCostElement = document.createElement('span');
+    const separator = document.createElement('span');
+    accountCostElement.className = 'text-orange-500';
+    accountCostElement.textContent = `${isChinese ? '成本' : 'Cost'} ${accountCost}`;
+    separator.textContent = ' · ';
+    line.appendChild(accountCostElement);
+    line.appendChild(separator);
+  }
+
+  const standard = document.createElement('span');
+  const standardLabel = document.createElement('span');
+  const standardAmount = document.createElement('span');
+  standardLabel.textContent = isChinese ? '标准' : 'Standard';
+  standardAmount.textContent = standardCost;
+  standard.appendChild(standardLabel);
+  standard.appendChild(standardAmount);
+  line.appendChild(standard);
+  card.appendChild(line);
+  document.body.appendChild(card);
+
+  return { accountCostElement, card, label, line, standard, totalAmount };
+}
+
 function createAdminAccountsFilters(environment, groupOptions = ['全部分组', '未分配分组', '订阅', 'Anthropic', 'OpenAI']) {
   return {
     platform: environment.createSelectControl({
@@ -2616,6 +2660,69 @@ test('usage summary adds cache hit rate on user and admin usage pages', async ()
       '[data-sub2api-usage-cache-hit-rate-separator="true"]',
     ).length, 1);
   }
+});
+
+test('usage summary adds income between account cost and standard cost', async () => {
+  for (const pathname of ['/usage', '/admin/usage']) {
+    const origin = `https://${pathname === '/usage' ? 'user-income' : 'admin-income'}.sub2api.example.test`;
+    const environment = createTestEnvironment({ origin, pathname });
+    createUsageFingerprint(environment);
+    const summary = createUsageCostSummary(environment);
+
+    vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+    await flushMicrotasks();
+
+    const separator = summary.line.querySelector('[data-sub2api-usage-income-separator="true"]');
+    const income = summary.line.querySelector('[data-sub2api-usage-income="true"]');
+    const children = [...summary.line.children];
+    assert.equal(separator.textContent, ' · ');
+    assert.equal(income.textContent, '收入 $7.8288');
+    assert.equal(income.title, '收入 = 总消费 - 成本');
+    assert.equal(income.getAttribute('aria-label'), '收入');
+    assert.equal(income.className, 'text-emerald-600 dark:text-emerald-400');
+    assert.equal(children[0], summary.accountCostElement);
+    assert.equal(children[1], separator);
+    assert.equal(children[2], income);
+    assert.equal(children[3].textContent, ' · ');
+    assert.equal(summary.line.querySelectorAll('[data-sub2api-usage-income="true"]').length, 1);
+
+    summary.totalAmount.textContent = '$10.0000';
+    summary.accountCostElement.textContent = '成本 $4.2500';
+    environment.runMutationObservers();
+    await flushMicrotasks();
+
+    assert.equal(summary.line.querySelector('[data-sub2api-usage-income="true"]').textContent, '收入 $5.7500');
+    assert.equal(summary.line.querySelectorAll('[data-sub2api-usage-income="true"]').length, 1);
+    assert.equal(summary.line.querySelectorAll('[data-sub2api-usage-income-separator="true"]').length, 1);
+  }
+});
+
+test('usage summary income follows the cost card language and sign', async () => {
+  const origin = 'https://income-language.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const english = createUsageCostSummary(environment, {
+    accountCost: '$2.5000',
+    language: 'en',
+    total: '$1.0000',
+  });
+  const withoutAccountCost = createUsageCostSummary(environment, {
+    includeAccountCost: false,
+    total: '$9.0000',
+  });
+  const strayCost = environment.document.createElement('span');
+  strayCost.textContent = '成本 $3.0000';
+  environment.document.body.appendChild(strayCost);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const income = english.line.querySelector('[data-sub2api-usage-income="true"]');
+  assert.equal(income.textContent, 'Income -$1.5000');
+  assert.equal(income.title, 'Income = Total Cost - Cost');
+  assert.equal(income.className, 'text-red-600 dark:text-red-400');
+  assert.equal(withoutAccountCost.line.querySelector('[data-sub2api-usage-income="true"]'), null);
+  assert.equal(environment.document.querySelectorAll('[data-sub2api-usage-income="true"]').length, 1);
 });
 
 test('usage table adds TPS below total duration for streaming rows from usage API data', async () => {

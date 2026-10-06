@@ -30,6 +30,7 @@
 
     ensureUsageTableEnhancementStyleElement();
     enhanceUsageTokenSummaryCards();
+    enhanceUsageCostSummaryCards();
     for (const table of document.querySelectorAll('table')) {
       enhanceUsageTable(table);
     }
@@ -195,6 +196,159 @@
     )) {
       marker.remove();
     }
+  }
+
+  function enhanceUsageCostSummaryCards() {
+    const summaryLines = new Map();
+    for (const candidate of document.querySelectorAll('span')) {
+      if (!isUsageAccountCostSummaryLabel(getUsageElementOwnText(candidate))) {
+        continue;
+      }
+
+      const summary = getUsageCostSummary(candidate);
+      if (summary) {
+        summaryLines.set(summary.line, summary);
+      }
+    }
+
+    for (const summary of summaryLines.values()) {
+      enhanceUsageCostSummaryLine(summary);
+    }
+
+    for (const marker of document.querySelectorAll(
+      '[data-sub2api-usage-income="true"], [data-sub2api-usage-income-separator="true"]',
+    )) {
+      if (!summaryLines.has(marker.parentElement)) {
+        marker.remove();
+      }
+    }
+  }
+
+  function getUsageCostSummary(costLabel) {
+    const line = costLabel.parentElement;
+    const card = line?.parentElement;
+    if (!line || !card) {
+      return null;
+    }
+
+    const hasTotalLabel = [...card.children].some((element) =>
+      isUsageTotalCostSummaryLabel(getUsageElementOwnText(element)),
+    );
+    if (!hasTotalLabel) {
+      return null;
+    }
+
+    const totalElement = [...card.children].find((element) =>
+      element !== line && parseUsageMoneyValue(getUsageElementOwnText(element)) !== null,
+    );
+    if (!totalElement) {
+      return null;
+    }
+
+    return { costLabel, line, totalElement };
+  }
+
+  function enhanceUsageCostSummaryLine({ costLabel, line, totalElement }) {
+    const totalCost = parseUsageMoneyValue(getUsageElementOwnText(totalElement));
+    const accountCost = parseUsageMoneyValue(getUsageElementOwnText(costLabel));
+    if (totalCost === null || accountCost === null) {
+      removeUsageIncome(line);
+      return;
+    }
+
+    const income = Number((totalCost - accountCost).toFixed(4));
+    if (!Number.isFinite(income)) {
+      removeUsageIncome(line);
+      return;
+    }
+
+    const separator = getOrCreateUsageIncomeSeparator(line);
+    const incomeElement = getOrCreateUsageIncomeElement(line);
+    const isChinese = /成本/.test(getUsageElementOwnText(costLabel));
+    separator.className = findUsageCostSummarySeparatorClass(line);
+    incomeElement.className = income < 0
+      ? 'text-red-600 dark:text-red-400'
+      : 'text-emerald-600 dark:text-emerald-400';
+    incomeElement.style.whiteSpace = 'nowrap';
+    incomeElement.title = isChinese
+      ? '收入 = 总消费 - 成本'
+      : 'Income = Total Cost - Cost';
+    incomeElement.setAttribute('aria-label', isChinese ? '收入' : 'Income');
+    setUsageTextIfChanged(separator, ' · ');
+    setUsageTextIfChanged(
+      incomeElement,
+      `${isChinese ? '收入' : 'Income'} ${formatUsageSignedMoney(income)}`,
+    );
+    placeUsageSummaryElementAfter(costLabel, separator);
+    placeUsageSummaryElementAfter(separator, incomeElement);
+  }
+
+  function getOrCreateUsageIncomeSeparator(line) {
+    const existing = [...line.querySelectorAll('[data-sub2api-usage-income-separator="true"]')]
+      .find((element) => element.parentElement === line);
+    if (existing) {
+      return existing;
+    }
+
+    const separator = document.createElement('span');
+    separator.dataset.sub2apiUsageIncomeSeparator = 'true';
+    return separator;
+  }
+
+  function getOrCreateUsageIncomeElement(line) {
+    const existing = [...line.querySelectorAll('[data-sub2api-usage-income="true"]')]
+      .find((element) => element.parentElement === line);
+    if (existing) {
+      return existing;
+    }
+
+    const incomeElement = document.createElement('span');
+    incomeElement.dataset.sub2apiUsageIncome = 'true';
+    return incomeElement;
+  }
+
+  function findUsageCostSummarySeparatorClass(line) {
+    return [...line.children]
+      .find((element) =>
+        element.dataset?.sub2apiUsageIncomeSeparator !== 'true' &&
+        normalizeUsageCellText(element) === '·',
+      )
+      ?.className || '';
+  }
+
+  function removeUsageIncome(line) {
+    if (!line) {
+      return;
+    }
+
+    for (const marker of line.querySelectorAll(
+      '[data-sub2api-usage-income="true"], [data-sub2api-usage-income-separator="true"]',
+    )) {
+      marker.remove();
+    }
+  }
+
+  function isUsageAccountCostSummaryLabel(text) {
+    return /^(成本|cost)\s*\$\s*[0-9]/i.test(String(text || '').trim());
+  }
+
+  function isUsageTotalCostSummaryLabel(text) {
+    return /^(总消费|total cost)$/i.test(String(text || '').trim());
+  }
+
+  function parseUsageMoneyValue(text) {
+    const match = String(text || '').replace(/,/g, '').match(/\$\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+    if (!match) {
+      return null;
+    }
+
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function formatUsageSignedMoney(value) {
+    const sign = value < 0 ? '-' : '';
+    return `${sign}$${Math.abs(value).toFixed(4)}`;
   }
 
   function isUsageInputSummaryLabel(text) {
