@@ -96,7 +96,9 @@
       });
     }
 
-    for (const marker of table.querySelectorAll('[data-sub2api-usage-row-cache-hit-rate="true"]')) {
+    for (const marker of table.querySelectorAll(
+      '[data-sub2api-usage-row-cache-hit-rate="true"], [data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    )) {
       const cell = marker.closest('td');
       if (!cell || !enhancedCells.has(cell)) {
         marker.remove();
@@ -152,29 +154,94 @@
       return;
     }
 
-    const stack = getUsageTokensStack(cell) || cell;
-    const rateElement = getOrCreateUsageRowCacheHitRateElement(stack);
+    const mount = getUsageRowCacheHitRateMount(cell);
+    if (!mount) {
+      removeUsageRowCacheHitRate(cell);
+      return;
+    }
+
+    const onCacheLine = isUsageCacheTokenLine(mount);
     const isChinese = isUsagePageChineseLocale();
-    rateElement.className = 'text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap';
+    const rateElement = getOrCreateUsageRowCacheHitRateElement(cell);
+    const separator = getOrCreateUsageRowCacheHitRateSeparator(cell);
+    rateElement.className = 'font-medium tabular-nums text-sky-600 dark:text-sky-400 whitespace-nowrap';
     rateElement.title = getUsageCacheHitRateTitle(isChinese);
     rateElement.setAttribute('aria-label', isChinese ? '缓存命中率' : 'Cache hit rate');
-    setUsageTextIfChanged(rateElement, formatUsageCacheHitRateLabel(hitRate, isChinese));
-    if (rateElement.parentElement !== stack) {
-      stack.appendChild(rateElement);
+    separator.className = 'text-gray-400 dark:text-gray-500';
+    setUsageTextIfChanged(rateElement, formatUsageRowCacheHitRateLabel(hitRate));
+    setUsageTextIfChanged(separator, onCacheLine ? '/' : '·');
+
+    const mountChildren = [...mount.children];
+    const separatorIndex = mountChildren.indexOf(separator);
+    const rateIndex = mountChildren.indexOf(rateElement);
+    if (
+      separator.parentElement !== mount ||
+      rateElement.parentElement !== mount ||
+      separatorIndex < 0 ||
+      rateIndex !== separatorIndex + 1
+    ) {
+      separator.remove();
+      rateElement.remove();
+      mount.appendChild(separator);
+      mount.appendChild(rateElement);
     }
+  }
+
+  function formatUsageRowCacheHitRateLabel(hitRate) {
+    return `${hitRate.toFixed(2)}%`;
   }
 
   function getUsageTokensStack(cell) {
     return cell.querySelector('.space-y-1') || null;
   }
 
-  function getOrCreateUsageRowCacheHitRateElement(stack) {
-    const existing = stack.querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+  function isUsageRowCacheHitRateMarker(element) {
+    return (
+      element?.dataset?.sub2apiUsageRowCacheHitRate === 'true' ||
+      element?.dataset?.sub2apiUsageRowCacheHitRateSeparator === 'true'
+    );
+  }
+
+  function isUsageCacheTokenLine(line) {
+    return [...line.querySelectorAll('span')].some((element) =>
+      !isUsageRowCacheHitRateMarker(element) &&
+      /(?:^|\s)text-(?:sky|amber)-/.test(element.className || ''),
+    );
+  }
+
+  function getUsageRowCacheHitRateMount(cell) {
+    const stack = getUsageTokensStack(cell);
+    if (!stack) {
+      return cell;
+    }
+
+    const lines = [...stack.children].filter((child) => !isUsageRowCacheHitRateMarker(child));
+    if (!lines.length) {
+      return stack;
+    }
+
+    const cacheLine = lines.find((line) => isUsageCacheTokenLine(line));
+    return cacheLine || lines[0];
+  }
+
+  function getOrCreateUsageRowCacheHitRateSeparator(cell) {
+    const existing = cell.querySelector('[data-sub2api-usage-row-cache-hit-rate-separator="true"]');
     if (existing) {
       return existing;
     }
 
-    const rateElement = document.createElement('div');
+    const separator = document.createElement('span');
+    separator.dataset.sub2apiUsageRowCacheHitRateSeparator = 'true';
+    return separator;
+  }
+
+  function getOrCreateUsageRowCacheHitRateElement(cell) {
+    const existing = cell.querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    if (existing) {
+      return existing;
+    }
+
+    const rateElement = document.createElement('span');
     rateElement.dataset.sub2apiUsageRowCacheHitRate = 'true';
     return rateElement;
   }
@@ -184,7 +251,9 @@
       return;
     }
 
-    for (const marker of cell.querySelectorAll('[data-sub2api-usage-row-cache-hit-rate="true"]')) {
+    for (const marker of cell.querySelectorAll(
+      '[data-sub2api-usage-row-cache-hit-rate="true"], [data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    )) {
       marker.remove();
     }
   }

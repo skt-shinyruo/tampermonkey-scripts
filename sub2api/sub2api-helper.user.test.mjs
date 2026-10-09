@@ -1339,11 +1339,13 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
       cacheLine.className = 'flex items-center gap-2';
       if ((row.cacheReadTokens ?? 0) > 0) {
         const cacheRead = document.createElement('span');
+        cacheRead.className = 'font-medium text-sky-600 dark:text-sky-400';
         cacheRead.textContent = String(row.cacheReadTokens);
         cacheLine.appendChild(cacheRead);
       }
       if ((row.cacheCreationTokens ?? 0) > 0) {
         const cacheCreation = document.createElement('span');
+        cacheCreation.className = 'font-medium text-amber-600 dark:text-amber-400';
         cacheCreation.textContent = String(row.cacheCreationTokens);
         cacheLine.appendChild(cacheCreation);
       }
@@ -2939,23 +2941,52 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
     environment.runMutationObservers();
     await flushMicrotasks();
 
-    const hit501 = table.getCell(501, 'tokens')
-      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const tokens501 = table.getCell(501, 'tokens');
+    const hit501 = tokens501.querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
     const hit502 = table.getCell(502, 'tokens')
       .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
     const hit503 = table.getCell(503, 'tokens')
       .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
     const hit504 = table.getCell(504, 'tokens')
       .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const cacheRead501 = [...tokens501.querySelectorAll('span')]
+      .find((element) => element.className.includes('text-sky-600'));
 
-    assert.equal(hit501?.textContent, '命中率: 93.75%');
+    const separator501 = tokens501.querySelector(
+      '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    );
+    assert.equal(hit501?.textContent, '93.75%');
+    assert.equal(separator501?.textContent, '/');
     assert.equal(
       hit501?.title,
       '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)',
     );
-    assert.equal(hit502?.textContent, '命中率: 0.00%');
+    assert.equal(hit501?.className.includes('text-sky-600'), true);
+    assert.equal(hit501?.parentElement, cacheRead501?.parentElement);
+    assert.equal(separator501?.parentElement, cacheRead501?.parentElement);
+    assert.equal(
+      [...hit501.parentElement.children].indexOf(hit501),
+      [...hit501.parentElement.children].indexOf(separator501) + 1,
+    );
+    const tokens502 = table.getCell(502, 'tokens');
+    const separator502 = tokens502.querySelector(
+      '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    );
+    assert.equal(hit502?.textContent, '0.00%');
+    assert.equal(separator502?.textContent, '·');
+    assert.equal(hit502?.parentElement?.className.includes('flex'), true);
+    assert.equal(
+      [...hit502.parentElement.children].indexOf(hit502),
+      [...hit502.parentElement.children].indexOf(separator502) + 1,
+    );
     assert.equal(hit503, null);
-    assert.equal(hit504?.textContent, '命中率: 0.00%');
+    assert.equal(hit504?.textContent, '0.00%');
+    assert.equal(
+      table.getCell(504, 'tokens').querySelector(
+        '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+      )?.textContent,
+      '·',
+    );
   }
 });
 
