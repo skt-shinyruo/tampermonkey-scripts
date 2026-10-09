@@ -1313,6 +1313,47 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     td.appendChild(wrapper);
   };
 
+  const appendTokensContent = (td, row) => {
+    if (!row.tokensStack) {
+      td.textContent = row.tokens ?? '';
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    const stack = document.createElement('div');
+    const ioLine = document.createElement('div');
+    const inputValue = document.createElement('span');
+    const outputValue = document.createElement('span');
+
+    wrapper.className = 'flex items-center gap-1.5';
+    stack.className = 'space-y-1 text-sm';
+    ioLine.className = 'flex items-center gap-2';
+    inputValue.textContent = String(row.inputTokens ?? 0);
+    outputValue.textContent = String(row.outputTokens ?? 0);
+    ioLine.appendChild(inputValue);
+    ioLine.appendChild(outputValue);
+    stack.appendChild(ioLine);
+
+    if ((row.cacheReadTokens ?? 0) > 0 || (row.cacheCreationTokens ?? 0) > 0) {
+      const cacheLine = document.createElement('div');
+      cacheLine.className = 'flex items-center gap-2';
+      if ((row.cacheReadTokens ?? 0) > 0) {
+        const cacheRead = document.createElement('span');
+        cacheRead.textContent = String(row.cacheReadTokens);
+        cacheLine.appendChild(cacheRead);
+      }
+      if ((row.cacheCreationTokens ?? 0) > 0) {
+        const cacheCreation = document.createElement('span');
+        cacheCreation.textContent = String(row.cacheCreationTokens);
+        cacheLine.appendChild(cacheCreation);
+      }
+      stack.appendChild(cacheLine);
+    }
+
+    wrapper.appendChild(stack);
+    td.appendChild(wrapper);
+  };
+
   for (const header of headers) {
     const th = document.createElement('th');
     th.textContent = header;
@@ -1329,6 +1370,8 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
       const td = document.createElement('td');
       if (columnKey === 'cost') {
         appendCostContent(td, row);
+      } else if (columnKey === 'tokens') {
+        appendTokensContent(td, row);
       } else if (columnKey === 'latency') {
         latencyElements.set(String(row.id), appendLatencyContent(td, row));
       } else if (columnKey === 'userAgent') {
@@ -2780,6 +2823,170 @@ test('usage table leaves the user-agent cell unchanged on admin usage rows', asy
   assert.equal(stack, null);
   assert.equal(userAgentValue, null);
   assert.equal(requestIdValue, null);
+});
+
+test('usage table adds row cache hit rate from usage API on user and admin pages', async () => {
+  for (const { pathname, apiPath, originHost } of [
+    { pathname: '/usage', apiPath: '/api/v1/usage', originHost: 'user' },
+    { pathname: '/admin/usage', apiPath: '/api/v1/admin/usage', originHost: 'admin' },
+  ]) {
+    const origin = `https://${originHost}.sub2api.example.test`;
+    const environment = createTestEnvironment({ origin, pathname });
+    if (pathname === '/usage') {
+      createUsageFingerprint(environment);
+    } else {
+      environment.createDatePicker({
+        activePresetLabel: '近24小时',
+        presetLabels: ['今天', '近24小时'],
+        triggerText: '近24小时',
+      });
+      environment.createSelectControl({
+        labelText: '粒度:',
+        options: ['按小时', '按天'],
+        value: '按小时',
+      });
+    }
+
+    const table = createUsageEnhancementTable(environment, [
+      {
+        id: 501,
+        model: 'claude-sonnet',
+        type: '流式',
+        tokensStack: true,
+        inputTokens: 40,
+        outputTokens: 100,
+        cacheReadTokens: 600,
+        cacheCreationTokens: 0,
+        cost: '$0.01',
+        firstToken: '1.00s',
+        duration: '10.00s',
+      },
+      {
+        id: 502,
+        model: 'claude-sonnet',
+        type: '流式',
+        tokensStack: true,
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cost: '$0.02',
+        firstToken: '1.00s',
+        duration: '8.00s',
+      },
+      {
+        id: 503,
+        model: 'image-model',
+        type: '图片',
+        tokens: '2张',
+        cost: '$0.03',
+        firstToken: '-',
+        duration: '-',
+      },
+      {
+        id: 504,
+        model: 'claude-sonnet',
+        type: '流式',
+        tokensStack: true,
+        inputTokens: 10,
+        outputTokens: 20,
+        cost: '$0.04',
+        firstToken: '0.50s',
+        duration: '2.00s',
+      },
+    ]);
+
+    vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+    await flushMicrotasks();
+
+    environment.setFetchResponse(apiPath, buildUsageListResponse([
+      {
+        id: 501,
+        request_id: 'req-501',
+        input_tokens: 40,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 600,
+        output_tokens: 100,
+      },
+      {
+        id: 502,
+        request_id: 'req-502',
+        input_tokens: 100,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        output_tokens: 50,
+      },
+      {
+        id: 503,
+        request_id: 'req-503',
+        image_count: 2,
+        billing_mode: 'image',
+        input_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+      },
+      {
+        id: 504,
+        request_id: 'req-504',
+        input_tokens: 10,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        output_tokens: 20,
+      },
+    ]));
+    await environment.vmContext.fetch(`${origin}${apiPath}?page=1&page_size=20`);
+    await flushMicrotasks();
+    environment.runMutationObservers();
+    await flushMicrotasks();
+
+    const hit501 = table.getCell(501, 'tokens')
+      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const hit502 = table.getCell(502, 'tokens')
+      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const hit503 = table.getCell(503, 'tokens')
+      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const hit504 = table.getCell(504, 'tokens')
+      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+
+    assert.equal(hit501?.textContent, '命中率: 93.75%');
+    assert.equal(
+      hit501?.title,
+      '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)',
+    );
+    assert.equal(hit502?.textContent, '命中率: 0.00%');
+    assert.equal(hit503, null);
+    assert.equal(hit504?.textContent, '命中率: 0.00%');
+  }
+});
+
+test('usage table skips row cache hit rate when API row is missing from cache', async () => {
+  const origin = 'https://user.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const table = createUsageEnhancementTable(environment, [
+    {
+      id: 601,
+      model: 'claude-sonnet',
+      type: '流式',
+      tokensStack: true,
+      inputTokens: 40,
+      outputTokens: 100,
+      cacheReadTokens: 600,
+      cost: '$0.01',
+      firstToken: '1.00s',
+      duration: '10.00s',
+    },
+  ]);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(
+    table.getCell(601, 'tokens').querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]'),
+    null,
+  );
 });
 
 

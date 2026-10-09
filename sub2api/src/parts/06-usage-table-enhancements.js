@@ -17,6 +17,176 @@
 
     enhanceUsageTokenSummaryCards();
     enhanceUsageCostSummaryCards();
+    for (const table of document.querySelectorAll('table')) {
+      enhanceUsageTable(table);
+    }
+  }
+
+  function toFiniteUsageNumber(value) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function calculateUsageCacheHitRatePercent({
+    input_tokens: inputTokens,
+    cache_creation_tokens: cacheCreationTokens,
+    cache_read_tokens: cacheReadTokens,
+  } = {}) {
+    const input = toFiniteUsageNumber(inputTokens) ?? 0;
+    const creation = toFiniteUsageNumber(cacheCreationTokens) ?? 0;
+    const read = toFiniteUsageNumber(cacheReadTokens) ?? 0;
+    const promptTokens = input + creation + read;
+    if (promptTokens <= 0 || read < 0) {
+      return null;
+    }
+
+    const hitRate = (read / promptTokens) * 100;
+    return Number.isFinite(hitRate) ? hitRate : null;
+  }
+
+  function isUsagePageChineseLocale() {
+    const lang = String(document.documentElement?.lang || '').toLowerCase();
+    if (!lang) {
+      return true;
+    }
+    return lang.startsWith('zh');
+  }
+
+  function formatUsageCacheHitRateLabel(hitRate, isChinese) {
+    return `${isChinese ? '命中率' : 'Hit Rate'}: ${hitRate.toFixed(2)}%`;
+  }
+
+  function getUsageCacheHitRateTitle(isChinese) {
+    return isChinese
+      ? '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)'
+      : 'Cache hit rate = cache read / (input + cache creation + cache read)';
+  }
+
+  function isUsageImageBillingRow(row) {
+    const imageCount = toFiniteUsageNumber(row?.image_count) ?? 0;
+    const billingMode = String(row?.billing_mode || '');
+    return imageCount > 0 && billingMode !== 'token' && billingMode !== 'video';
+  }
+
+  function enhanceUsageTable(table) {
+    const columnIndexes = getUsageTableColumnIndexes(table);
+    if (!columnIndexes || columnIndexes.tokens < 0) {
+      return;
+    }
+
+    const enhancedCells = new Set();
+    for (const rowElement of table.querySelectorAll('tr')) {
+      const cells = [...rowElement.children].filter((child) => child.tagName === 'TD');
+      if (!cells.length) {
+        continue;
+      }
+
+      const tokensCell = cells[columnIndexes.tokens];
+      if (!tokensCell) {
+        continue;
+      }
+
+      enhancedCells.add(tokensCell);
+      enhanceUsageTokensCell({
+        cell: tokensCell,
+        usageRow: getUsageLogRowForTableRow(rowElement),
+      });
+    }
+
+    for (const marker of table.querySelectorAll('[data-sub2api-usage-row-cache-hit-rate="true"]')) {
+      const cell = marker.closest('td');
+      if (!cell || !enhancedCells.has(cell)) {
+        marker.remove();
+      }
+    }
+  }
+
+  function getUsageTableColumnIndexes(table) {
+    const labels = [...table.querySelectorAll('th')].map((header) => normalizeUsageColumnLabel(header.textContent));
+    if (!labels.length) {
+      return null;
+    }
+
+    return {
+      tokens: findUsageColumnIndex(labels, (label) =>
+        (label.includes('tokens') || label.includes('token') || label.includes('令牌')) &&
+        !label.includes('first') &&
+        !label.includes('首'),
+      ),
+    };
+  }
+
+  function normalizeUsageColumnLabel(value) {
+    return String(value || '')
+      .trim()
+      .replace(/\s+/g, '')
+      .toLowerCase();
+  }
+
+  function findUsageColumnIndex(labels, predicate) {
+    const index = labels.findIndex(predicate);
+    return index >= 0 ? index : -1;
+  }
+
+  function getUsageLogRowForTableRow(rowElement) {
+    const rowId = rowElement.getAttribute('data-row-id');
+    if (rowId) {
+      return usageLogRowsById.get(rowId) || usageLogRowsByRequestId.get(rowId) || null;
+    }
+
+    return null;
+  }
+
+  function enhanceUsageTokensCell({ cell, usageRow }) {
+    if (!cell || !usageRow || isUsageImageBillingRow(usageRow)) {
+      removeUsageRowCacheHitRate(cell);
+      return;
+    }
+
+    const hitRate = calculateUsageCacheHitRatePercent(usageRow);
+    if (hitRate === null) {
+      removeUsageRowCacheHitRate(cell);
+      return;
+    }
+
+    const stack = getUsageTokensStack(cell) || cell;
+    const rateElement = getOrCreateUsageRowCacheHitRateElement(stack);
+    const isChinese = isUsagePageChineseLocale();
+    rateElement.className = 'text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap';
+    rateElement.title = getUsageCacheHitRateTitle(isChinese);
+    rateElement.setAttribute('aria-label', isChinese ? '缓存命中率' : 'Cache hit rate');
+    setUsageTextIfChanged(rateElement, formatUsageCacheHitRateLabel(hitRate, isChinese));
+    if (rateElement.parentElement !== stack) {
+      stack.appendChild(rateElement);
+    }
+  }
+
+  function getUsageTokensStack(cell) {
+    return cell.querySelector('.space-y-1') || null;
+  }
+
+  function getOrCreateUsageRowCacheHitRateElement(stack) {
+    const existing = stack.querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    if (existing) {
+      return existing;
+    }
+
+    const rateElement = document.createElement('div');
+    rateElement.dataset.sub2apiUsageRowCacheHitRate = 'true';
+    return rateElement;
+  }
+
+  function removeUsageRowCacheHitRate(cell) {
+    if (!cell) {
+      return;
+    }
+
+    for (const marker of cell.querySelectorAll('[data-sub2api-usage-row-cache-hit-rate="true"]')) {
+      marker.remove();
+    }
   }
 
   function enhanceUsageTokenSummaryCards() {
@@ -75,14 +245,12 @@
     const cacheReadTokens = hasCacheBreakdown
       ? (cacheBreakdown.read || 0)
       : displayedCacheTokens;
-    const promptTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
-    if (!Number.isFinite(promptTokens) || promptTokens <= 0 || cacheReadTokens < 0) {
-      removeUsageCacheHitRate(line);
-      return;
-    }
-
-    const hitRate = (cacheReadTokens / promptTokens) * 100;
-    if (!Number.isFinite(hitRate)) {
+    const hitRate = calculateUsageCacheHitRatePercent({
+      input_tokens: inputTokens,
+      cache_creation_tokens: cacheCreationTokens,
+      cache_read_tokens: cacheReadTokens,
+    });
+    if (hitRate === null) {
       removeUsageCacheHitRate(line);
       return;
     }
@@ -93,12 +261,10 @@
     separator.className = findUsageSummarySeparatorClass(line);
     rateElement.className = inputLabel?.className || '';
     rateElement.style.whiteSpace = 'nowrap';
-    rateElement.title = isChinese
-      ? '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)'
-      : 'Cache hit rate = cache read / (input + cache creation + cache read)';
+    rateElement.title = getUsageCacheHitRateTitle(isChinese);
     rateElement.setAttribute('aria-label', isChinese ? '缓存命中率' : 'Cache hit rate');
     setUsageTextIfChanged(separator, '/');
-    setUsageTextIfChanged(rateElement, `${isChinese ? '命中率' : 'Hit Rate'}: ${hitRate.toFixed(2)}%`);
+    setUsageTextIfChanged(rateElement, formatUsageCacheHitRateLabel(hitRate, isChinese));
     placeUsageSummaryElementAfter(cacheRoot, separator);
     placeUsageSummaryElementAfter(separator, rateElement);
   }
