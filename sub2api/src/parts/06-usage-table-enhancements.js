@@ -170,21 +170,7 @@
     separator.className = 'text-gray-400 dark:text-gray-500';
     setUsageTextIfChanged(rateElement, formatUsageRowCacheHitRateLabel(hitRate));
     setUsageTextIfChanged(separator, onCacheLine ? '/' : '·');
-
-    const mountChildren = [...mount.children];
-    const separatorIndex = mountChildren.indexOf(separator);
-    const rateIndex = mountChildren.indexOf(rateElement);
-    if (
-      separator.parentElement !== mount ||
-      rateElement.parentElement !== mount ||
-      separatorIndex < 0 ||
-      rateIndex !== separatorIndex + 1
-    ) {
-      separator.remove();
-      rateElement.remove();
-      mount.appendChild(separator);
-      mount.appendChild(rateElement);
-    }
+    placeUsageRowCacheHitRate({ mount, onCacheLine, rateElement, separator });
   }
 
   function formatUsageRowCacheHitRateLabel(hitRate) {
@@ -207,6 +193,61 @@
       !isUsageRowCacheHitRateMarker(element) &&
       /(?:^|\s)text-(?:sky|amber)-/.test(element.className || ''),
     );
+  }
+
+  function hasUsageSkyTokenClass(element) {
+    return /(?:^|\s)text-sky-/.test(element?.className || '');
+  }
+
+  function getUsageCacheReadGroup(mount) {
+    return [...mount.children].find((child) => {
+      if (isUsageRowCacheHitRateMarker(child)) {
+        return false;
+      }
+      if (child.tagName === 'SPAN' && hasUsageSkyTokenClass(child)) {
+        return true;
+      }
+      return [...child.querySelectorAll('span')].some((element) =>
+        !isUsageRowCacheHitRateMarker(element) && hasUsageSkyTokenClass(element),
+      );
+    }) || null;
+  }
+
+  function placeUsageRowCacheHitRate({ mount, onCacheLine, rateElement, separator }) {
+    const cacheReadGroup = onCacheLine ? getUsageCacheReadGroup(mount) : null;
+    const anchor = cacheReadGroup;
+    const mountChildren = [...mount.children];
+    const separatorIndex = mountChildren.indexOf(separator);
+    const rateIndex = mountChildren.indexOf(rateElement);
+
+    if (anchor) {
+      const anchorIndex = mountChildren.indexOf(anchor);
+      if (
+        separator.parentElement === mount &&
+        rateElement.parentElement === mount &&
+        separatorIndex === anchorIndex + 1 &&
+        rateIndex === separatorIndex + 1
+      ) {
+        return;
+      }
+      placeUsageSummaryElementAfter(anchor, separator);
+      placeUsageSummaryElementAfter(separator, rateElement);
+      return;
+    }
+
+    if (
+      separator.parentElement === mount &&
+      rateElement.parentElement === mount &&
+      separatorIndex >= 0 &&
+      rateIndex === separatorIndex + 1
+    ) {
+      return;
+    }
+
+    separator.remove();
+    rateElement.remove();
+    mount.appendChild(separator);
+    mount.appendChild(rateElement);
   }
 
   function getUsageRowCacheHitRateMount(cell) {

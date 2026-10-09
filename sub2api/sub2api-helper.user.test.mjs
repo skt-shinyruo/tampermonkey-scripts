@@ -1338,16 +1338,22 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
       const cacheLine = document.createElement('div');
       cacheLine.className = 'flex items-center gap-2';
       if ((row.cacheReadTokens ?? 0) > 0) {
+        const cacheReadGroup = document.createElement('div');
         const cacheRead = document.createElement('span');
+        cacheReadGroup.className = 'inline-flex items-center gap-1';
         cacheRead.className = 'font-medium text-sky-600 dark:text-sky-400';
         cacheRead.textContent = String(row.cacheReadTokens);
-        cacheLine.appendChild(cacheRead);
+        cacheReadGroup.appendChild(cacheRead);
+        cacheLine.appendChild(cacheReadGroup);
       }
       if ((row.cacheCreationTokens ?? 0) > 0) {
+        const cacheCreationGroup = document.createElement('div');
         const cacheCreation = document.createElement('span');
+        cacheCreationGroup.className = 'inline-flex items-center gap-1';
         cacheCreation.className = 'font-medium text-amber-600 dark:text-amber-400';
         cacheCreation.textContent = String(row.cacheCreationTokens);
-        cacheLine.appendChild(cacheCreation);
+        cacheCreationGroup.appendChild(cacheCreation);
+        cacheLine.appendChild(cacheCreationGroup);
       }
       stack.appendChild(cacheLine);
     }
@@ -2896,6 +2902,19 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
         firstToken: '0.50s',
         duration: '2.00s',
       },
+      {
+        id: 505,
+        model: 'claude-sonnet',
+        type: '流式',
+        tokensStack: true,
+        inputTokens: 4,
+        outputTokens: 468,
+        cacheReadTokens: 148300,
+        cacheCreationTokens: 9000,
+        cost: '$0.05',
+        firstToken: '0.40s',
+        duration: '5.00s',
+      },
     ]);
 
     vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
@@ -2935,6 +2954,14 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
         cache_read_tokens: 0,
         output_tokens: 20,
       },
+      {
+        id: 505,
+        request_id: 'req-505',
+        input_tokens: 4,
+        cache_creation_tokens: 9000,
+        cache_read_tokens: 148300,
+        output_tokens: 468,
+      },
     ]));
     await environment.vmContext.fetch(`${origin}${apiPath}?page=1&page_size=20`);
     await flushMicrotasks();
@@ -2949,10 +2976,25 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
       .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
     const hit504 = table.getCell(504, 'tokens')
       .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    const tokens505 = table.getCell(505, 'tokens');
+    const hit505 = tokens505.querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
     const cacheRead501 = [...tokens501.querySelectorAll('span')]
       .find((element) => element.className.includes('text-sky-600'));
+    const cacheReadGroup501 = cacheRead501?.parentElement;
+    const cacheRead505 = [...tokens505.querySelectorAll('span')]
+      .find((element) =>
+        element.className.includes('text-sky-600') &&
+        element.dataset.sub2apiUsageRowCacheHitRate !== 'true',
+      );
+    const cacheWrite505 = [...tokens505.querySelectorAll('span')]
+      .find((element) => element.className.includes('text-amber-600'));
+    const cacheReadGroup505 = cacheRead505?.parentElement;
+    const cacheWriteGroup505 = cacheWrite505?.parentElement;
 
     const separator501 = tokens501.querySelector(
+      '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    );
+    const separator505 = tokens505.querySelector(
       '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
     );
     assert.equal(hit501?.textContent, '93.75%');
@@ -2962,8 +3004,12 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
       '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)',
     );
     assert.equal(hit501?.className.includes('text-sky-600'), true);
-    assert.equal(hit501?.parentElement, cacheRead501?.parentElement);
-    assert.equal(separator501?.parentElement, cacheRead501?.parentElement);
+    assert.equal(hit501?.parentElement, cacheReadGroup501?.parentElement);
+    assert.equal(separator501?.parentElement, cacheReadGroup501?.parentElement);
+    assert.equal(
+      [...hit501.parentElement.children].indexOf(separator501),
+      [...hit501.parentElement.children].indexOf(cacheReadGroup501) + 1,
+    );
     assert.equal(
       [...hit501.parentElement.children].indexOf(hit501),
       [...hit501.parentElement.children].indexOf(separator501) + 1,
@@ -2986,6 +3032,14 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
         '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
       )?.textContent,
       '·',
+    );
+    assert.equal(hit505?.textContent, '94.28%');
+    assert.equal(separator505?.textContent, '/');
+    const cacheLine505 = cacheReadGroup505?.parentElement;
+    assert.equal(hit505?.parentElement, cacheLine505);
+    assert.deepEqual(
+      [...cacheLine505.children],
+      [cacheReadGroup505, separator505, hit505, cacheWriteGroup505],
     );
   }
 });
