@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.42
+// @version      0.22.43
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.42';
+  const SCRIPT_VERSION = '0.22.43';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3965,13 +3965,13 @@
       return;
     }
 
-    const mount = getUsageRowCacheHitRateMount(cell);
-    if (!mount) {
+    const placement = chooseUsageRowCacheHitRatePlacement(cell);
+    if (!placement?.mount) {
       removeUsageRowCacheHitRate(cell);
       return;
     }
 
-    const onCacheLine = isUsageCacheTokenLine(mount);
+    const { mount, onCacheLine } = placement;
     const isChinese = isUsagePageChineseLocale();
     const rateElement = getOrCreateUsageRowCacheHitRateElement(cell);
     const separator = getOrCreateUsageRowCacheHitRateSeparator(cell);
@@ -3985,7 +3985,7 @@
   }
 
   function formatUsageRowCacheHitRateLabel(hitRate) {
-    return `${hitRate.toFixed(2)}%`;
+    return `${Math.round(hitRate)}%`;
   }
 
   function getUsageTokensStack(cell) {
@@ -4008,6 +4008,63 @@
 
   function hasUsageSkyTokenClass(element) {
     return /(?:^|\s)text-sky-/.test(element?.className || '');
+  }
+
+  function getUsageTokenLines(cell) {
+    const stack = getUsageTokensStack(cell);
+    if (!stack) {
+      return { cacheLine: null, ioLine: cell, stack: null };
+    }
+
+    const lines = [...stack.children].filter((child) => !isUsageRowCacheHitRateMarker(child));
+    if (!lines.length) {
+      return { cacheLine: null, ioLine: stack, stack };
+    }
+
+    const cacheLine = lines.find((line) => isUsageCacheTokenLine(line)) || null;
+    const ioLine = lines.find((line) => line !== cacheLine) || lines[0];
+    return { cacheLine, ioLine, stack };
+  }
+
+  function measureUsageLineWidth(line) {
+    if (!line) {
+      return 0;
+    }
+
+    const markers = [...line.querySelectorAll(
+      '[data-sub2api-usage-row-cache-hit-rate="true"], [data-sub2api-usage-row-cache-hit-rate-separator="true"]',
+    )];
+    const previousDisplay = markers.map((marker) => marker.style.display);
+    for (const marker of markers) {
+      marker.style.display = 'none';
+    }
+
+    try {
+      const rectWidth = Number(line.getBoundingClientRect?.()?.width);
+      if (Number.isFinite(rectWidth) && rectWidth > 0) {
+        return rectWidth;
+      }
+      return String(line.textContent || '').replace(/\s+/g, ' ').trim().length;
+    } finally {
+      markers.forEach((marker, index) => {
+        marker.style.display = previousDisplay[index] || '';
+      });
+    }
+  }
+
+  function chooseUsageRowCacheHitRatePlacement(cell) {
+    const { cacheLine, ioLine } = getUsageTokenLines(cell);
+    if (!cacheLine) {
+      return { mount: ioLine, onCacheLine: false };
+    }
+
+    const ioWidth = measureUsageLineWidth(ioLine);
+    const cacheWidth = measureUsageLineWidth(cacheLine);
+    // Top longer or equal → put rate on cache line; bottom longer → put on IO tail.
+    if (ioWidth >= cacheWidth) {
+      return { mount: cacheLine, onCacheLine: true };
+    }
+    return { mount: ioLine, onCacheLine: false };
   }
 
   function getUsageCacheReadGroup(mount) {
@@ -4059,21 +4116,6 @@
     rateElement.remove();
     mount.appendChild(separator);
     mount.appendChild(rateElement);
-  }
-
-  function getUsageRowCacheHitRateMount(cell) {
-    const stack = getUsageTokensStack(cell);
-    if (!stack) {
-      return cell;
-    }
-
-    const lines = [...stack.children].filter((child) => !isUsageRowCacheHitRateMarker(child));
-    if (!lines.length) {
-      return stack;
-    }
-
-    const cacheLine = lines.find((line) => isUsageCacheTokenLine(line));
-    return cacheLine || lines[0];
   }
 
   function getOrCreateUsageRowCacheHitRateSeparator(cell) {
