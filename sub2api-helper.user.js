@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.41
+// @version      0.22.42
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.41';
+  const SCRIPT_VERSION = '0.22.42';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3981,21 +3981,7 @@
     separator.className = 'text-gray-400 dark:text-gray-500';
     setUsageTextIfChanged(rateElement, formatUsageRowCacheHitRateLabel(hitRate));
     setUsageTextIfChanged(separator, onCacheLine ? '/' : '·');
-
-    const mountChildren = [...mount.children];
-    const separatorIndex = mountChildren.indexOf(separator);
-    const rateIndex = mountChildren.indexOf(rateElement);
-    if (
-      separator.parentElement !== mount ||
-      rateElement.parentElement !== mount ||
-      separatorIndex < 0 ||
-      rateIndex !== separatorIndex + 1
-    ) {
-      separator.remove();
-      rateElement.remove();
-      mount.appendChild(separator);
-      mount.appendChild(rateElement);
-    }
+    placeUsageRowCacheHitRate({ mount, onCacheLine, rateElement, separator });
   }
 
   function formatUsageRowCacheHitRateLabel(hitRate) {
@@ -4018,6 +4004,61 @@
       !isUsageRowCacheHitRateMarker(element) &&
       /(?:^|\s)text-(?:sky|amber)-/.test(element.className || ''),
     );
+  }
+
+  function hasUsageSkyTokenClass(element) {
+    return /(?:^|\s)text-sky-/.test(element?.className || '');
+  }
+
+  function getUsageCacheReadGroup(mount) {
+    return [...mount.children].find((child) => {
+      if (isUsageRowCacheHitRateMarker(child)) {
+        return false;
+      }
+      if (child.tagName === 'SPAN' && hasUsageSkyTokenClass(child)) {
+        return true;
+      }
+      return [...child.querySelectorAll('span')].some((element) =>
+        !isUsageRowCacheHitRateMarker(element) && hasUsageSkyTokenClass(element),
+      );
+    }) || null;
+  }
+
+  function placeUsageRowCacheHitRate({ mount, onCacheLine, rateElement, separator }) {
+    const cacheReadGroup = onCacheLine ? getUsageCacheReadGroup(mount) : null;
+    const anchor = cacheReadGroup;
+    const mountChildren = [...mount.children];
+    const separatorIndex = mountChildren.indexOf(separator);
+    const rateIndex = mountChildren.indexOf(rateElement);
+
+    if (anchor) {
+      const anchorIndex = mountChildren.indexOf(anchor);
+      if (
+        separator.parentElement === mount &&
+        rateElement.parentElement === mount &&
+        separatorIndex === anchorIndex + 1 &&
+        rateIndex === separatorIndex + 1
+      ) {
+        return;
+      }
+      placeUsageSummaryElementAfter(anchor, separator);
+      placeUsageSummaryElementAfter(separator, rateElement);
+      return;
+    }
+
+    if (
+      separator.parentElement === mount &&
+      rateElement.parentElement === mount &&
+      separatorIndex >= 0 &&
+      rateIndex === separatorIndex + 1
+    ) {
+      return;
+    }
+
+    separator.remove();
+    rateElement.remove();
+    mount.appendChild(separator);
+    mount.appendChild(rateElement);
   }
 
   function getUsageRowCacheHitRateMount(cell) {
