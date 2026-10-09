@@ -272,6 +272,23 @@ class TestElement {
     this.parentElement = null;
   }
 
+  getBoundingClientRect() {
+    const width = Number(this.attributes['data-test-width'] || 0);
+    return {
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: width,
+      top: 0,
+      width,
+      x: 0,
+      y: 0,
+      toJSON() {
+        return this;
+      },
+    };
+  }
+
   setAttribute(name, value) {
     this.attributes[name] = String(value);
   }
@@ -1330,6 +1347,9 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     ioLine.className = 'flex items-center gap-2';
     inputValue.textContent = String(row.inputTokens ?? 0);
     outputValue.textContent = String(row.outputTokens ?? 0);
+    if (row.ioLineWidth != null) {
+      ioLine.setAttribute('data-test-width', String(row.ioLineWidth));
+    }
     ioLine.appendChild(inputValue);
     ioLine.appendChild(outputValue);
     stack.appendChild(ioLine);
@@ -1337,6 +1357,9 @@ function createUsageEnhancementTable(environment, rows, { legacyColumns = false 
     if ((row.cacheReadTokens ?? 0) > 0 || (row.cacheCreationTokens ?? 0) > 0) {
       const cacheLine = document.createElement('div');
       cacheLine.className = 'flex items-center gap-2';
+      if (row.cacheLineWidth != null) {
+        cacheLine.setAttribute('data-test-width', String(row.cacheLineWidth));
+      }
       if ((row.cacheReadTokens ?? 0) > 0) {
         const cacheReadGroup = document.createElement('div');
         const cacheRead = document.createElement('span');
@@ -2865,6 +2888,8 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
         outputTokens: 100,
         cacheReadTokens: 600,
         cacheCreationTokens: 0,
+        ioLineWidth: 120,
+        cacheLineWidth: 80,
         cost: '$0.01',
         firstToken: '1.00s',
         duration: '10.00s',
@@ -2911,6 +2936,8 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
         outputTokens: 468,
         cacheReadTokens: 148300,
         cacheCreationTokens: 9000,
+        ioLineWidth: 70,
+        cacheLineWidth: 180,
         cost: '$0.05',
         firstToken: '0.40s',
         duration: '5.00s',
@@ -2997,7 +3024,7 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
     const separator505 = tokens505.querySelector(
       '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
     );
-    assert.equal(hit501?.textContent, '93.75%');
+    assert.equal(hit501?.textContent, '94%');
     assert.equal(separator501?.textContent, '/');
     assert.equal(
       hit501?.title,
@@ -3018,7 +3045,7 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
     const separator502 = tokens502.querySelector(
       '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
     );
-    assert.equal(hit502?.textContent, '0.00%');
+    assert.equal(hit502?.textContent, '0%');
     assert.equal(separator502?.textContent, '·');
     assert.equal(hit502?.parentElement?.className.includes('flex'), true);
     assert.equal(
@@ -3026,20 +3053,21 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
       [...hit502.parentElement.children].indexOf(separator502) + 1,
     );
     assert.equal(hit503, null);
-    assert.equal(hit504?.textContent, '0.00%');
+    assert.equal(hit504?.textContent, '0%');
     assert.equal(
       table.getCell(504, 'tokens').querySelector(
         '[data-sub2api-usage-row-cache-hit-rate-separator="true"]',
       )?.textContent,
       '·',
     );
-    assert.equal(hit505?.textContent, '94.28%');
-    assert.equal(separator505?.textContent, '/');
-    const cacheLine505 = cacheReadGroup505?.parentElement;
-    assert.equal(hit505?.parentElement, cacheLine505);
+    // Cache line wider than IO → hit rate goes to IO tail.
+    assert.equal(hit505?.textContent, '94%');
+    assert.equal(separator505?.textContent, '·');
+    assert.equal(hit505?.parentElement?.className.includes('flex'), true);
+    assert.notEqual(hit505?.parentElement, cacheReadGroup505?.parentElement);
     assert.deepEqual(
-      [...cacheLine505.children],
-      [cacheReadGroup505, separator505, hit505, cacheWriteGroup505],
+      [...cacheReadGroup505.parentElement.children],
+      [cacheReadGroup505, cacheWriteGroup505],
     );
   }
 });
