@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.43
+// @version      0.22.44
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.43';
+  const SCRIPT_VERSION = '0.22.44';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -3870,10 +3870,37 @@
     return `${isChinese ? '命中率' : 'Hit Rate'}: ${hitRate.toFixed(2)}%`;
   }
 
+  // Mirror latency health text colors; higher hit rate is healthier.
+  // Bands: ≥90 good, 80–90 warn, 70–80 slow, <60 critical.
+  // The 60–70 gap folds into slow so every value still maps to a band.
+  const USAGE_CACHE_HIT_RATE_TEXT_CLASSES = {
+    good: 'text-emerald-600 dark:text-emerald-400',
+    warn: 'text-amber-600 dark:text-amber-400',
+    slow: 'text-orange-600 dark:text-orange-400',
+    critical: 'text-red-600 dark:text-red-400',
+  };
+
+  function getUsageCacheHitRateSeverity(hitRate) {
+    if (hitRate >= 90) {
+      return 'good';
+    }
+    if (hitRate >= 80) {
+      return 'warn';
+    }
+    if (hitRate >= 60) {
+      return 'slow';
+    }
+    return 'critical';
+  }
+
+  function getUsageCacheHitRateTextClass(hitRate) {
+    return USAGE_CACHE_HIT_RATE_TEXT_CLASSES[getUsageCacheHitRateSeverity(hitRate)];
+  }
+
   function getUsageCacheHitRateTitle(isChinese) {
     return isChinese
-      ? '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)'
-      : 'Cache hit rate = cache read / (input + cache creation + cache read)';
+      ? '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)；≥90% 好 / 80–90% 一般 / 60–80% 偏低 / <60% 差'
+      : 'Cache hit rate = cache read / (input + cache creation + cache read); ≥90% good / 80–90% warn / 60–80% slow / <60% critical';
   }
 
   function isUsageImageBillingRow(row) {
@@ -3975,7 +4002,7 @@
     const isChinese = isUsagePageChineseLocale();
     const rateElement = getOrCreateUsageRowCacheHitRateElement(cell);
     const separator = getOrCreateUsageRowCacheHitRateSeparator(cell);
-    rateElement.className = 'font-medium tabular-nums text-sky-600 dark:text-sky-400 whitespace-nowrap';
+    rateElement.className = `font-medium tabular-nums ${getUsageCacheHitRateTextClass(hitRate)} whitespace-nowrap`;
     rateElement.title = getUsageCacheHitRateTitle(isChinese);
     rateElement.setAttribute('aria-label', isChinese ? '缓存命中率' : 'Cache hit rate');
     separator.className = 'text-gray-400 dark:text-gray-500';
