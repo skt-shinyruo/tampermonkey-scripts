@@ -3028,9 +3028,12 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
     assert.equal(separator501?.textContent, '/');
     assert.equal(
       hit501?.title,
-      '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)',
+      '缓存命中率 = 缓存读取 / (输入 + 缓存创建 + 缓存读取)；≥90% 好 / 80–90% 一般 / 60–80% 偏低 / <60% 差',
     );
-    assert.equal(hit501?.className.includes('text-sky-600'), true);
+    assert.equal(hit501?.className.includes('text-emerald-600'), true);
+    assert.equal(hit501?.className.includes('dark:text-emerald-400'), true);
+    assert.equal(hit502?.className.includes('text-red-600'), true);
+    assert.equal(hit505?.className.includes('text-emerald-600'), true);
     assert.equal(hit501?.parentElement, cacheReadGroup501?.parentElement);
     assert.equal(separator501?.parentElement, cacheReadGroup501?.parentElement);
     assert.equal(
@@ -3069,6 +3072,61 @@ test('usage table adds row cache hit rate from usage API on user and admin pages
       [...cacheReadGroup505.parentElement.children],
       [cacheReadGroup505, cacheWriteGroup505],
     );
+  }
+});
+
+test('usage table colors row cache hit rate by severity bands', async () => {
+  const origin = 'https://hit-rate-color.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+
+  const rows = [
+    { id: 701, input: 10, creation: 0, read: 90, className: 'text-emerald-600' }, // 90%
+    { id: 702, input: 15, creation: 0, read: 85, className: 'text-amber-600' }, // 85%
+    { id: 703, input: 25, creation: 0, read: 75, className: 'text-orange-600' }, // 75%
+    { id: 704, input: 35, creation: 0, read: 65, className: 'text-orange-600' }, // 65% gap → slow
+    { id: 705, input: 50, creation: 0, read: 50, className: 'text-red-600' }, // 50%
+  ];
+
+  const table = createUsageEnhancementTable(
+    environment,
+    rows.map((row) => ({
+      id: row.id,
+      model: 'claude-sonnet',
+      type: '流式',
+      tokensStack: true,
+      inputTokens: row.input,
+      outputTokens: 1,
+      cacheReadTokens: row.read,
+      cacheCreationTokens: row.creation,
+      cost: '$0.01',
+      firstToken: '1.00s',
+      duration: '2.00s',
+    })),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.setFetchResponse('/api/v1/usage', buildUsageListResponse(
+    rows.map((row) => ({
+      id: row.id,
+      request_id: `req-${row.id}`,
+      input_tokens: row.input,
+      cache_creation_tokens: row.creation,
+      cache_read_tokens: row.read,
+      output_tokens: 1,
+    })),
+  ));
+  await environment.vmContext.fetch(`${origin}/api/v1/usage?page=1&page_size=20`);
+  await flushMicrotasks();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  for (const row of rows) {
+    const hit = table.getCell(row.id, 'tokens')
+      .querySelector('[data-sub2api-usage-row-cache-hit-rate="true"]');
+    assert.equal(hit?.className.includes(row.className), true, `row ${row.id}`);
   }
 });
 
