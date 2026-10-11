@@ -1,27 +1,31 @@
-# A6API Fixed 6.95 Exchange Rate
+# A6API 渠道名称 → 市场自动搜索 (A6API Channel Market Search)
 
-This userscript adds a second multiplier to each merchant row on the A6API model market. The blue value uses a fixed exchange rate of `6.95`:
+在 A6API「渠道管理」页（`#/merchant/channels`）渠道名称右侧新增「查市场」和「后台查」两个按钮：
+- **查市场**：在前台新标签页打开市场页，并自动以“渠道”维度搜索该渠道ID。
+- **后台查**：在后台新标签页打开市场页并搜索该渠道ID（不切换当前页面，优先使用 Tampermonkey `GM_openInTab`）。
 
-```text
-merchant input price / official input price * 6.95
-```
-
-For example, `$0.0564 / $5.000 * 6.95` is displayed as `0.0784`.
-
-The script supports desktop rows, collapsed mobile cards, model filtering, pagination, refreshes, and currency changes. When exact official and merchant prices are present in the row, it reads those values directly. A collapsed mobile card uses the site's displayed multiplier and declared current exchange rate as the mathematically equivalent fallback until its price details are available.
-
-A6API serves the initial document from `/` and switches to `/models` with client-side routing. The userscript therefore matches the whole A6API origin, but it only changes the page while the active route is the model market.
+市场页（`#/market`）接收到渠道 ID 后，会自动切换至“渠道”维度并填入渠道 ID 触发回车搜索。
 
 ## Source and build output
 
-- Source: `a6api/a6api-fixed-exchange-rate.user.js`
+- Source: `a6api/a6api-channel-market-search.user.js`
 - Build script: `a6api/build-userscript.mjs`
-- GitHub Pages artifact: `https://skt-shinyruo.github.io/tampermonkey-scripts/a6api-fixed-exchange-rate.user.js`
+- GitHub Pages artifact: `https://skt-shinyruo.github.io/tampermonkey-scripts/a6api-channel-market-search.user.js`
+
+## Build
+
+```bash
+node a6api/build-userscript.mjs
+A6API_VERSION="1.3.${GITHUB_RUN_NUMBER}" \
+A6API_UPDATE_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js" \
+A6API_DOWNLOAD_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js" \
+node a6api/build-userscript.mjs --output=dist/a6api-channel-market-search.user.js
+```
 
 ## Validation
 
 ```bash
-node --check a6api/a6api-fixed-exchange-rate.user.js
+node --check a6api/a6api-channel-market-search.user.js
 node --check a6api/build-userscript.mjs
-node --test a6api/a6api-fixed-exchange-rate.user.test.mjs
+node --test a6api/a6api-channel-market-search.user.test.mjs
 ```

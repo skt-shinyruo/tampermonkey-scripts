@@ -30,24 +30,24 @@ jobs:
           node-version: 24
 
       - name: Check source syntax
-        run: node --check a6api/a6api-fixed-exchange-rate.user.js
+        run: node --check a6api/a6api-channel-market-search.user.js
 
       - name: Check build script syntax
         run: node --check a6api/build-userscript.mjs
 
       - name: Run tests
-        run: node --test a6api/a6api-fixed-exchange-rate.user.test.mjs
+        run: node --test a6api/a6api-channel-market-search.user.test.mjs
 
       - name: Build userscript
         run: |
-          script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/a6api-fixed-exchange-rate.user.js"
-          A6API_VERSION="0.2.${GITHUB_RUN_NUMBER}" \
+          script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/a6api-channel-market-search.user.js"
+          A6API_VERSION="1.3.${GITHUB_RUN_NUMBER}" \
           A6API_UPDATE_URL="$script_url" \
           A6API_DOWNLOAD_URL="$script_url" \
-          node a6api/build-userscript.mjs --output=dist/a6api-fixed-exchange-rate.user.js
+          node a6api/build-userscript.mjs --output=dist/a6api-channel-market-search.user.js
 
       - name: Check userscript syntax
-        run: node --check dist/a6api-fixed-exchange-rate.user.js
+        run: node --check dist/a6api-channel-market-search.user.js
 
       - name: Publish userscript to build branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -56,7 +56,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           publish_dir="$(mktemp -d)"
-          cp dist/a6api-fixed-exchange-rate.user.js "$publish_dir/a6api-fixed-exchange-rate.user.js"
+          cp dist/a6api-channel-market-search.user.js "$publish_dir/a6api-channel-market-search.user.js"
 
           git fetch origin build:refs/remotes/origin/build || true
           if git show-ref --verify --quiet refs/remotes/origin/build; then
@@ -79,7 +79,7 @@ jobs:
           if [ -f "$publish_dir/sub2api-helper.user.js" ]; then
             cp "$publish_dir/sub2api-helper.user.js" .
           fi
-          cp "$publish_dir/a6api-fixed-exchange-rate.user.js" .
+          cp "$publish_dir/a6api-channel-market-search.user.js" .
 
           git add -A
           if git diff --cached --quiet; then
