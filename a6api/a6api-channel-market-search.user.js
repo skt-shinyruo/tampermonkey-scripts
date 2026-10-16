@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.3.1
-// @description  在「渠道管理」页渠道名称右侧新增「查市场」「后台查」两个按钮：分别在前台/后台新标签页打开市场页，并自动以“渠道”维度搜索该渠道ID
+// @version      1.3.2
+// @description  在「渠道管理」页渠道名称右侧新增「查市场」「后台查」两个按钮：仅对已上架渠道显示，分别在前台/后台新标签页打开市场页，并自动以“渠道”维度搜索该渠道ID
 // @match        https://a6api.com/*
 // @grant        GM_openInTab
 // @grant        GM.openInTab
@@ -23,11 +23,13 @@
       (document.head || document.documentElement).appendChild(st);
     }
     st.textContent =
+      '.a6jump-wrap{display:inline-flex;align-items:center;vertical-align:middle;margin-left:8px;gap:6px;}' +
       '.a6jump-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;' +
-      'height:18px;padding:0 7px;margin-left:6px;font-size:11px;line-height:1;font-weight:500;' +
+      'height:24px;padding:0 10px;font-size:12px;line-height:1;font-weight:500;' +
       'color:#27272a;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;cursor:pointer;' +
-      'vertical-align:1.5px;white-space:nowrap;}' +
-      '.a6jump-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}';
+      'white-space:nowrap;user-select:none;transition:all .15s ease;}' +
+      '.a6jump-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
+      '.a6jump-btn:active{transform:translateY(1px);}';
   })();
 
   /* ================= 市场页：读取URL中的渠道ID并自动搜索 ================= */
@@ -126,7 +128,29 @@
   /* ================= 渠道列表：在名称右侧注入两个快捷按钮 ================= */
 
   var BTN_MARK = 'data-a6jump';
-  var BTN_VER = '131';
+  var BTN_VER = '132';
+
+  // 判断该行渠道是否处于“已上架”状态（仅已上架才展示快捷按钮）
+  function isRowOnline(row) {
+    var pill = row.querySelector('.sc-status-pill');
+    if (pill) {
+      if (pill.classList.contains('is-online')) return true;
+      if (pill.classList.contains('is-offline')) return false;
+      var text = (pill.textContent || '').trim();
+      if (text === '已上架' || text.toLowerCase() === 'online') return true;
+      if (text === '已下架' || text.toLowerCase() === 'offline') return false;
+      if (text.indexOf('已上架') !== -1) return true;
+      if (text.indexOf('下架') !== -1) return false;
+    }
+    if (row.querySelector('.btn-ban.is-banned')) return false;
+    var btns = row.querySelectorAll('.mp-act-btn');
+    for (var i = 0; i < btns.length; i++) {
+      var bText = (btns[i].textContent || btns[i].getAttribute('title') || '').trim();
+      if (bText === '下架' || bText === 'Take Offline') return true;
+      if (bText === '恢复' || bText === 'Restore') return false;
+    }
+    return false;
+  }
 
   function marketUrl(id) {
     return MARKET_BASE + '?cid=' + encodeURIComponent(id) + '#/market';
@@ -198,14 +222,22 @@
       var row = rows[i];
       var nameSpan = row.querySelector('.sc-channel-name');
       if (!nameSpan) continue;
-      if (nameSpan.querySelector('[' + BTN_MARK + '="' + BTN_VER + '"]')) continue; // 本版本已注入
-      // 清理旧版本脚本注入的残留按钮（篡改猴热更新场景）
+
       var stale = nameSpan.querySelectorAll('[' + BTN_MARK + ']');
+      if (!isRowOnline(row)) {
+        for (var j = 0; j < stale.length; j++) stale[j].remove();
+        continue;
+      }
+
+      if (nameSpan.querySelector('[' + BTN_MARK + '="' + BTN_VER + '"]')) continue; // 本版本已注入
       for (var k = 0; k < stale.length; k++) stale[k].remove();
+
       var idBtn = row.querySelector('button.sc-mono-id');
       var id = idBtn ? (idBtn.getAttribute('title') || idBtn.textContent || '').trim() : '';
       if (!id) continue;
+
       var wrap = document.createElement('span');
+      wrap.className = 'a6jump-wrap';
       wrap.setAttribute(BTN_MARK, BTN_VER);
       wrap.setAttribute('data-a6id', id);
       wrap.appendChild(makeButton('查市场', '在新标签页打开市场，并以“渠道”维度搜索该渠道ID', openForeground));

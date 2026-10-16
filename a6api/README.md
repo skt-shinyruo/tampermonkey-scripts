@@ -1,9 +1,9 @@
 # A6API 渠道名称 → 市场自动搜索 (A6API Channel Market Search)
 
-在 A6API「渠道管理」页（`#/merchant/channels`）渠道名称右侧新增「查市场」和「后台查」两个按钮：
+在 A6API「渠道管理」页（`#/merchant/channels`）已上架渠道名称右侧新增「查市场」和「后台查」两个快捷按钮（已下架渠道不展示）：
 - **查市场**：在前台新标签页打开市场页，并自动以“渠道”维度搜索该渠道ID。
 - **后台查**：在后台新标签页打开市场页并搜索该渠道ID（不切换当前页面，优先使用 Tampermonkey `GM_openInTab`）。
-
+- **按钮尺寸**：高度 24px、适度间距，便于日常高频点击。
 市场页（`#/market`）接收到渠道 ID 后，会自动切换至“渠道”维度并填入渠道 ID 触发回车搜索。
 
 ## Source and build output
