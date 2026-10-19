@@ -43,3 +43,7 @@ _Avoid_: 渠道说明, 渠道别名, 标签
 **渠道反选 (Channel Deselection)**:
 An interaction pattern where clicking an already-active channel card clears the search input and dispatches a search event without reloading the page.
 _Avoid_: 重复点击, 取消选择
+
+**自选渠道高亮 (Quick Channel Highlighting)**:
+Visual emphasis applied to market rows whose channel matches an owned or custom channel when browsing or searching by model/description, suppressed when searching a specific channel.
+_Avoid_: 列表发光, 收藏标记

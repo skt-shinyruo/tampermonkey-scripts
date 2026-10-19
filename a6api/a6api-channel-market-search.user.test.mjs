@@ -151,8 +151,14 @@ class MockElement {
     this.eventListeners[evt].push(fn);
   }
   dispatchEvent(evt) {
+    try {
+      if (!evt.target) Object.defineProperty(evt, 'target', { value: this, configurable: true });
+    } catch (e) {}
     const list = this.eventListeners[evt.type] || [];
     for (const fn of list) fn(evt);
+    if (evt.bubbles && this.parentNode && typeof this.parentNode.dispatchEvent === 'function') {
+      this.parentNode.dispatchEvent(evt);
+    }
   }
   click() {
     this.dispatchEvent({
@@ -212,6 +218,17 @@ class MockElement {
     return this.querySelectorAll(selector)[0] || null;
   }
   querySelectorAll(selector) {
+    if (selector.includes(',')) {
+      const parts = selector.split(',');
+      const set = [];
+      for (const p of parts) {
+        const sub = this.querySelectorAll(p.trim());
+        for (const item of sub) {
+          if (!set.includes(item)) set.push(item);
+        }
+      }
+      return set;
+    }
     if (selector === 'tbody tr') {
       const list = [];
       const tbodies = this.querySelectorAll('tbody');
@@ -738,4 +755,86 @@ test('a6api market drawer channel remarks support inline edit, persistence, and 
 
   const clearedRemarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
   assert.equal(clearedRemarks['101'], undefined, 'Cleared remark should be removed from storage');
+});
+
+test('a6api market page highlights rows matching quick channels by ID and suppresses when searching by channel', () => {
+  const initialStorage = {
+    a6_owned_channels: JSON.stringify({
+      '5973': { id: '5973', name: '能能GPT-1', desc: '稳定不降智' },
+    }),
+    a6_custom_channels: JSON.stringify([
+      { id: '6007', name: '能能CC-2', desc: 'CC Kiro 保智商' }
+    ]),
+  };
+  const env = createEnvironment('#/market', initialStorage);
+
+  const searchInput = new MockElement('input');
+  searchInput.className = 'ui-search-field';
+  searchInput.value = '';
+  env.body.appendChild(searchInput);
+
+  const modelChip = new MockElement('button');
+  modelChip.className = 'ui-switch-tag active';
+  modelChip.textContent = '模型';
+  env.body.appendChild(modelChip);
+
+  const channelChip = new MockElement('button');
+  channelChip.className = 'ui-switch-tag';
+  channelChip.textContent = '渠道';
+  env.body.appendChild(channelChip);
+
+  // Setup market table rows
+  const tbody = new MockElement('tbody');
+
+  // Row 1: not in quick channels
+  const row1 = new MockElement('tr');
+  row1.textContent = 'qwen3.8-flash 高速稳定 渠道 #3831';
+  tbody.appendChild(row1);
+
+  // Row 2: matches owned channel 5973
+  const row2 = new MockElement('tr');
+  row2.textContent = 'deepseek-v4-pro 渠道 #5973 ★★★★★ 5.0';
+  tbody.appendChild(row2);
+
+  // Row 3: matches custom channel 6007
+  const row3 = new MockElement('tr');
+  row3.textContent = 'claude-3-5-sonnet 渠道 #6007 ★★★★★ 5.0';
+  tbody.appendChild(row3);
+
+  // Row 4: expanded child row matching 5973
+  const row4 = new MockElement('tr');
+  row4.className = 'ant-table-expanded-row';
+  row4.textContent = '子渠道供货 渠道 #5973';
+  tbody.appendChild(row4);
+
+  env.body.appendChild(tbody);
+
+  env.runScript();
+
+  // Initially: search query is empty, model dimension is active
+  // Row 2, Row 3, and Row 4 should be highlighted
+  assert.equal(row1.classList.contains('a6-market-highlight'), false, 'Row 1 should not be highlighted');
+  assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Row 2 (owned 5973) should be highlighted');
+  assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Row 3 (custom 6007) should be highlighted');
+  assert.equal(row4.classList.contains('a6-market-highlight'), true, 'Row 4 (expanded 5973) should be highlighted');
+
+  // Search by model text: highlighting should STILL be active
+  searchInput.value = 'deepseek';
+  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Highlighting should remain active when searching by model');
+
+  // Now switch to "渠道" dimension with non-empty search: highlighting must be SUPPRESSED
+  modelChip.classList.remove('active');
+  channelChip.classList.add('active');
+  searchInput.value = '5973';
+  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+  assert.equal(row2.classList.contains('a6-market-highlight'), false, 'Highlighting should be suppressed in channel search');
+  assert.equal(row3.classList.contains('a6-market-highlight'), false, 'Highlighting should be suppressed in channel search');
+
+  // Clear channel search input: highlighting should restore
+  searchInput.value = '';
+  searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+  assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
+  assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
 });
