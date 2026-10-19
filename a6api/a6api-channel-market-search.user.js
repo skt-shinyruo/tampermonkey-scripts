@@ -489,12 +489,16 @@
 
   /* ================= 市场页：快捷渠道抽屉面板 (Quick Channel Drawer) ================= */
 
-  function renderMarketDrawer() {
+  function renderMarketDrawer(force) {
     var isMarket = location.hash.indexOf('#/market') === 0;
     var container = document.getElementById('a6-drawer-container');
 
     if (!isMarket) {
       if (container) container.style.display = 'none';
+      return;
+    }
+
+    if (!force && container && document.getElementById('a6-drawer-panel') && container.style.display !== 'none') {
       return;
     }
 
@@ -504,6 +508,9 @@
       (document.body || document.documentElement).appendChild(container);
     }
     container.style.display = '';
+
+    var oldContent = container.querySelector('.a6-drawer-content');
+    var savedScrollTop = oldContent ? oldContent.scrollTop : 0;
 
     var rawOpen = storageGet(STORAGE_KEY_DRAWER_OPEN, true);
     var isOpen = rawOpen !== false && rawOpen !== 'false';
@@ -557,9 +564,8 @@
     sideBtn.addEventListener('click', function () {
       currentSide = currentSide === 'right' ? 'left' : 'right';
       storageSet(STORAGE_KEY_DRAWER_SIDE, currentSide);
-      renderMarketDrawer();
+      renderMarketDrawer(true);
     });
-
     var closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'a6-drawer-close';
@@ -687,7 +693,7 @@
         customList.push({ id: cid, name: cname, desc: cdesc });
       }
       storageSet(STORAGE_KEY_CUSTOM, customList);
-      renderMarketDrawer();
+      renderMarketDrawer(true);
     });
 
     actRow.appendChild(cancelBtn);
@@ -714,7 +720,7 @@
         secCustom.appendChild(createChannelCard(ch, true, function () {
           customList.splice(idx, 1);
           storageSet(STORAGE_KEY_CUSTOM, customList);
-          renderMarketDrawer();
+          renderMarketDrawer(true);
         }));
       });
     }
@@ -722,7 +728,9 @@
 
     panel.appendChild(content);
     container.appendChild(panel);
-
+    if (savedScrollTop > 0) {
+      content.scrollTop = savedScrollTop;
+    }
     function setDrawerOpen(open) {
       isOpen = open;
       storageSet(STORAGE_KEY_DRAWER_OPEN, open);
@@ -797,12 +805,44 @@
     scheduled = true;
     setTimeout(function () {
       scheduled = false;
-      scanRows();
-      renderMarketDrawer();
+      if (location.hash.indexOf('#/merchant/channels') === 0) {
+        scanRows();
+        var c = document.getElementById('a6-drawer-container');
+        if (c) c.style.display = 'none';
+      } else if (location.hash.indexOf('#/market') === 0) {
+        if (!document.getElementById('a6-drawer-panel')) {
+          renderMarketDrawer();
+        }
+      }
     }, 250);
   }
 
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
-  window.addEventListener('hashchange', schedule);
+  new MutationObserver(function (mutations) {
+    if (!mutations || !mutations.length) {
+      schedule();
+      return;
+    }
+    var fromOutside = false;
+    for (var i = 0; i < mutations.length; i++) {
+      var target = mutations[i].target;
+      if (!target) continue;
+      if (target.id === 'a6-drawer-container' || (target.closest && target.closest('#a6-drawer-container'))) {
+        continue;
+      }
+      fromOutside = true;
+      break;
+    }
+    if (fromOutside) schedule();
+  }).observe(document.body, { childList: true, subtree: true });
+
+  window.addEventListener('hashchange', function () {
+    if (location.hash.indexOf('#/market') === 0) {
+      renderMarketDrawer(true);
+    } else {
+      var c = document.getElementById('a6-drawer-container');
+      if (c) c.style.display = 'none';
+    }
+    schedule();
+  });
   schedule();
 })();

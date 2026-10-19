@@ -570,3 +570,22 @@ test('a6api market drawer defaults to open when no state is saved in storage', (
   assert.equal(panel.classList.contains('is-open'), true, 'Drawer should default to open on first visit');
   assert.equal(panel.classList.contains('is-side-right'), true, 'Drawer should default to right side');
 });
+
+test('a6api market drawer preserves scroll position and avoids re-render on arbitrary DOM mutations', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+
+  const content = env.document.querySelector('.a6-drawer-content');
+  assert.ok(content);
+  content.scrollTop = 150;
+
+  // Simulate an arbitrary page DOM mutation
+  const dummy = new MockElement('div');
+  env.body.appendChild(dummy);
+  env.triggerMutation();
+
+  // Content element must still be the exact same element with the same scrollTop
+  const contentAfter = env.document.querySelector('.a6-drawer-content');
+  assert.equal(contentAfter, content, 'Drawer content should not be torn down on DOM mutations');
+  assert.equal(contentAfter.scrollTop, 150, 'Scroll position should be preserved');
+});
