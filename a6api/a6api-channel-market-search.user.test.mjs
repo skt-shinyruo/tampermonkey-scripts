@@ -16,6 +16,8 @@ test('a6api source matches expected userscript metadata', () => {
   assert.match(source, /\/\/ @match\s+https:\/\/a6api\.com\/\*/);
   assert.match(source, /\/\/ @grant\s+GM_openInTab/);
   assert.match(source, /\/\/ @grant\s+GM\.openInTab/);
+  assert.match(source, /\/\/ @grant\s+GM_setValue/);
+  assert.match(source, /\/\/ @grant\s+GM_getValue/);
   assert.doesNotMatch(source, /@updateURL|@downloadURL/);
 });
 
@@ -60,107 +62,179 @@ test('a6api build script applies A6API_VERSION to @version', () => {
     encoding: 'utf8',
     env: {
       ...process.env,
-      A6API_VERSION: '1.3.99',
+      A6API_VERSION: '1.4.99',
     },
     stdio: 'pipe',
   });
 
   const built = readFileSync(outPath, 'utf8');
-  assert.match(built, /\/\/ @version\s+1\.3\.99/);
+  assert.match(built, /\/\/ @version\s+1\.4\.99/);
 });
 
-test('a6api script injects enlarged buttons only on online channels', () => {
-  const source = readFileSync(sourcePath, 'utf8');
-
-  class MockElement {
-    constructor(tagName) {
-      this.tagName = tagName.toUpperCase();
+class MockElement {
+  constructor(tagName) {
+    this.tagName = tagName.toUpperCase();
+    this.children = [];
+    this.attributes = {};
+    this.className = '';
+    this.textContent = '';
+    this.parentNode = null;
+    this.eventListeners = {};
+    this.style = {};
+    this.id = '';
+    this._value = '';
+  }
+  get value() {
+    return this._value;
+  }
+  set value(v) {
+    this._value = String(v);
+  }
+  set innerHTML(val) {
+    if (val === '') {
+      for (const ch of this.children) ch.parentNode = null;
       this.children = [];
-      this.attributes = {};
-      this.className = '';
       this.textContent = '';
-      this.parentNode = null;
-      this.eventListeners = {};
-    }
-    get classList() {
-      return {
-        contains: (c) => this.className.split(/\s+/).includes(c),
-        add: (c) => { if (!this.classList.contains(c)) this.className = (this.className + ' ' + c).trim(); },
-        remove: (c) => { this.className = this.className.split(/\s+/).filter((x) => x !== c).join(' '); }
-      };
-    }
-    setAttribute(k, v) { this.attributes[k] = String(v); }
-    getAttribute(k) { return this.attributes[k] !== undefined ? this.attributes[k] : null; }
-    appendChild(child) {
-      child.parentNode = this;
-      this.children.push(child);
-      return child;
-    }
-    remove() {
-      if (this.parentNode) {
-        const idx = this.parentNode.children.indexOf(this);
-        if (idx !== -1) this.parentNode.children.splice(idx, 1);
-        this.parentNode = null;
-      }
-    }
-    addEventListener(evt, fn) {
-      this.eventListeners[evt] = this.eventListeners[evt] || [];
-      this.eventListeners[evt].push(fn);
-    }
-    closest(selector) {
-      let curr = this;
-      while (curr) {
-        if (curr.matches(selector)) return curr;
-        curr = curr.parentNode;
-      }
-      return null;
-    }
-    matches(selector) {
-      if (selector === 'tr') return this.tagName === 'TR';
-      if (selector === 'tbody') return this.tagName === 'TBODY';
-      if (selector === 'button') return this.tagName === 'BUTTON';
-      if (selector.startsWith('button.')) {
-        const cls = selector.slice(7);
-        return this.tagName === 'BUTTON' && this.classList.contains(cls);
-      }
-      if (selector.startsWith('.')) return this.classList.contains(selector.slice(1));
-      if (selector.startsWith('[')) {
-        const m = selector.match(/\[([^=\]]+)(?:="([^"]+)")?\]/);
-        if (m) {
-          const attr = m[1];
-          const val = m[2];
-          if (val !== undefined) return this.attributes[attr] === val;
-          return attr in this.attributes;
-        }
-      }
-      return false;
-    }
-    querySelector(selector) {
-      return this.querySelectorAll(selector)[0] || null;
-    }
-    querySelectorAll(selector) {
-      if (selector === 'tbody tr') {
-        const list = [];
-        const tbodies = this.querySelectorAll('tbody');
-        for (const tb of tbodies) {
-          for (const ch of tb.children) {
-            if (ch.tagName === 'TR') list.push(ch);
-          }
-        }
-        return list;
-      }
-      const res = [];
-      const walk = (node) => {
-        for (const ch of node.children) {
-          if (ch.matches(selector)) res.push(ch);
-          walk(ch);
-        }
-      };
-      walk(this);
-      return res;
+    } else {
+      this.textContent = String(val).replace(/<[^>]+>/g, '');
     }
   }
+  get innerHTML() {
+    return this.textContent;
+  }
+  get classList() {
+    return {
+      contains: (c) => this.className.split(/\s+/).filter(Boolean).includes(c),
+      add: (c) => {
+        if (!this.classList.contains(c)) this.className = (this.className + ' ' + c).trim();
+      },
+      remove: (c) => {
+        this.className = this.className.split(/\s+/).filter((x) => x !== c).join(' ');
+      },
+    };
+  }
+  setAttribute(k, v) {
+    this.attributes[k] = String(v);
+    if (k === 'id') this.id = String(v);
+  }
+  getAttribute(k) {
+    if (k === 'id') return this.id || null;
+    return this.attributes[k] !== undefined ? this.attributes[k] : null;
+  }
+  appendChild(child) {
+    child.parentNode = this;
+    this.children.push(child);
+    return child;
+  }
+  remove() {
+    if (this.parentNode) {
+      const idx = this.parentNode.children.indexOf(this);
+      if (idx !== -1) this.parentNode.children.splice(idx, 1);
+      this.parentNode = null;
+    }
+  }
+  cloneNode(deep) {
+    const clone = new MockElement(this.tagName);
+    clone.className = this.className;
+    clone.textContent = this.textContent;
+    clone.id = this.id;
+    clone.attributes = { ...this.attributes };
+    if (deep) {
+      for (const child of this.children) {
+        clone.appendChild(child.cloneNode(true));
+      }
+    }
+    return clone;
+  }
+  addEventListener(evt, fn) {
+    this.eventListeners[evt] = this.eventListeners[evt] || [];
+    this.eventListeners[evt].push(fn);
+  }
+  dispatchEvent(evt) {
+    const list = this.eventListeners[evt.type] || [];
+    for (const fn of list) fn(evt);
+  }
+  click() {
+    this.dispatchEvent({
+      type: 'click',
+      preventDefault: () => {},
+      stopPropagation: () => {},
+      stopImmediatePropagation: () => {},
+    });
+  }
+  focus() {}
+  closest(selector) {
+    let curr = this;
+    while (curr) {
+      if (curr.matches(selector)) return curr;
+      curr = curr.parentNode;
+    }
+    return null;
+  }
+  matches(selector) {
+    if (selector.includes(',')) {
+      return selector.split(',').some((s) => this.matches(s.trim()));
+    }
+    if (selector === 'tr') return this.tagName === 'TR';
+    if (selector === 'tbody') return this.tagName === 'TBODY';
+    if (selector === 'td') return this.tagName === 'TD';
+    if (selector === 'button') return this.tagName === 'BUTTON';
+    if (selector === 'span') return this.tagName === 'SPAN';
+    if (selector === 'div') return this.tagName === 'DIV';
+    if (selector === 'input') return this.tagName === 'INPUT';
+    if (selector.startsWith('button.')) {
+      const cls = selector.slice(7);
+      return this.tagName === 'BUTTON' && this.classList.contains(cls);
+    }
+    if (selector.startsWith('input.')) {
+      const cls = selector.slice(6);
+      return this.tagName === 'INPUT' && this.classList.contains(cls);
+    }
+    if (selector.startsWith('.')) return this.classList.contains(selector.slice(1));
+    if (selector.startsWith('#')) return this.id === selector.slice(1);
+    if (selector.startsWith('[')) {
+      const mContains = selector.match(/\[([^^$*=]+)\*="([^"]+)"\]/);
+      if (mContains) {
+        const val = this.getAttribute(mContains[1]) || (mContains[1] === 'class' ? this.className : null);
+        return val ? val.includes(mContains[2]) : false;
+      }
+      const m = selector.match(/\[([^=\]]+)(?:="([^"]+)")?\]/);
+      if (m) {
+        const attr = m[1];
+        const val = m[2];
+        if (val !== undefined) return this.getAttribute(attr) === val;
+        return this.getAttribute(attr) !== null;
+      }
+    }
+    return false;
+  }
+  querySelector(selector) {
+    return this.querySelectorAll(selector)[0] || null;
+  }
+  querySelectorAll(selector) {
+    if (selector === 'tbody tr') {
+      const list = [];
+      const tbodies = this.querySelectorAll('tbody');
+      for (const tb of tbodies) {
+        for (const ch of tb.children) {
+          if (ch.tagName === 'TR') list.push(ch);
+        }
+      }
+      return list;
+    }
+    const res = [];
+    const walk = (node) => {
+      for (const ch of node.children) {
+        if (ch.matches(selector)) res.push(ch);
+        walk(ch);
+      }
+    };
+    walk(this);
+    return res;
+  }
+}
 
+function createEnvironment(initialHash = '#/merchant/channels', initialStorage = {}) {
   const document = new MockElement('document');
   const html = new MockElement('html');
   const head = new MockElement('head');
@@ -184,8 +258,93 @@ test('a6api script injects enlarged buttons only on online channels', () => {
   };
   document.createElement = (tag) => new MockElement(tag);
 
+  const gmStore = new Map(Object.entries(initialStorage));
+  const observers = [];
+  const hashListeners = [];
+
+  const location = {
+    hash: initialHash,
+    href: `https://a6api.com/${initialHash}`,
+    search: '',
+    pathname: '/',
+  };
+
+  const windowObj = {
+    addEventListener: (evt, fn) => {
+      if (evt === 'hashchange') hashListeners.push(fn);
+    },
+    setTimeout: (fn) => fn(),
+    location,
+    HTMLInputElement: {
+      prototype: {
+        get value() {
+          return this._value;
+        },
+        set value(v) {
+          this._value = String(v);
+        },
+      },
+    },
+  };
+
+  const context = vm.createContext({
+    document,
+    window: windowObj,
+    location,
+    MutationObserver: class {
+      constructor(cb) {
+        observers.push(cb);
+      }
+      observe() {}
+    },
+    setTimeout: (fn) => fn(),
+    setInterval: (fn) => {
+      fn();
+      return 1;
+    },
+    clearInterval: () => {},
+    encodeURIComponent,
+    decodeURIComponent,
+    history: { replaceState: () => {} },
+    Event: class {
+      constructor(type) {
+        this.type = type;
+      }
+    },
+    KeyboardEvent: class {
+      constructor(type, init) {
+        this.type = type;
+        Object.assign(this, init);
+      }
+    },
+    GM_openInTab: () => {},
+    GM_getValue: (k) => gmStore.get(k),
+    GM_setValue: (k, v) => gmStore.set(k, v),
+    console,
+  });
+
+  return {
+    document,
+    body,
+    location,
+    gmStore,
+    triggerMutation: () => observers.forEach((cb) => cb()),
+    triggerHashChange: (newHash) => {
+      location.hash = newHash;
+      location.href = `https://a6api.com/${newHash}`;
+      hashListeners.forEach((cb) => cb());
+    },
+    runScript: () => {
+      const source = readFileSync(sourcePath, 'utf8');
+      vm.runInContext(source, context);
+    },
+  };
+}
+
+test('a6api script injects enlarged buttons only on online channels', () => {
+  const env = createEnvironment('#/merchant/channels');
   const tbody = new MockElement('tbody');
-  body.appendChild(tbody);
+  env.body.appendChild(tbody);
 
   // Row 1: online channel
   const tr1 = new MockElement('tr');
@@ -231,46 +390,183 @@ test('a6api script injects enlarged buttons only on online channels', () => {
   tr2.appendChild(td2Status);
   tbody.appendChild(tr2);
 
-  let observerCallback = null;
-  class MockMutationObserver {
-    constructor(cb) { observerCallback = cb; }
-    observe() {}
-  }
+  env.runScript();
 
-  const windowObj = {
-    addEventListener: () => {},
-    setTimeout: (fn) => fn(),
-    location: { hash: '#/merchant/channels', href: 'https://a6api.com/#/merchant/channels', search: '' }
-  };
-
-  const context = vm.createContext({
-    document,
-    window: windowObj,
-    location: windowObj.location,
-    MutationObserver: MockMutationObserver,
-    setTimeout: (fn) => fn(),
-    encodeURIComponent,
-    GM_openInTab: () => {},
-    console
-  });
-
-  vm.runInContext(source, context);
-
-  const styleEl = document.getElementById('a6jump-style');
+  const styleEl = env.document.getElementById('a6jump-style');
   assert.ok(styleEl, 'Style element should exist');
   assert.match(styleEl.textContent, /height:24px/);
   assert.match(styleEl.textContent, /padding:0 10px/);
-
+  assert.match(styleEl.textContent, /prefers-color-scheme:dark/);
   assert.equal(name1.querySelectorAll('button').length, 2, 'Online channel should have 2 buttons');
   assert.equal(name2.querySelectorAll('button').length, 0, 'Offline channel should have 0 buttons');
 
   // Toggle row 1 to offline
   status1.textContent = '已下架';
-  observerCallback();
+  env.triggerMutation();
   assert.equal(name1.querySelectorAll('button').length, 0, 'Buttons should be removed when row goes offline');
 
   // Toggle row 2 to online
   status2.textContent = '已上架';
-  observerCallback();
+  env.triggerMutation();
   assert.equal(name2.querySelectorAll('button').length, 2, 'Buttons should be injected when row goes online');
+});
+
+test('a6api script syncs online channel with name and description to GM storage', () => {
+  const env = createEnvironment('#/merchant/channels');
+  const tbody = new MockElement('tbody');
+  env.body.appendChild(tbody);
+
+  const tr = new MockElement('tr');
+  const tdName = new MockElement('td');
+  const nameSpan = new MockElement('span');
+  nameSpan.className = 'sc-channel-name';
+  nameSpan.textContent = '能能CC-2';
+  const descSpan = new MockElement('span');
+  descSpan.className = 'sc-channel-desc';
+  descSpan.textContent = 'CC Kiro 保智商 保缓存';
+  tdName.appendChild(nameSpan);
+  tdName.appendChild(descSpan);
+
+  const tdId = new MockElement('td');
+  const btnId = new MockElement('button');
+  btnId.className = 'sc-mono-id';
+  btnId.setAttribute('title', '101');
+  tdId.appendChild(btnId);
+
+  const tdStatus = new MockElement('td');
+  const statusSpan = new MockElement('span');
+  statusSpan.className = 'sc-status-pill';
+  statusSpan.textContent = '已上架';
+  tdStatus.appendChild(statusSpan);
+
+  tr.appendChild(tdName);
+  tr.appendChild(tdId);
+  tr.appendChild(tdStatus);
+  tbody.appendChild(tr);
+
+  env.runScript();
+
+  const ownedRaw = env.gmStore.get('a6_owned_channels');
+  assert.ok(ownedRaw, 'a6_owned_channels should be populated in storage');
+  const owned = JSON.parse(ownedRaw);
+  assert.equal(owned['101']?.name, '能能CC-2');
+  assert.equal(owned['101']?.desc, 'CC Kiro 保智商 保缓存');
+  assert.equal(owned['101']?.id, '101');
+
+  // Change status to offline
+  statusSpan.textContent = '已下架';
+  env.triggerMutation();
+  const updatedOwned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(updatedOwned['101'], undefined, 'Offline channel should be removed from cache');
+});
+
+test('a6api market page initializes quick channel drawer with owned and custom channels and handles search and CRUD', () => {
+  const initialStorage = {
+    a6_owned_channels: JSON.stringify({
+      '101': { id: '101', name: '能能CC-2', desc: 'CC Kiro 保智商 保缓存' },
+    }),
+    a6_custom_channels: JSON.stringify([
+      { id: '202', name: '自定义测速', desc: '低延迟备用' },
+    ]),
+    a6_drawer_open: JSON.stringify(false),
+  };
+
+  const env = createEnvironment('#/market', initialStorage);
+
+  // Setup market search elements in body
+  const tagChip = new MockElement('button');
+  tagChip.className = 'ui-switch-tag';
+  tagChip.textContent = '渠道';
+  let tagClicked = false;
+  tagChip.addEventListener('click', () => {
+    tagClicked = true;
+    tagChip.classList.add('active');
+  });
+
+  const searchInput = new MockElement('input');
+  searchInput.className = 'ui-search-field';
+
+  env.body.appendChild(tagChip);
+  env.body.appendChild(searchInput);
+
+  env.runScript();
+
+  const trigger = env.document.getElementById('a6-drawer-trigger');
+  const panel = env.document.getElementById('a6-drawer-panel');
+  assert.ok(trigger, 'Drawer trigger button should exist on market page');
+  assert.ok(panel, 'Drawer panel should exist on market page');
+  assert.equal(panel.classList.contains('is-open'), false, 'Drawer should be collapsed initially');
+
+  // Open drawer
+  trigger.click();
+  assert.equal(panel.classList.contains('is-open'), true, 'Drawer should open after click trigger');
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_open')), true);
+
+  // Verify channels rendered
+  const cards = panel.querySelectorAll('.a6-card');
+  assert.equal(cards.length, 2, 'Should render 2 channel cards (1 owned, 1 custom)');
+
+  const card101 = cards.find((c) => c.getAttribute('data-cid') === '101');
+  assert.ok(card101);
+  assert.match(card101.querySelector('.a6-card-name').textContent, /能能CC-2/);
+  assert.match(card101.querySelector('.a6-card-id').textContent, /#101/);
+  assert.match(card101.querySelector('.a6-card-desc').textContent, /CC Kiro 保智商 保缓存/);
+
+  const card202 = cards.find((c) => c.getAttribute('data-cid') === '202');
+  assert.ok(card202);
+  assert.match(card202.querySelector('.a6-card-name').textContent, /自定义测速/);
+  assert.ok(card202.querySelector('.a6-card-del'), 'Custom card should have delete button');
+
+  // Test click card101 to search
+  card101.click();
+  assert.equal(tagClicked, true, 'Clicking channel card should click 渠道 switch tag');
+  assert.equal(searchInput.value, '101', 'Clicking channel card should set search field to channel ID');
+  assert.equal(card101.classList.contains('active'), true, 'Selected card should have active class');
+
+  // Test delete custom card 202
+  const delBtn = card202.querySelector('.a6-card-del');
+  delBtn.click();
+  const customAfterDel = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  assert.equal(customAfterDel.length, 0, 'Custom channel should be deleted from storage');
+
+  // Test add custom channel via form
+  const addBtn = panel.querySelector('.a6-btn-link');
+  addBtn.click();
+
+  const addBox = panel.querySelector('.a6-add-box');
+  assert.ok(addBox, 'Add form box should exist');
+  const inputs = addBox.querySelectorAll('input');
+  assert.equal(inputs.length, 3, 'Add box should have 3 inputs (ID, Name, Desc)');
+
+  inputs[0].value = '303';
+  inputs[1].value = '极速303';
+  inputs[2].value = '全并发保活性';
+
+  const saveBtn = addBox.querySelector('.a6-btn-primary');
+  saveBtn.click();
+
+  const customAfterAdd = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  assert.equal(customAfterAdd.length, 1);
+  assert.equal(customAfterAdd[0].id, '303');
+  assert.equal(customAfterAdd[0].name, '极速303');
+  assert.equal(customAfterAdd[0].desc, '全并发保活性');
+
+  // Test toggle side to left
+  const sideBtn = panel.querySelector('.a6-drawer-tool-btn');
+  assert.ok(sideBtn);
+  assert.match(sideBtn.textContent, /靠左/);
+  sideBtn.click();
+
+  const updatedPanel = env.document.getElementById('a6-drawer-panel');
+  assert.equal(updatedPanel.classList.contains('is-side-left'), true);
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_side')), 'left');
+});
+
+test('a6api market drawer defaults to open when no state is saved in storage', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+  const panel = env.document.getElementById('a6-drawer-panel');
+  assert.ok(panel);
+  assert.equal(panel.classList.contains('is-open'), true, 'Drawer should default to open on first visit');
+  assert.equal(panel.classList.contains('is-side-right'), true, 'Drawer should default to right side');
 });

@@ -1,11 +1,15 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.3.2
-// @description  在「渠道管理」页渠道名称右侧新增「查市场」「后台查」两个按钮：仅对已上架渠道显示，分别在前台/后台新标签页打开市场页，并自动以“渠道”维度搜索该渠道ID
+// @version      1.4.0
+// @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道；在市场页提供快捷渠道抽屉面板，支持一键切换搜索渠道与自定义渠道管理
 // @match        https://a6api.com/*
 // @grant        GM_openInTab
 // @grant        GM.openInTab
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM.setValue
+// @grant        GM.getValue
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -13,8 +17,59 @@
   'use strict';
 
   var MARKET_BASE = 'https://a6api.com/';
+  var STORAGE_KEY_OWNED = 'a6_owned_channels';
+  var STORAGE_KEY_CUSTOM = 'a6_custom_channels';
+  var STORAGE_KEY_DRAWER_OPEN = 'a6_drawer_open';
+  var STORAGE_KEY_DRAWER_SIDE = 'a6_drawer_side';
+  /* ================= 通用本地存储 (GM API 优先，localStorage 兜底) ================= */
 
-  /* ========== 按钮样式（启动时一次性写入，热更新时覆盖旧版本样式） ========== */
+  function storageGet(key, fallback) {
+    try {
+      if (typeof GM_getValue === 'function') {
+        var v = GM_getValue(key);
+        if (v !== undefined && v !== null) {
+          if (typeof v === 'string') {
+            try {
+              return JSON.parse(v);
+            } catch (e) {
+              return v;
+            }
+          }
+          return v;
+        }
+      }
+    } catch (e) {}
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage) {
+        var raw = localStorage.getItem(key);
+        if (raw !== null && raw !== undefined) {
+          try {
+            return JSON.parse(raw);
+          } catch (e) {
+            return raw;
+          }
+        }
+      }
+    } catch (e) {}
+    return fallback;
+  }
+
+  function storageSet(key, val) {
+    var payload = JSON.stringify(val);
+    try {
+      if (typeof GM_setValue === 'function') {
+        GM_setValue(key, payload);
+        return;
+      }
+    } catch (e) {}
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage) {
+        localStorage.setItem(key, payload);
+      }
+    } catch (e) {}
+  }
+
+  /* ========== 样式定义（包含渠道管理按钮与市场页快捷渠道抽屉） ========== */
   (function () {
     var st = document.getElementById('a6jump-style');
     if (!st) {
@@ -23,18 +78,202 @@
       (document.head || document.documentElement).appendChild(st);
     }
     st.textContent =
+      /* 渠道管理页按钮样式 */
       '.a6jump-wrap{display:inline-flex;align-items:center;vertical-align:middle;margin-left:8px;gap:6px;}' +
       '.a6jump-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;' +
       'height:24px;padding:0 10px;font-size:12px;line-height:1;font-weight:500;' +
       'color:#27272a;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:6px;cursor:pointer;' +
       'white-space:nowrap;user-select:none;transition:all .15s ease;}' +
       '.a6jump-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
-      '.a6jump-btn:active{transform:translateY(1px);}';
+      '.a6jump-btn:active{transform:translateY(1px);}' +
+
+      /* 市场页快捷抽屉浮动触发按钮 */
+      '.a6-drawer-trigger{position:fixed;top:130px;z-index:9999;' +
+      'background:#1677ff;color:#ffffff;padding:8px 6px;cursor:pointer;' +
+      'font-size:12px;font-weight:500;' +
+      'display:flex;align-items:center;writing-mode:vertical-rl;letter-spacing:2px;user-select:none;transition:all .2s ease;}' +
+      '.a6-drawer-trigger.is-side-right{right:0;left:auto;border-radius:6px 0 0 6px;box-shadow:-2px 2px 8px rgba(22,119,255,.35);}' +
+      '.a6-drawer-trigger.is-side-left{left:0;right:auto;border-radius:0 6px 6px 0;box-shadow:2px 2px 8px rgba(22,119,255,.35);}' +
+      '.a6-drawer-trigger.is-side-right:hover{background:#4096ff;padding-right:9px;}' +
+      '.a6-drawer-trigger.is-side-left:hover{background:#4096ff;padding-left:9px;}' +
+      '.a6-drawer-trigger.is-hidden{display:none !important;}' +
+
+      /* 抽屉面板（高度紧凑化，避免遮挡全部高度） */
+      '.a6-drawer-panel{position:fixed;top:90px;height:auto;max-height:min(480px,calc(100vh - 140px));width:290px;max-width:calc(100vw - 32px);' +
+      'background:#ffffff;box-shadow:0 8px 24px rgba(0,0,0,.14);z-index:10000;display:flex;flex-direction:column;' +
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;box-sizing:border-box;' +
+      'border:1px solid #e4e4e7;overflow:hidden;transition:transform .25s cubic-bezier(0.16,1,0.3,1);}' +
+      '.a6-drawer-panel.is-side-right{right:0;left:auto;border-radius:8px 0 0 8px;border-right:none;transform:translateX(100%);}' +
+      '.a6-drawer-panel.is-side-left{left:0;right:auto;border-radius:0 8px 8px 0;border-left:none;transform:translateX(-100%);}' +
+      '.a6-drawer-panel.is-open{transform:translateX(0) !important;}' +
+
+      /* 抽屉头部与操作按钮 */
+      '.a6-drawer-header{flex-shrink:0;padding:10px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;}' +
+      '.a6-drawer-title-wrap{display:flex;align-items:center;gap:6px;}' +
+      '.a6-drawer-title{font-size:14px;font-weight:600;color:#1f2937;}' +
+      '.a6-drawer-count{font-size:11px;background:#e5e7eb;color:#4b5563;padding:1px 6px;border-radius:10px;font-weight:600;}' +
+      '.a6-drawer-actions{display:flex;align-items:center;gap:6px;}' +
+      '.a6-drawer-tool-btn{background:#f4f4f5;border:1px solid #e4e4e7;color:#52525b;font-size:11px;padding:2px 6px;border-radius:4px;cursor:pointer;line-height:1.2;transition:all .15s ease;}' +
+      '.a6-drawer-tool-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
+      '.a6-drawer-close{background:none;border:none;color:#9ca3af;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px;}' +
+      '.a6-drawer-close:hover{color:#374151;background:#e5e7eb;}' +
+      /* 抽屉内容区（弹性自适应 + 强制可滚动 + 滚动条美化） */
+      '.a6-drawer-content{flex:1 1 auto;min-height:0;max-height:min(420px,calc(100vh - 190px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:10px 12px;}' +
+      '.a6-drawer-content::-webkit-scrollbar{width:5px;}' +
+      '.a6-drawer-content::-webkit-scrollbar-track{background:transparent;}' +
+      '.a6-drawer-content::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}' +
+      '.a6-drawer-content::-webkit-scrollbar-thumb:hover{background:#94a3b8;}' +
+      '.a6-section-header{display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px;}' +
+      '.a6-section-header:first-child{margin-top:0;}' +
+      '.a6-section-title{font-size:12px;font-weight:600;color:#6b7280;}' +
+      '.a6-btn-link{font-size:12px;color:#1677ff;background:none;border:none;cursor:pointer;padding:0;font-weight:500;}' +
+      '.a6-btn-link:hover{text-decoration:underline;}' +
+
+      /* 渠道卡片（双行） */
+      '.a6-card{background:#ffffff;border:1px solid #e5e7eb;border-radius:6px;padding:9px 12px;margin-bottom:8px;cursor:pointer;transition:all .15s ease;user-select:none;}' +
+      '.a6-card:hover{background:#f8fafc;border-color:#cbd5e1;}' +
+      '.a6-card.active{background:#eff6ff;border-color:#1677ff;box-shadow:0 0 0 1px #1677ff;}' +
+      '.a6-card-row1{display:flex;align-items:center;justify-content:space-between;gap:8px;}' +
+      '.a6-card-name{font-size:13px;font-weight:600;color:#111827;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.a6-card.active .a6-card-name{color:#1677ff;}' +
+      '.a6-card-badges{display:inline-flex;align-items:center;gap:6px;flex-shrink:0;}' +
+      '.a6-card-id{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:4px;}' +
+      '.a6-card-del{background:none;border:none;color:#94a3b8;font-size:13px;line-height:1;padding:2px 4px;cursor:pointer;border-radius:3px;}' +
+      '.a6-card-del:hover{color:#ef4444;background:#fee2e2;}' +
+      '.a6-card-desc{font-size:12px;color:#64748b;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.a6-empty-tip{padding:12px;text-align:center;font-size:12px;color:#94a3b8;background:#f8fafc;border:1px dashed #e2e8f0;border-radius:6px;line-height:1.6;}' +
+
+      /* 添加表单 */
+      '.a6-add-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;}' +
+      '.a6-input{box-sizing:border-box;width:100%;height:28px;padding:4px 8px;font-size:12px;border:1px solid #d1d5db;border-radius:4px;outline:none;background:#fff;color:#1f2937;}' +
+      '.a6-input:focus{border-color:#1677ff;box-shadow:0 0 0 1px #1677ff;}' +
+      '.a6-form-actions{display:flex;justify-content:flex-end;gap:6px;}' +
+      '.a6-btn-sm{height:24px;padding:0 10px;font-size:12px;border-radius:4px;cursor:pointer;border:1px solid transparent;}' +
+      '.a6-btn-primary{background:#1677ff;color:#fff;}' +
+      '.a6-btn-primary:hover{background:#4096ff;}' +
+      '.a6-btn-default{background:#fff;border-color:#d1d5db;color:#374151;}' +
+      '.a6-btn-default:hover{background:#f3f4f6;}' +
+
+      /* 暗色模式适配（同时支持系统 prefers-color-scheme 与页面 .dark / [data-theme="dark"]） */
+      '@media (prefers-color-scheme:dark){' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-left{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-left:none;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-header{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-title{color:#fafafa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card:hover{background:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-name{color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-desc{color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-empty-tip{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-content::-webkit-scrollbar-thumb{background:#52525b;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-content::-webkit-scrollbar-thumb:hover{background:#71717a;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-btn-default{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6jump-btn{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}' +
+      '}' +
+      '.dark .a6-drawer-panel.is-side-right,[data-theme="dark"] .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
+      '.dark .a6-drawer-panel.is-side-left,[data-theme="dark"] .a6-drawer-panel.is-side-left{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-left:none;}' +
+      '.dark .a6-drawer-header,[data-theme="dark"] .a6-drawer-header{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-drawer-title,[data-theme="dark"] .a6-drawer-title{color:#fafafa;}' +
+      '.dark .a6-drawer-tool-btn,[data-theme="dark"] .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
+      '.dark .a6-drawer-tool-btn:hover,[data-theme="dark"] .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
+      '.dark .a6-card,[data-theme="dark"] .a6-card{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-card:hover,[data-theme="dark"] .a6-card:hover{background:#3f3f46;}' +
+      '.dark .a6-card.active,[data-theme="dark"] .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
+      '.dark .a6-card-name,[data-theme="dark"] .a6-card-name{color:#f4f4f5;}' +
+      '.dark .a6-card-desc,[data-theme="dark"] .a6-card-desc{color:#a1a1aa;}' +
+      '.dark .a6-card-id,[data-theme="dark"] .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
+      '.dark .a6-input,[data-theme="dark"] .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
+      '.dark .a6-add-box,[data-theme="dark"] .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-empty-tip,[data-theme="dark"] .a6-empty-tip{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
+      '.dark .a6-drawer-content::-webkit-scrollbar-thumb,[data-theme="dark"] .a6-drawer-content::-webkit-scrollbar-thumb{background:#52525b;}' +
+      '.dark .a6-drawer-content::-webkit-scrollbar-thumb:hover,[data-theme="dark"] .a6-drawer-content::-webkit-scrollbar-thumb:hover{background:#71717a;}' +
+      '.dark .a6-btn-default,[data-theme="dark"] .a6-btn-default{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
+      '.dark .a6jump-btn,[data-theme="dark"] .a6jump-btn{background:#27272a;color:#f4f4f5;border-color:#3f3f46;}';
   })();
 
-  /* ================= 市场页：读取URL中的渠道ID并自动搜索 ================= */
+  /* ================= 市场页搜索联动逻辑 ================= */
 
-  // 在脚本启动最早期读取并清理地址栏里的渠道ID（?cid=xxxx#/market）
+  var activeChannelId = '';
+
+  function setReactInputValue(input, value) {
+    var proto = window.HTMLInputElement ? window.HTMLInputElement.prototype : null;
+    var desc = proto ? Object.getOwnPropertyDescriptor(proto, 'value') : null;
+    if (desc && desc.set) {
+      desc.set.call(input, value);
+    } else {
+      input.value = value;
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function pressEnter(el) {
+    ['keydown', 'keypress', 'keyup'].forEach(function (type) {
+      var ev = new KeyboardEvent(type, { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true });
+      try {
+        Object.defineProperty(ev, 'keyCode', { get: function () { return 13; } });
+        Object.defineProperty(ev, 'which', { get: function () { return 13; } });
+      } catch (e) { }
+      el.dispatchEvent(ev);
+    });
+  }
+
+  function highlightActiveCard(cid) {
+    var cards = document.querySelectorAll('.a6-card');
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute('data-cid') === String(cid)) {
+        cards[i].classList.add('active');
+      } else {
+        cards[i].classList.remove('active');
+      }
+    }
+  }
+
+  function performMarketSearch(cid) {
+    if (!cid) return;
+    activeChannelId = String(cid);
+    highlightActiveCard(activeChannelId);
+
+    if (location.hash.indexOf('#/market') !== 0) return;
+
+    var tries = 0;
+    var timer = setInterval(function () {
+      tries++;
+      var input = document.querySelector('input.ui-search-field');
+      var chips = document.querySelectorAll('button.ui-switch-tag');
+      var chip = null;
+      for (var i = 0; i < chips.length; i++) {
+        if ((chips[i].textContent || '').trim() === '渠道') {
+          chip = chips[i];
+          break;
+        }
+      }
+      if (!input || !chip) {
+        if (tries > 60) clearInterval(timer);
+        return;
+      }
+      clearInterval(timer);
+
+      // 1) 选中“渠道”维度
+      if ((chip.className || '').indexOf('active') < 0) chip.click();
+
+      // 2) 填入渠道ID并按回车搜索
+      setTimeout(function () {
+        input.focus();
+        setReactInputValue(input, cid);
+        setTimeout(function () {
+          pressEnter(input);
+        }, 300);
+      }, 250);
+    }, 300);
+  }
+
+  // 地址栏初始化渠道搜索（?cid=xxxx#/market）
   var pendingCid = (function () {
     var m = location.search.match(/[?&]cid=([^&]+)/);
     var fromHash = false;
@@ -51,7 +290,6 @@
     }
     id = (id || '').trim();
     if (!id) return null;
-    // 清理地址栏，避免刷新页面时重复触发搜索
     try {
       if (fromHash) {
         var cleanHash = location.hash.replace(/[?&]cid=[^&]+/, '');
@@ -59,78 +297,19 @@
       } else {
         history.replaceState(null, '', location.pathname + location.hash);
       }
-    } catch (e) {}
+    } catch (e) { }
     return id;
   })();
 
-  // 以 React 能感知的方式写入输入框的值
-  function setReactInputValue(input, value) {
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-    setter.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+  if (pendingCid) {
+    performMarketSearch(pendingCid);
   }
 
-  // 合成回车（带 keyCode/which，兼容检查按键码的实现）
-  function pressEnter(el) {
-    ['keydown', 'keypress', 'keyup'].forEach(function (type) {
-      var ev = new KeyboardEvent(type, { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true });
-      try {
-        Object.defineProperty(ev, 'keyCode', { get: function () { return 13; } });
-        Object.defineProperty(ev, 'which', { get: function () { return 13; } });
-      } catch (e) {}
-      el.dispatchEvent(ev);
-    });
-  }
-
-  function runMarketSearch() {
-    if (!pendingCid) return;
-    if (location.hash.indexOf('#/market') !== 0) return;
-
-    var tries = 0;
-    var timer = setInterval(function () {
-      tries++;
-      var input = document.querySelector('input.ui-search-field');
-      var chips = document.querySelectorAll('button.ui-switch-tag');
-      var chip = null;
-      for (var i = 0; i < chips.length; i++) {
-        if ((chips[i].textContent || '').trim() === '渠道') {
-          chip = chips[i];
-          break;
-        }
-      }
-      if (!input || !chip) {
-        if (tries > 60) clearInterval(timer); // 最多等约 18 秒（后台标签页计时有节流）
-        return;
-      }
-      clearInterval(timer);
-      var cid = pendingCid;
-      pendingCid = null;
-
-      // 1) 选中“渠道”维度
-      if ((chip.className || '').indexOf('active') < 0) chip.click();
-
-      // 2) 填入渠道ID并按回车搜索
-      setTimeout(function () {
-        input.focus();
-        setReactInputValue(input, cid);
-        setTimeout(function () {
-          pressEnter(input);
-        }, 300);
-      }, 250);
-    }, 300);
-  }
-
-  runMarketSearch();
-  window.addEventListener('hashchange', function () {
-    setTimeout(runMarketSearch, 300);
-  });
-
-  /* ================= 渠道列表：在名称右侧注入两个快捷按钮 ================= */
+  /* ================= 渠道列表：在名称右侧注入两个快捷按钮并同步缓存 ================= */
 
   var BTN_MARK = 'data-a6jump';
-  var BTN_VER = '132';
+  var BTN_VER = '140';
 
-  // 判断该行渠道是否处于“已上架”状态（仅已上架才展示快捷按钮）
   function isRowOnline(row) {
     var pill = row.querySelector('.sc-status-pill');
     if (pill) {
@@ -156,25 +335,22 @@
     return MARKET_BASE + '?cid=' + encodeURIComponent(id) + '#/market';
   }
 
-  // 点击时实时读取按钮所在行的渠道ID（避免行复用/重渲染造成旧ID）
   function getRowId(el) {
-    var row = el.closest('tr');
+    var row = el.closest ? el.closest('tr') : null;
     var idBtn = row ? row.querySelector('button.sc-mono-id') : null;
     var id = idBtn ? (idBtn.getAttribute('title') || idBtn.textContent || '').trim() : '';
     if (!id) {
-      var wrap = el.closest('[data-a6id]');
+      var wrap = el.closest ? el.closest('[data-a6id]') : null;
       if (wrap) id = (wrap.getAttribute('data-a6id') || '').trim();
     }
     return id;
   }
 
-  // 前台打开：新标签页并切换到它
   function openForeground(id) {
     var w = window.open(marketUrl(id), '_blank');
-    if (!w) location.href = marketUrl(id); // 弹窗被拦截时的兜底
+    if (!w) location.href = marketUrl(id);
   }
 
-  // 后台打开：优先用篡改猴原生 GM_openInTab（active:false = 后台标签页，不切换）
   function openBackground(id) {
     var url = marketUrl(id);
     try {
@@ -186,13 +362,12 @@
         GM.openInTab(url, { active: false, insert: true, setParent: true });
         return;
       }
-    } catch (e) {}
-    // 兜底：window.open 后把焦点抢回当前页
+    } catch (e) { }
     var w = window.open(url, '_blank');
     if (w) {
       setTimeout(function () {
-        try { w.blur(); } catch (e) {}
-        try { window.focus(); } catch (e) {}
+        try { w.blur(); } catch (e) { }
+        try { window.focus(); } catch (e) { }
       }, 0);
     } else {
       location.href = url;
@@ -215,26 +390,88 @@
     return b;
   }
 
+  function getCleanChannelName(nameSpan) {
+    if (typeof nameSpan.cloneNode === 'function') {
+      var clone = nameSpan.cloneNode(true);
+      var wraps = clone.querySelectorAll ? clone.querySelectorAll('.a6jump-wrap') : [];
+      for (var i = 0; i < wraps.length; i++) wraps[i].remove();
+      return (clone.textContent || '').trim();
+    }
+    var fullText = (nameSpan.textContent || '').trim();
+    return fullText.replace(/查市场|后台查/g, '').trim();
+  }
+
+  function getRowDesc(row, cleanName) {
+    var descEl = null;
+    var selectors = ['.sc-channel-desc', '.sc-channel-description', '.sc-channel-sub', '.channel-desc', '[class*="desc"]'];
+    if (row.querySelector) {
+      for (var s = 0; s < selectors.length; s++) {
+        descEl = row.querySelector(selectors[s]);
+        if (descEl) break;
+      }
+    }
+    if (descEl) {
+      var dt = (descEl.textContent || '').trim();
+      if (dt) return dt;
+    }
+    var nameSpan = row.querySelector('.sc-channel-name');
+    if (nameSpan) {
+      var title = nameSpan.getAttribute('title');
+      if (title && title.trim() && title.trim() !== cleanName) {
+        return title.trim();
+      }
+      var td = nameSpan.closest ? nameSpan.closest('td') : (nameSpan.parentNode && nameSpan.parentNode.tagName === 'TD' ? nameSpan.parentNode : null);
+      if (td) {
+        var subEls = td.querySelectorAll('div, p, span, small');
+        for (var i = 0; i < subEls.length; i++) {
+          var el = subEls[i];
+          if (el !== nameSpan && !el.classList.contains('sc-channel-name') && !el.classList.contains('a6jump-wrap')) {
+            var txt = (el.textContent || '').trim();
+            if (txt && txt !== cleanName) return txt;
+          }
+        }
+      }
+    }
+    return '';
+  }
+
   function scanRows() {
     if (location.hash.indexOf('#/merchant/channels') !== 0) return;
     var rows = document.querySelectorAll('tbody tr');
+    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+    var changed = false;
+
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
       var nameSpan = row.querySelector('.sc-channel-name');
       if (!nameSpan) continue;
 
-      var stale = nameSpan.querySelectorAll('[' + BTN_MARK + ']');
-      if (!isRowOnline(row)) {
-        for (var j = 0; j < stale.length; j++) stale[j].remove();
-        continue;
-      }
-
-      if (nameSpan.querySelector('[' + BTN_MARK + '="' + BTN_VER + '"]')) continue; // 本版本已注入
-      for (var k = 0; k < stale.length; k++) stale[k].remove();
-
       var idBtn = row.querySelector('button.sc-mono-id');
       var id = idBtn ? (idBtn.getAttribute('title') || idBtn.textContent || '').trim() : '';
       if (!id) continue;
+
+      var online = isRowOnline(row);
+      var stale = nameSpan.querySelectorAll('[' + BTN_MARK + ']');
+
+      if (!online) {
+        for (var j = 0; j < stale.length; j++) stale[j].remove();
+        if (ownedMap[id]) {
+          delete ownedMap[id];
+          changed = true;
+        }
+        continue;
+      }
+
+      var cleanName = getCleanChannelName(nameSpan);
+      var desc = getRowDesc(row, cleanName);
+      var existing = ownedMap[id];
+      if (!existing || existing.name !== cleanName || existing.desc !== desc) {
+        ownedMap[id] = { id: id, name: cleanName || id, desc: desc, updatedAt: Date.now() };
+        changed = true;
+      }
+
+      if (nameSpan.querySelector('[' + BTN_MARK + '="' + BTN_VER + '"]')) continue;
+      for (var k = 0; k < stale.length; k++) stale[k].remove();
 
       var wrap = document.createElement('span');
       wrap.className = 'a6jump-wrap';
@@ -244,9 +481,316 @@
       wrap.appendChild(makeButton('后台查', '在后台新标签页打开市场并搜索该渠道ID（不切换当前页面）', openBackground));
       nameSpan.appendChild(wrap);
     }
+
+    if (changed) {
+      storageSet(STORAGE_KEY_OWNED, ownedMap);
+    }
   }
 
-  // 监听路由与 DOM 变化（React 重渲染后自动补回按钮）
+  /* ================= 市场页：快捷渠道抽屉面板 (Quick Channel Drawer) ================= */
+
+  function renderMarketDrawer() {
+    var isMarket = location.hash.indexOf('#/market') === 0;
+    var container = document.getElementById('a6-drawer-container');
+
+    if (!isMarket) {
+      if (container) container.style.display = 'none';
+      return;
+    }
+
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'a6-drawer-container';
+      (document.body || document.documentElement).appendChild(container);
+    }
+    container.style.display = '';
+
+    var rawOpen = storageGet(STORAGE_KEY_DRAWER_OPEN, true);
+    var isOpen = rawOpen !== false && rawOpen !== 'false';
+    var currentSide = storageGet(STORAGE_KEY_DRAWER_SIDE, 'right');
+    if (currentSide !== 'left' && currentSide !== 'right') currentSide = 'right';
+
+    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+    var customList = storageGet(STORAGE_KEY_CUSTOM, []);
+    var ownedList = Object.keys(ownedMap).map(function (k) { return ownedMap[k]; });
+
+    container.innerHTML = '';
+
+    // 1) 触发胶囊按钮
+    var trigger = document.createElement('div');
+    trigger.id = 'a6-drawer-trigger';
+    trigger.className = 'a6-drawer-trigger is-side-' + currentSide + (isOpen ? ' is-hidden' : '');
+    trigger.title = '打开快捷渠道面板';
+    trigger.innerHTML = '<span>📌 快捷渠道</span>';
+    trigger.addEventListener('click', function () {
+      setDrawerOpen(true);
+    });
+    container.appendChild(trigger);
+
+    // 2) 抽屉面板
+    var panel = document.createElement('div');
+    panel.id = 'a6-drawer-panel';
+    panel.className = 'a6-drawer-panel is-side-' + currentSide + (isOpen ? ' is-open' : '');
+
+    // 头部
+    var header = document.createElement('div');
+    header.className = 'a6-drawer-header';
+    var titleWrap = document.createElement('div');
+    titleWrap.className = 'a6-drawer-title-wrap';
+    var title = document.createElement('span');
+    title.className = 'a6-drawer-title';
+    title.textContent = '快捷渠道';
+    var countBadge = document.createElement('span');
+    countBadge.className = 'a6-drawer-count';
+    countBadge.textContent = String(ownedList.length + customList.length);
+    titleWrap.appendChild(title);
+    titleWrap.appendChild(countBadge);
+
+    var actionsWrap = document.createElement('div');
+    actionsWrap.className = 'a6-drawer-actions';
+
+    var sideBtn = document.createElement('button');
+    sideBtn.type = 'button';
+    sideBtn.className = 'a6-drawer-tool-btn';
+    sideBtn.title = currentSide === 'right' ? '切换到左侧贴边' : '切换到右侧贴边';
+    sideBtn.textContent = currentSide === 'right' ? '⇋ 靠左' : '⇋ 靠右';
+    sideBtn.addEventListener('click', function () {
+      currentSide = currentSide === 'right' ? 'left' : 'right';
+      storageSet(STORAGE_KEY_DRAWER_SIDE, currentSide);
+      renderMarketDrawer();
+    });
+
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'a6-drawer-close';
+    closeBtn.title = '收起面板';
+    closeBtn.innerHTML = '✕';
+    closeBtn.addEventListener('click', function () {
+      setDrawerOpen(false);
+    });
+
+    actionsWrap.appendChild(sideBtn);
+    actionsWrap.appendChild(closeBtn);
+    header.appendChild(titleWrap);
+    header.appendChild(actionsWrap);
+    panel.appendChild(header);
+
+    // 内容区
+    var content = document.createElement('div');
+    content.className = 'a6-drawer-content';
+    content.addEventListener('wheel', function (ev) {
+      var delta = ev.deltaY || (ev.detail ? ev.detail * 40 : 0);
+      if (!delta) return;
+      var maxScroll = content.scrollHeight - content.clientHeight;
+      if (maxScroll <= 0) return;
+      var canScrollDown = content.scrollTop < maxScroll - 1;
+      var canScrollUp = content.scrollTop > 1;
+      if ((delta > 0 && canScrollDown) || (delta < 0 && canScrollUp)) {
+        content.scrollTop += delta;
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+      }
+    }, { passive: false });
+    // 分组 1: 我的渠道
+    var secOwned = document.createElement('div');
+    var secOwnedHeader = document.createElement('div');
+    secOwnedHeader.className = 'a6-section-header';
+    var secOwnedTitle = document.createElement('span');
+    secOwnedTitle.className = 'a6-section-title';
+    secOwnedTitle.textContent = '我的渠道 (' + ownedList.length + ')';
+    secOwnedHeader.appendChild(secOwnedTitle);
+    secOwned.appendChild(secOwnedHeader);
+
+    if (ownedList.length === 0) {
+      var emptyTip = document.createElement('div');
+      emptyTip.className = 'a6-empty-tip';
+      emptyTip.textContent = '暂无同步数据，请访问一次「渠道管理」页自动同步';
+      secOwned.appendChild(emptyTip);
+    } else {
+      ownedList.forEach(function (ch) {
+        secOwned.appendChild(createChannelCard(ch, false));
+      });
+    }
+    content.appendChild(secOwned);
+
+    // 分组 2: 自定义渠道
+    var secCustom = document.createElement('div');
+    var secCustomHeader = document.createElement('div');
+    secCustomHeader.className = 'a6-section-header';
+    var secCustomTitle = document.createElement('span');
+    secCustomTitle.className = 'a6-section-title';
+    secCustomTitle.textContent = '自定义渠道 (' + customList.length + ')';
+
+    var addToggleBtn = document.createElement('button');
+    addToggleBtn.type = 'button';
+    addToggleBtn.className = 'a6-btn-link';
+    addToggleBtn.textContent = '+ 添加';
+    secCustomHeader.appendChild(secCustomTitle);
+    secCustomHeader.appendChild(addToggleBtn);
+    secCustom.appendChild(secCustomHeader);
+
+    // 自定义添加表单
+    var addBox = document.createElement('div');
+    addBox.className = 'a6-add-box';
+    addBox.style.display = 'none';
+
+    var idInput = document.createElement('input');
+    idInput.className = 'a6-input';
+    idInput.placeholder = '渠道 ID * (如 101)';
+
+    var nameInput = document.createElement('input');
+    nameInput.className = 'a6-input';
+    nameInput.placeholder = '渠道名称 * (如 能能CC-2)';
+
+    var descInput = document.createElement('input');
+    descInput.className = 'a6-input';
+    descInput.placeholder = '渠道说明 (选填，如 CC Kiro 保智商)';
+
+    var actRow = document.createElement('div');
+    actRow.className = 'a6-form-actions';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'a6-btn-sm a6-btn-default';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', function () {
+      addBox.style.display = 'none';
+      idInput.value = '';
+      nameInput.value = '';
+      descInput.value = '';
+    });
+
+    var saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
+    saveBtn.className = 'a6-btn-sm a6-btn-primary';
+    saveBtn.textContent = '保存';
+    saveBtn.addEventListener('click', function () {
+      var cid = idInput.value.trim();
+      var cname = nameInput.value.trim();
+      var cdesc = descInput.value.trim();
+      if (!cid) {
+        idInput.focus();
+        return;
+      }
+      if (!cname) cname = cid;
+
+      var found = false;
+      for (var idx = 0; idx < customList.length; idx++) {
+        if (customList[idx].id === cid) {
+          customList[idx].name = cname;
+          customList[idx].desc = cdesc;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        customList.push({ id: cid, name: cname, desc: cdesc });
+      }
+      storageSet(STORAGE_KEY_CUSTOM, customList);
+      renderMarketDrawer();
+    });
+
+    actRow.appendChild(cancelBtn);
+    actRow.appendChild(saveBtn);
+
+    addBox.appendChild(idInput);
+    addBox.appendChild(nameInput);
+    addBox.appendChild(descInput);
+    addBox.appendChild(actRow);
+    secCustom.appendChild(addBox);
+
+    addToggleBtn.addEventListener('click', function () {
+      addBox.style.display = addBox.style.display === 'none' ? 'flex' : 'none';
+      if (addBox.style.display !== 'none') idInput.focus();
+    });
+
+    if (customList.length === 0) {
+      var emptyCustomTip = document.createElement('div');
+      emptyCustomTip.className = 'a6-empty-tip';
+      emptyCustomTip.textContent = '暂无自定义渠道，点击右上角 + 添加';
+      secCustom.appendChild(emptyCustomTip);
+    } else {
+      customList.forEach(function (ch, idx) {
+        secCustom.appendChild(createChannelCard(ch, true, function () {
+          customList.splice(idx, 1);
+          storageSet(STORAGE_KEY_CUSTOM, customList);
+          renderMarketDrawer();
+        }));
+      });
+    }
+    content.appendChild(secCustom);
+
+    panel.appendChild(content);
+    container.appendChild(panel);
+
+    function setDrawerOpen(open) {
+      isOpen = open;
+      storageSet(STORAGE_KEY_DRAWER_OPEN, open);
+      if (open) {
+        panel.classList.add('is-open');
+        trigger.classList.add('is-hidden');
+      } else {
+        panel.classList.remove('is-open');
+        trigger.classList.remove('is-hidden');
+      }
+    }
+
+    function createChannelCard(ch, isCustom, onDelete) {
+      var card = document.createElement('div');
+      card.className = 'a6-card' + (ch.id === activeChannelId ? ' active' : '');
+      card.setAttribute('data-cid', ch.id);
+
+      var row1 = document.createElement('div');
+      row1.className = 'a6-card-row1';
+
+      var nameEl = document.createElement('span');
+      nameEl.className = 'a6-card-name';
+      nameEl.textContent = ch.name || ch.id;
+      nameEl.title = ch.name || ch.id;
+
+      var badges = document.createElement('div');
+      badges.className = 'a6-card-badges';
+
+      var idBadge = document.createElement('span');
+      idBadge.className = 'a6-card-id';
+      idBadge.textContent = '#' + ch.id;
+      badges.appendChild(idBadge);
+
+      if (isCustom && onDelete) {
+        var delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'a6-card-del';
+        delBtn.title = '删除此自定义渠道';
+        delBtn.textContent = '✕';
+        delBtn.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          onDelete();
+        });
+        badges.appendChild(delBtn);
+      }
+
+      row1.appendChild(nameEl);
+      row1.appendChild(badges);
+      card.appendChild(row1);
+
+      if (ch.desc) {
+        var descEl = document.createElement('div');
+        descEl.className = 'a6-card-desc';
+        descEl.textContent = ch.desc;
+        descEl.title = ch.desc;
+        card.appendChild(descEl);
+      }
+
+      card.addEventListener('click', function () {
+        performMarketSearch(ch.id);
+      });
+
+      return card;
+    }
+  }
+
+  // 调度监听
   var scheduled = false;
   function schedule() {
     if (scheduled) return;
@@ -254,8 +798,10 @@
     setTimeout(function () {
       scheduled = false;
       scanRows();
+      renderMarketDrawer();
     }, 250);
   }
+
   new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true });
   window.addEventListener('hashchange', schedule);
   schedule();

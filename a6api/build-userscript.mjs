@@ -20,8 +20,8 @@ const repoOwner = process.env.GITHUB_REPOSITORY_OWNER || 'skt-shinyruo';
 const pagesUrl = `https://${repoOwner}.github.io/${repoName}/a6api-channel-market-search.user.js`;
 const updateUrl = process.env.A6API_UPDATE_URL || pagesUrl;
 const downloadUrl = process.env.A6API_DOWNLOAD_URL || updateUrl;
-const baseVersion = '1.3';
-const scriptVersion = process.env.A6API_VERSION || `${baseVersion}.2`;
+const baseVersion = '1.4';
+const scriptVersion = process.env.A6API_VERSION || `${baseVersion}.0`;
 
 const source = await readFile(sourcePath, 'utf8');
 const publishMetadataLines = [

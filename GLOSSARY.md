@@ -1,0 +1,29 @@
+# A6API Tampermonkey Scripts
+
+Tampermonkey userscript suite enhancing A6API channel management and market exploration.
+
+## Language
+
+**渠道 (Channel)**:
+A model distribution endpoint identified by a unique ID and display name.
+_Avoid_: 接口, 节点
+
+**渠道名称 (Channel Name)**:
+The primary display title of a channel (e.g. "能能CC-2").
+_Avoid_: 标题, 标签
+
+**渠道说明 (Channel Description)**:
+Descriptive text or feature tags explaining the channel's capabilities, routing, or performance characteristics (e.g. "CC Kiro 保智商 保缓存").
+_Avoid_: 备注, 描述信息
+
+**我的渠道 (Owned Channel)**:
+Channels owned and administered by the current merchant account on the management page.
+_Avoid_: 自有渠道, 本地渠道
+
+**自定义渠道 (Custom Channel)**:
+User-defined channel IDs and aliases saved locally for quick market lookups.
+_Avoid_: 外部渠道, 手动渠道
+
+**快捷渠道抽屉 (Quick Channel Drawer)**:
+A collapsible floating side panel injected into the market page for quick one-click channel searches.
+_Avoid_: 侧边栏, 弹窗, 浮窗
