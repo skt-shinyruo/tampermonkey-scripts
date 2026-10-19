@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.3.8
+// @version      1.3.9
 // @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道；在市场页提供快捷渠道抽屉面板，支持一键切换搜索渠道与自定义渠道管理
 // @match        https://a6api.com/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js
@@ -236,7 +236,10 @@
       '.a6-btn-primary:hover{background:#4096ff;}' +
       '.a6-btn-default{background:#fff;border-color:#d1d5db;color:#374151;}' +
       '.a6-btn-default:hover{background:#f3f4f6;}' +
-
+      /* 市场模型列表自选渠道高亮（金黄发光轮廓 + 金黄文字 + 浅金微光） */
+      '.a6-market-highlight{box-shadow:0 0 0 1px #f59e0b, 0 0 8px rgba(245,158,11,.25) !important;background:rgba(245,158,11,.05) !important;position:relative;z-index:2;border-radius:6px;}' +
+      '.a6-market-highlight td{background:transparent !important;}' +
+      '.a6-market-highlight td:first-child, .a6-market-highlight td:first-child *{color:#f59e0b !important;}' +
       /* 暗色模式适配（同时支持系统 prefers-color-scheme 与页面 .dark / [data-theme="dark"]） */
       '@media (prefers-color-scheme:dark){' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
@@ -326,6 +329,79 @@
       }
     }
   }
+  /* ================= 市场模型列表自选渠道高亮联动 ================= */
+
+  function updateMarketHighlights() {
+    if (location.hash.indexOf('#/market') !== 0) return;
+
+    // 1) 检查是否需要抑制高亮（当且仅当切换为“渠道”维度搜索且搜索框非空）
+    var isChannelSearch = false;
+    var searchInput = document.querySelector('input.ui-search-field');
+    var query = searchInput ? (searchInput.value || '').trim() : '';
+
+    if (query) {
+      var chips = document.querySelectorAll('button.ui-switch-tag');
+      for (var c = 0; c < chips.length; c++) {
+        var chip = chips[c];
+        var isCurrent = (chip.className || '').indexOf('active') >= 0 || (chip.className || '').indexOf('selected') >= 0;
+        if (isCurrent && (chip.textContent || '').trim() === '渠道') {
+          isChannelSearch = true;
+          break;
+        }
+      }
+    }
+
+    if (isChannelSearch) {
+      var prevHighlights = document.querySelectorAll('.a6-market-highlight');
+      for (var p = 0; p < prevHighlights.length; p++) {
+        prevHighlights[p].classList.remove('a6-market-highlight');
+      }
+      return;
+    }
+
+    // 2) 收集所有快捷渠道 ID（自有 + 自定义）
+    var targetIds = new Set();
+    var owned = storageGet(STORAGE_KEY_OWNED, {});
+    for (var oid in owned) {
+      if (owned.hasOwnProperty(oid)) targetIds.add(String(oid).trim());
+    }
+    var custom = storageGet(STORAGE_KEY_CUSTOM, []);
+    for (var ci = 0; ci < custom.length; ci++) {
+      if (custom[ci] && custom[ci].id) targetIds.add(String(custom[ci].id).trim());
+    }
+
+    if (targetIds.size === 0) {
+      var noIdsHighlights = document.querySelectorAll('.a6-market-highlight');
+      for (var nh = 0; nh < noIdsHighlights.length; nh++) {
+        noIdsHighlights[nh].classList.remove('a6-market-highlight');
+      }
+      return;
+    }
+
+    // 3) 扫描市场中所有行及展开项（支持 tbody tr, .market-row, [role="row"], .ant-table-row 等）
+    var rows = document.querySelectorAll('tbody tr, .market-row, [role="row"], .ant-table-row, [class*="table-row"]');
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r];
+      // 提取“渠道 #ID”中的数字
+      var text = row.textContent || '';
+      var m = text.match(/(?:渠道\s*#?|#)\s*(\d+)/);
+      var rowCid = m ? m[1] : '';
+
+      if (!rowCid && row.getAttribute) {
+        rowCid = row.getAttribute('data-cid') || row.getAttribute('data-channel-id') || '';
+      }
+
+      if (rowCid && targetIds.has(rowCid)) {
+        if (!row.classList.contains('a6-market-highlight')) {
+          row.classList.add('a6-market-highlight');
+        }
+      } else {
+        if (row.classList.contains('a6-market-highlight')) {
+          row.classList.remove('a6-market-highlight');
+        }
+      }
+    }
+  }
 
   function performMarketSearch(cid) {
     if (!cid) return;
@@ -361,6 +437,7 @@
         setReactInputValue(input, cid);
         setTimeout(function () {
           pressEnter(input);
+          setTimeout(updateMarketHighlights, 350);
         }, 300);
       }, 250);
     }, 300);
@@ -375,6 +452,7 @@
       setReactInputValue(input, '');
       setTimeout(function () {
         pressEnter(input);
+        setTimeout(updateMarketHighlights, 150);
       }, 100);
     }
   }
@@ -405,6 +483,7 @@
           }
         }
       }
+      setTimeout(updateMarketHighlights, 200);
     }, 150);
   }
   // 地址栏初始化渠道搜索（?cid=xxxx#/market）
@@ -1088,6 +1167,7 @@
         if (!document.getElementById('a6-drawer-panel')) {
           renderMarketDrawer();
         }
+        updateMarketHighlights();
       }
     }, 250);
   }
@@ -1119,5 +1199,20 @@
     }
     schedule();
   });
+
+  document.addEventListener('input', function (ev) {
+    if (location.hash.indexOf('#/market') !== 0) return;
+    if (ev.target && ev.target.classList && ev.target.classList.contains('ui-search-field')) {
+      updateMarketHighlights();
+    }
+  }, true);
+
+  document.addEventListener('click', function (ev) {
+    if (location.hash.indexOf('#/market') !== 0) return;
+    var tag = ev.target && ev.target.closest ? ev.target.closest('button.ui-switch-tag') : null;
+    if (tag) {
+      setTimeout(updateMarketHighlights, 50);
+    }
+  }, true);
   schedule();
 })();
