@@ -35,3 +35,11 @@ _Avoid_: 清空选择, 搜索复位
 **重置市场 (Reset Market)**:
 An action that fully restores the market page to its pristine default state, selecting all brands, all models, default recommendation sort, and an empty search query.
 _Avoid_: 全部重置, 恢复出厂
+
+**渠道备注 (Channel Remark)**:
+A user-defined text note attached to any channel (owned or custom), persisted independently by channel ID.
+_Avoid_: 渠道说明, 渠道别名, 标签
+
+**渠道反选 (Channel Deselection)**:
+An interaction pattern where clicking an already-active channel card clears the search input and dispatches a search event without reloading the page.
+_Avoid_: 重复点击, 取消选择

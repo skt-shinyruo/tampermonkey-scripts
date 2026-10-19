@@ -522,6 +522,14 @@ test('a6api market page initializes quick channel drawer with owned and custom c
   assert.equal(tagClicked, true, 'Clicking channel card should click 渠道 switch tag');
   assert.equal(searchInput.value, '101', 'Clicking channel card should set search field to channel ID');
   assert.equal(card101.classList.contains('active'), true, 'Selected card should have active class');
+  // Test toggle deselect: click card101 again to unselect
+  card101.click();
+  assert.equal(card101.classList.contains('active'), false, 'Card should be deselected on second click');
+  assert.equal(searchInput.value, '', 'Search input should be cleared on deselect');
+
+  // Re-select card101
+  card101.click();
+  assert.equal(card101.classList.contains('active'), true);
 
   // Test delete custom card 202
   const delBtn = card202.querySelector('.a6-card-del');
@@ -536,11 +544,20 @@ test('a6api market page initializes quick channel drawer with owned and custom c
   const addBox = panel.querySelector('.a6-add-box');
   assert.ok(addBox, 'Add form box should exist');
   const inputs = addBox.querySelectorAll('input');
-  assert.equal(inputs.length, 3, 'Add box should have 3 inputs (ID, Name, Desc)');
+  assert.equal(inputs.length, 4, 'Add box should have 4 inputs (ID, Name, Desc, Remark)');
+
+  // Test auto-fetch info using ID 101 from owned channels
+  inputs[0].value = '101';
+  const fetchBtn = addBox.querySelector('.a6-btn-fetch');
+  assert.ok(fetchBtn, 'Fetch button should exist in add form');
+  fetchBtn.click();
+  assert.equal(inputs[1].value, '能能CC-2', 'Fetch should auto-fill name');
+  assert.equal(inputs[2].value, 'CC Kiro 保智商 保缓存', 'Fetch should auto-fill desc');
 
   inputs[0].value = '303';
   inputs[1].value = '极速303';
   inputs[2].value = '全并发保活性';
+  inputs[3].value = '生产主力';
 
   const saveBtn = addBox.querySelector('.a6-btn-primary');
   saveBtn.click();
@@ -550,8 +567,8 @@ test('a6api market page initializes quick channel drawer with owned and custom c
   assert.equal(customAfterAdd[0].id, '303');
   assert.equal(customAfterAdd[0].name, '极速303');
   assert.equal(customAfterAdd[0].desc, '全并发保活性');
-
-  // Test toggle side to left
+  const remarksAfterAdd = JSON.parse(env.gmStore.get('a6_channel_remarks'));
+  assert.equal(remarksAfterAdd['303'], '生产主力');
   const sideBtn = panel.querySelector('.a6-drawer-tool-btn');
   assert.ok(sideBtn);
   assert.match(sideBtn.textContent, /靠左/);
@@ -665,4 +682,60 @@ test('a6api market drawer toolbar provides clear search and reset marketplace bu
   assert.equal(allBrandsClicked, true, 'All brands tag should be clicked');
   assert.equal(allModelsClicked, true, 'All models tag should be clicked');
   assert.equal(defaultSortClicked, true, 'Default sort tag should be clicked');
+});
+
+test('a6api market drawer channel remarks support inline edit, persistence, and deletion', () => {
+  const initialStorage = {
+    a6_owned_channels: JSON.stringify({
+      '101': { id: '101', name: '能能CC-2', desc: 'CC Kiro 保智商 保缓存' },
+    }),
+    a6_channel_remarks: JSON.stringify({
+      '101': '初始备注测试',
+    }),
+  };
+  const env = createEnvironment('#/market', initialStorage);
+  env.runScript();
+
+  const card = env.document.querySelector('.a6-card');
+  assert.ok(card);
+  const remarkBadge = card.querySelector('.a6-card-remark');
+  assert.ok(remarkBadge, 'Remark badge should be rendered on card');
+  assert.match(remarkBadge.textContent, /初始备注测试/);
+
+  // Click edit button
+  const editBtn = card.querySelector('.a6-card-edit-btn');
+  assert.ok(editBtn, 'Edit button should exist');
+  editBtn.click();
+
+  const editBox = card.querySelector('.a6-card-editbox');
+  assert.ok(editBox, 'Inline edit box should exist');
+  assert.notEqual(editBox.style.display, 'none');
+
+  const editInput = editBox.querySelector('input');
+  assert.equal(editInput.value, '初始备注测试');
+
+  // Change remark to new value
+  editInput.value = '更新后的生产主力';
+  const saveBtn = editBox.querySelector('.a6-btn-primary');
+  saveBtn.click();
+
+  // Storage updated
+  const updatedRemarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
+  assert.equal(updatedRemarks['101'], '更新后的生产主力');
+
+  // Re-check card in refreshed drawer
+  const newCard = env.document.querySelector('.a6-card');
+  const newBadge = newCard.querySelector('.a6-card-remark');
+  assert.match(newBadge.textContent, /更新后的生产主力/);
+
+  // Now clear remark
+  const newEditBtn = newCard.querySelector('.a6-card-edit-btn');
+  newEditBtn.click();
+  const newEditBox = newCard.querySelector('.a6-card-editbox');
+  const newEditInput = newEditBox.querySelector('input');
+  newEditInput.value = '';
+  newEditBox.querySelector('.a6-btn-primary').click();
+
+  const clearedRemarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
+  assert.equal(clearedRemarks['101'], undefined, 'Cleared remark should be removed from storage');
 });

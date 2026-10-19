@@ -19,6 +19,7 @@
   var MARKET_BASE = 'https://a6api.com/';
   var STORAGE_KEY_OWNED = 'a6_owned_channels';
   var STORAGE_KEY_CUSTOM = 'a6_custom_channels';
+  var STORAGE_KEY_REMARKS = 'a6_channel_remarks';
   var STORAGE_KEY_DRAWER_OPEN = 'a6_drawer_open';
   var STORAGE_KEY_DRAWER_SIDE = 'a6_drawer_side';
   /* ================= 通用本地存储 (GM API 优先，localStorage 兜底) ================= */
@@ -67,6 +68,76 @@
         localStorage.setItem(key, payload);
       }
     } catch (e) {}
+  }
+
+  function getChannelRemark(id) {
+    if (!id) return '';
+    var remarks = storageGet(STORAGE_KEY_REMARKS, {});
+    return remarks[String(id)] || '';
+  }
+
+  function setChannelRemark(id, remark) {
+    if (!id) return;
+    var remarks = storageGet(STORAGE_KEY_REMARKS, {});
+    if (remark && remark.trim()) {
+      remarks[String(id)] = remark.trim();
+    } else {
+      delete remarks[String(id)];
+    }
+    storageSet(STORAGE_KEY_REMARKS, remarks);
+  }
+
+  function fetchChannelInfo(cid, cb) {
+    if (!cid) return cb(null);
+    var targetId = String(cid).trim();
+    // 1) 优先从已同步的商户自有渠道缓存匹配
+    var owned = storageGet(STORAGE_KEY_OWNED, {});
+    if (owned[targetId]) {
+      var item = owned[targetId];
+      return cb({
+        name: item.name || '',
+        desc: item.desc || '',
+        remark: getChannelRemark(targetId),
+      });
+    }
+
+    // 2) 检查已有的自定义渠道与备注
+    var custom = storageGet(STORAGE_KEY_CUSTOM, []);
+    for (var i = 0; i < custom.length; i++) {
+      if (String(custom[i].id) === targetId) {
+        return cb({
+          name: custom[i].name || '',
+          desc: custom[i].desc || '',
+          remark: getChannelRemark(targetId),
+        });
+      }
+    }
+
+    // 3) 若在市场页，尝试从已渲染的市场卡片 DOM 中检索
+    var allCards = document.querySelectorAll('.ui-card, .market-card, [class*="card"]');
+    for (var k = 0; k < allCards.length; k++) {
+      var card = allCards[k];
+      var txt = card.textContent || '';
+      if (txt.indexOf(targetId) !== -1) {
+        var nameEl = card.querySelector('.name, .title, [class*="name"], [class*="title"], h3, h4');
+        var descEl = card.querySelector('.desc, [class*="desc"]');
+        var foundName = nameEl ? (nameEl.textContent || '').trim() : '';
+        var foundDesc = descEl ? (descEl.textContent || '').trim() : '';
+        if (foundName || foundDesc) {
+          return cb({
+            name: foundName,
+            desc: foundDesc,
+            remark: getChannelRemark(targetId),
+          });
+        }
+      }
+    }
+
+    return cb({
+      name: '',
+      desc: '',
+      remark: getChannelRemark(targetId),
+    });
   }
 
   /* ========== 样式定义（包含渠道管理按钮与市场页快捷渠道抽屉） ========== */
@@ -145,9 +216,14 @@
       '.a6-card-id{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;background:#f1f5f9;color:#64748b;padding:2px 6px;border-radius:4px;}' +
       '.a6-card-del{background:none;border:none;color:#94a3b8;font-size:13px;line-height:1;padding:2px 4px;cursor:pointer;border-radius:3px;}' +
       '.a6-card-del:hover{color:#ef4444;background:#fee2e2;}' +
+      '.a6-card-btn-icon{background:none;border:none;color:#94a3b8;font-size:12px;line-height:1;padding:2px 3px;cursor:pointer;border-radius:3px;}' +
+      '.a6-card-btn-icon:hover{color:#1677ff;background:rgba(22,119,255,.1);}' +
       '.a6-card-desc{font-size:12px;color:#64748b;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.a6-card-remark{font-size:11px;color:#0284c7;background:#f0f9ff;border:1px solid #bae6fd;border-radius:4px;padding:2px 6px;margin-top:5px;box-sizing:border-box;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}' +
+      '.a6-card-editbox{margin-top:6px;display:flex;flex-direction:column;gap:6px;padding:6px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:5px;}' +
       '.a6-empty-tip{padding:12px;text-align:center;font-size:12px;color:#94a3b8;background:#f8fafc;border:1px dashed #e2e8f0;border-radius:6px;line-height:1.6;}' +
-
+      '.a6-id-row{display:flex;gap:6px;align-items:center;}' +
+      '.a6-input-sm{height:24px;font-size:11px;padding:2px 6px;}' +
       /* 添加表单 */
       '.a6-add-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;gap:8px;}' +
       '.a6-input{box-sizing:border-box;width:100%;height:28px;padding:4px 8px;font-size:12px;border:1px solid #d1d5db;border-radius:4px;outline:none;background:#fff;color:#1f2937;}' +
@@ -175,6 +251,8 @@
       ':root:not(.light):not([data-theme="light"]) .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-name{color:#f4f4f5;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-desc{color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-remark{background:#082f49;color:#7dd3fc;border-color:#0369a1;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-editbox{background:#18181b;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
@@ -198,6 +276,8 @@
       '.dark .a6-card.active,[data-theme="dark"] .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
       '.dark .a6-card-name,[data-theme="dark"] .a6-card-name{color:#f4f4f5;}' +
       '.dark .a6-card-desc,[data-theme="dark"] .a6-card-desc{color:#a1a1aa;}' +
+      '.dark .a6-card-remark,[data-theme="dark"] .a6-card-remark{background:#082f49;color:#7dd3fc;border-color:#0369a1;}' +
+      '.dark .a6-card-editbox,[data-theme="dark"] .a6-card-editbox{background:#18181b;border-color:#3f3f46;}' +
       '.dark .a6-card-id,[data-theme="dark"] .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-input,[data-theme="dark"] .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
       '.dark .a6-add-box,[data-theme="dark"] .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
@@ -718,9 +798,36 @@
     addBox.className = 'a6-add-box';
     addBox.style.display = 'none';
 
+    var idRow = document.createElement('div');
+    idRow.className = 'a6-id-row';
+
     var idInput = document.createElement('input');
     idInput.className = 'a6-input';
+    idInput.style.flex = '1';
     idInput.placeholder = '渠道 ID * (如 101)';
+
+    var fetchBtn = document.createElement('button');
+    fetchBtn.type = 'button';
+    fetchBtn.className = 'a6-btn-sm a6-btn-default a6-btn-fetch';
+    fetchBtn.title = '从已同步渠道或市场检索并自动回填名称与说明';
+    fetchBtn.textContent = '🔍 获取';
+    fetchBtn.addEventListener('click', function () {
+      var cid = idInput.value.trim();
+      if (!cid) {
+        idInput.focus();
+        return;
+      }
+      fetchChannelInfo(cid, function (info) {
+        if (info) {
+          if (info.name) nameInput.value = info.name;
+          if (info.desc) descInput.value = info.desc;
+          if (info.remark && !remarkInput.value) remarkInput.value = info.remark;
+        }
+      });
+    });
+
+    idRow.appendChild(idInput);
+    idRow.appendChild(fetchBtn);
 
     var nameInput = document.createElement('input');
     nameInput.className = 'a6-input';
@@ -729,6 +836,10 @@
     var descInput = document.createElement('input');
     descInput.className = 'a6-input';
     descInput.placeholder = '渠道说明 (选填，如 CC Kiro 保智商)';
+
+    var remarkInput = document.createElement('input');
+    remarkInput.className = 'a6-input';
+    remarkInput.placeholder = '渠道备注 (选填，如 生产主力/低延迟)';
 
     var actRow = document.createElement('div');
     actRow.className = 'a6-form-actions';
@@ -742,6 +853,7 @@
       idInput.value = '';
       nameInput.value = '';
       descInput.value = '';
+      remarkInput.value = '';
     });
 
     var saveBtn = document.createElement('button');
@@ -752,6 +864,7 @@
       var cid = idInput.value.trim();
       var cname = nameInput.value.trim();
       var cdesc = descInput.value.trim();
+      var cremark = remarkInput.value.trim();
       if (!cid) {
         idInput.focus();
         return;
@@ -771,15 +884,19 @@
         customList.push({ id: cid, name: cname, desc: cdesc });
       }
       storageSet(STORAGE_KEY_CUSTOM, customList);
+      if (cremark) {
+        setChannelRemark(cid, cremark);
+      }
       renderMarketDrawer(true);
     });
 
     actRow.appendChild(cancelBtn);
     actRow.appendChild(saveBtn);
 
-    addBox.appendChild(idInput);
+    addBox.appendChild(idRow);
     addBox.appendChild(nameInput);
     addBox.appendChild(descInput);
+    addBox.appendChild(remarkInput);
     addBox.appendChild(actRow);
     secCustom.appendChild(addBox);
 
@@ -841,6 +958,22 @@
       idBadge.className = 'a6-card-id';
       idBadge.textContent = '#' + ch.id;
       badges.appendChild(idBadge);
+      var editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.className = 'a6-card-btn-icon a6-card-edit-btn';
+      editBtn.title = '编辑备注';
+      editBtn.textContent = '✏️';
+      editBtn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        var open = editBox.style.display !== 'none';
+        editBox.style.display = open ? 'none' : 'flex';
+        if (!open) {
+          editInput.value = getChannelRemark(ch.id);
+          setTimeout(function () { editInput.focus(); }, 50);
+        }
+      });
+      badges.appendChild(editBtn);
 
       if (isCustom && onDelete) {
         var delBtn = document.createElement('button');
@@ -868,8 +1001,70 @@
         card.appendChild(descEl);
       }
 
+      var remark = getChannelRemark(ch.id);
+      if (remark) {
+        var remarkEl = document.createElement('div');
+        remarkEl.className = 'a6-card-remark';
+        remarkEl.textContent = '📝 ' + remark;
+        remarkEl.title = '备注：' + remark;
+        card.appendChild(remarkEl);
+      }
+
+      // 就地编辑备注输入框
+      var editBox = document.createElement('div');
+      editBox.className = 'a6-card-editbox';
+      editBox.style.display = 'none';
+
+      var editInput = document.createElement('input');
+      editInput.className = 'a6-input a6-input-sm';
+      editInput.placeholder = '输入备注（留空保存即删除）';
+      editInput.value = remark || '';
+
+      var editAct = document.createElement('div');
+      editAct.className = 'a6-form-actions';
+
+      var editCancel = document.createElement('button');
+      editCancel.type = 'button';
+      editCancel.className = 'a6-btn-sm a6-btn-default';
+      editCancel.textContent = '取消';
+      editCancel.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        editBox.style.display = 'none';
+      });
+
+      var editSave = document.createElement('button');
+      editSave.type = 'button';
+      editSave.className = 'a6-btn-sm a6-btn-primary';
+      editSave.textContent = '保存';
+      editSave.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        setChannelRemark(ch.id, editInput.value.trim());
+        renderMarketDrawer(true);
+      });
+
+      editInput.addEventListener('click', function (ev) { ev.stopPropagation(); });
+      editInput.addEventListener('keydown', function (ev) {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') {
+          setChannelRemark(ch.id, editInput.value.trim());
+          renderMarketDrawer(true);
+        } else if (ev.key === 'Escape') {
+          editBox.style.display = 'none';
+        }
+      });
+
+      editAct.appendChild(editCancel);
+      editAct.appendChild(editSave);
+      editBox.appendChild(editInput);
+      editBox.appendChild(editAct);
+      card.appendChild(editBox);
+
       card.addEventListener('click', function () {
-        performMarketSearch(ch.id);
+        if (activeChannelId === String(ch.id)) {
+          clearMarketSearch();
+        } else {
+          performMarketSearch(ch.id);
+        }
       });
 
       return card;
