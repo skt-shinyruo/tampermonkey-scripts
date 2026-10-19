@@ -22,6 +22,7 @@
   var STORAGE_KEY_REMARKS = 'a6_channel_remarks';
   var STORAGE_KEY_DRAWER_OPEN = 'a6_drawer_open';
   var STORAGE_KEY_DRAWER_SIDE = 'a6_drawer_side';
+  var STORAGE_KEY_MARKET_WIDTH = 'a6_market_width';
   /* ================= 通用本地存储 (GM API 优先，localStorage 兜底) ================= */
 
   function storageGet(key, fallback) {
@@ -139,6 +140,55 @@
       remark: getChannelRemark(targetId),
     });
   }
+  /* ================= 市场主容器宽度缩放机制 ================= */
+
+  function applyMarketWidth(widthVal) {
+    var isMarket = location.hash.indexOf('#/market') === 0;
+    var styleEl = document.getElementById('a6-width-style');
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'a6-width-style';
+      (document.head || document.documentElement).appendChild(styleEl);
+    }
+
+    if (!isMarket || !widthVal || widthVal === 'default') {
+      styleEl.textContent = '';
+      var prevs = document.querySelectorAll('.a6-market-container-override');
+      for (var o = 0; o < prevs.length; o++) {
+        prevs[o].classList.remove('a6-market-container-override');
+      }
+      return;
+    }
+
+    var effectiveWidth = '';
+    if (widthVal === 'full') {
+      effectiveWidth = '100%';
+    } else {
+      var num = parseFloat(widthVal);
+      if (!isNaN(num) && num > 0) {
+        var px = Math.round(1200 * num);
+        effectiveWidth = 'min(' + px + 'px, calc(100vw - 32px))';
+      } else {
+        effectiveWidth = widthVal;
+      }
+    }
+
+    styleEl.textContent =
+      ':root{--a6-market-width:' + effectiveWidth + ';}' +
+      '.a6-market-container-override, [class*="max-w-"], .container, [class*="container"]{max-width:var(--a6-market-width) !important;width:var(--a6-market-width) !important;margin-left:auto !important;margin-right:auto !important;}' +
+      'table, .ant-table, [class*="table"]{width:100% !important;}';
+
+    var table = document.querySelector('table, .ant-table, tbody, [role="table"]');
+    if (table) {
+      var curr = table.parentElement || table.parentNode;
+      while (curr && curr !== document.body && curr !== document.documentElement) {
+        if (curr.classList) {
+          curr.classList.add('a6-market-container-override');
+        }
+        curr = curr.parentElement || curr.parentNode;
+      }
+    }
+  }
 
   /* ========== 样式定义（包含渠道管理按钮与市场页快捷渠道抽屉） ========== */
   (function () {
@@ -193,6 +243,17 @@
       '.a6-toolbar-btn{flex:1;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#374151;background:#ffffff;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;white-space:nowrap;user-select:none;transition:all .15s ease;}' +
       '.a6-toolbar-btn:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.08);}' +
       '.a6-toolbar-btn:active{transform:translateY(1px);}' +
+      /* 抽屉页面宽度调节栏 */
+      '.a6-drawer-widthbar{flex-shrink:0;padding:8px 14px 10px;background:#fafafa;border-bottom:1px solid #f0f0f0;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;}' +
+      '.a6-width-top{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;color:#6b7280;}' +
+      '.a6-width-val{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;background:#e5e7eb;color:#374151;padding:1px 6px;border-radius:4px;font-weight:600;}' +
+      '.a6-width-presets{display:flex;gap:6px;}' +
+      '.a6-width-pill{flex:1;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#4b5563;background:#ffffff;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;user-select:none;transition:all .15s ease;}' +
+      '.a6-width-pill:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.05);}' +
+      '.a6-width-pill.active{color:#ffffff;background:#1677ff;border-color:#1677ff;font-weight:600;}' +
+      '.a6-width-slider{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:#e5e7eb;border-radius:2px;outline:none;cursor:pointer;margin:4px 0 2px;}' +
+      '.a6-width-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;border-radius:50%;background:#1677ff;border:2px solid #ffffff;box-shadow:0 1px 3px rgba(0,0,0,.2);cursor:pointer;transition:transform .1s ease;}' +
+      '.a6-width-slider::-webkit-slider-thumb:hover{transform:scale(1.2);}' +
       /* 抽屉内容区（填满 80vh 剩余高度 + 独立平滑滚动条） */
       '.a6-drawer-content{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:10px 14px;}' +
       '.a6-drawer-content::-webkit-scrollbar{width:5px;}' +
@@ -249,6 +310,13 @@
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-top{color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-val{background:#3f3f46;color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-pill{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-pill:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-pill.active{background:#1677ff;border-color:#1677ff;color:#ffffff;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-slider{background:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card:hover{background:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
@@ -274,6 +342,13 @@
       '.dark .a6-drawer-toolbar,[data-theme="dark"] .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-toolbar-btn,[data-theme="dark"] .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-toolbar-btn:hover,[data-theme="dark"] .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      '.dark .a6-drawer-widthbar,[data-theme="dark"] .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-width-top,[data-theme="dark"] .a6-width-top{color:#a1a1aa;}' +
+      '.dark .a6-width-val,[data-theme="dark"] .a6-width-val{background:#3f3f46;color:#f4f4f5;}' +
+      '.dark .a6-width-pill,[data-theme="dark"] .a6-width-pill{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
+      '.dark .a6-width-pill:hover,[data-theme="dark"] .a6-width-pill:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      '.dark .a6-width-pill.active,[data-theme="dark"] .a6-width-pill.active{background:#1677ff;border-color:#1677ff;color:#ffffff;}' +
+      '.dark .a6-width-slider,[data-theme="dark"] .a6-width-slider{background:#3f3f46;}' +
       '.dark .a6-card,[data-theme="dark"] .a6-card{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-card:hover,[data-theme="dark"] .a6-card:hover{background:#3f3f46;}' +
       '.dark .a6-card.active,[data-theme="dark"] .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
@@ -818,6 +893,94 @@
     toolbar.appendChild(resetBtn);
     panel.appendChild(toolbar);
 
+    // 页面宽度调节栏
+    var widthBar = document.createElement('div');
+    widthBar.className = 'a6-drawer-widthbar';
+
+    var widthTop = document.createElement('div');
+    widthTop.className = 'a6-width-top';
+
+    var widthLabel = document.createElement('span');
+    widthLabel.className = 'a6-width-label';
+    widthLabel.textContent = '页面宽度';
+
+    var currentWidth = storageGet(STORAGE_KEY_MARKET_WIDTH, 'default');
+    var widthValDisplay = document.createElement('span');
+    widthValDisplay.className = 'a6-width-val';
+    function updateWidthDisplay(val) {
+      if (val === 'default') widthValDisplay.textContent = '原版';
+      else if (val === 'full') widthValDisplay.textContent = '100% 满宽';
+      else widthValDisplay.textContent = val;
+    }
+    updateWidthDisplay(currentWidth);
+
+    widthTop.appendChild(widthLabel);
+    widthTop.appendChild(widthValDisplay);
+
+    var presetsWrap = document.createElement('div');
+    presetsWrap.className = 'a6-width-presets';
+
+    var presets = [
+      { id: 'default', label: '原版' },
+      { id: '1.2x', label: '1.2x' },
+      { id: '1.35x', label: '1.35x' },
+      { id: 'full', label: '满宽' },
+    ];
+
+    var slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '100';
+    slider.max = '160';
+    slider.step = '5';
+    slider.className = 'a6-width-slider';
+    slider.title = '拖拽平滑调节宽度比例';
+
+    function syncSlider(val) {
+      if (val === 'default') slider.value = '100';
+      else if (val === 'full') slider.value = '160';
+      else {
+        var n = parseFloat(val);
+        slider.value = isNaN(n) ? '100' : String(Math.round(n * 100));
+      }
+    }
+    syncSlider(currentWidth);
+
+    var pillBtns = [];
+    presets.forEach(function (p) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'a6-width-pill' + (currentWidth === p.id ? ' active' : '');
+      btn.textContent = p.label;
+      btn.addEventListener('click', function () {
+        currentWidth = p.id;
+        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+        applyMarketWidth(currentWidth);
+        updateWidthDisplay(currentWidth);
+        syncSlider(currentWidth);
+        pillBtns.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      });
+      pillBtns.push(btn);
+      presetsWrap.appendChild(btn);
+    });
+
+    slider.addEventListener('input', function () {
+      var num = parseInt(slider.value, 10);
+      var newVal = (num === 100) ? 'default' : ((num === 160) ? 'full' : (num / 100).toFixed(2).replace(/\.?0+$/, '') + 'x');
+      currentWidth = newVal;
+      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+      applyMarketWidth(currentWidth);
+      updateWidthDisplay(currentWidth);
+      pillBtns.forEach(function (b, idx) {
+        if (presets[idx].id === newVal) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+    });
+
+    widthBar.appendChild(widthTop);
+    widthBar.appendChild(presetsWrap);
+    widthBar.appendChild(slider);
+    panel.appendChild(widthBar);
     // 内容区
     var content = document.createElement('div');
     content.className = 'a6-drawer-content';
@@ -1166,6 +1329,7 @@
           renderMarketDrawer();
         }
         updateMarketHighlights();
+        applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
       }
     }, 250);
   }
@@ -1190,8 +1354,10 @@
 
   window.addEventListener('hashchange', function () {
     if (location.hash.indexOf('#/market') === 0) {
+      applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
       renderMarketDrawer(true);
     } else {
+      applyMarketWidth('default');
       var c = document.getElementById('a6-drawer-container');
       if (c) c.style.display = 'none';
     }
@@ -1212,5 +1378,6 @@
       setTimeout(updateMarketHighlights, 50);
     }
   }, true);
+  applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
   schedule();
 })();

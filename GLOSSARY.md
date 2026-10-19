@@ -47,3 +47,15 @@ _Avoid_: 重复点击, 取消选择
 **自选渠道高亮 (Quick Channel Highlighting)**:
 Visual emphasis applied to market rows whose channel matches an owned or custom channel when browsing or searching by model/description, suppressed when searching a specific channel.
 _Avoid_: 列表发光, 收藏标记
+
+**市场内容宽度 (Market Content Width)**:
+A configurable layout width setting that overrides the maximum width limit of the market container, expanding the table and filters to avoid horizontal truncation.
+_Avoid_: 屏幕拉伸, 界面缩放
+
+**市场页模型列表 (Market Model List)**:
+The paginated table of model supply rows on the market page (`#/market`), browsable by brand, model, and category.
+_Avoid_: 模型类别页, 模型详情页, 模型列表
+
+**自动加载更多 (Auto Load More)**:
+A configurable automation setting that observes the pagination button and triggers next-page loading via viewport intersection as the user scrolls.
+_Avoid_: 无限滚动, 自动翻页, 连点展开

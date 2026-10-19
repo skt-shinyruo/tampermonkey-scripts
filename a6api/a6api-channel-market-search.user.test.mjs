@@ -838,3 +838,47 @@ test('a6api market page highlights rows matching quick channels by ID and suppre
   assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
   assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
 });
+
+test('a6api market page width scaling provides presets, slider, persistence, and dynamic CSS injection', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+
+  const widthBar = env.document.querySelector('.a6-drawer-widthbar');
+  assert.ok(widthBar, 'Width bar should be rendered in drawer');
+
+  const valDisplay = widthBar.querySelector('.a6-width-val');
+  assert.ok(valDisplay);
+  assert.equal(valDisplay.textContent, '原版');
+
+  const pills = widthBar.querySelectorAll('.a6-width-pill');
+  assert.equal(pills.length, 4, 'Should have 4 preset pills: 原版, 1.2x, 1.35x, 满宽');
+
+  const pill135 = pills.find((p) => p.textContent === '1.35x');
+  assert.ok(pill135);
+  pill135.click();
+
+  // Storage should be updated
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), '1.35x');
+  assert.equal(valDisplay.textContent, '1.35x');
+  assert.equal(pill135.classList.contains('active'), true);
+
+  // Style element should have width rule
+  const styleEl = env.document.getElementById('a6-width-style');
+  assert.ok(styleEl, 'Width style element should be injected');
+  assert.match(styleEl.textContent, /--a6-market-width:min\(1620px, calc\(100vw - 32px\)\)/);
+
+  // Test click '满宽'
+  const pillFull = pills.find((p) => p.textContent === '满宽');
+  assert.ok(pillFull);
+  pillFull.click();
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), 'full');
+  assert.equal(valDisplay.textContent, '100% 满宽');
+  assert.match(styleEl.textContent, /--a6-market-width:100%/);
+
+  // Test click '原版' to reset
+  const pillDefault = pills.find((p) => p.textContent === '原版');
+  pillDefault.click();
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), 'default');
+  assert.equal(valDisplay.textContent, '原版');
+  assert.equal(styleEl.textContent, '');
+});
