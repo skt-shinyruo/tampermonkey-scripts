@@ -121,6 +121,21 @@ class MockElement {
     if (k === 'id') return this.id || null;
     return this.attributes[k] !== undefined ? this.attributes[k] : null;
   }
+  get parentElement() {
+    return this.parentNode;
+  }
+  get nextElementSibling() {
+    if (!this.parentNode) return null;
+    const siblings = this.parentNode.children;
+    const idx = siblings.indexOf(this);
+    return idx >= 0 && idx + 1 < siblings.length ? siblings[idx + 1] : null;
+  }
+  get previousElementSibling() {
+    if (!this.parentNode) return null;
+    const siblings = this.parentNode.children;
+    const idx = siblings.indexOf(this);
+    return idx > 0 ? siblings[idx - 1] : null;
+  }
   appendChild(child) {
     child.parentNode = this;
     this.children.push(child);
@@ -278,6 +293,8 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
   const gmStore = new Map(Object.entries(initialStorage));
   const observers = [];
   const hashListeners = [];
+  const intersectionObservers = [];
+  const menuCommands = new Map();
 
   const location = {
     hash: initialHash,
@@ -337,6 +354,29 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     GM_openInTab: () => {},
     GM_getValue: (k) => gmStore.get(k),
     GM_setValue: (k, v) => gmStore.set(k, v),
+    IntersectionObserver: class {
+      constructor(callback, options) {
+        this.callback = callback;
+        this.options = options;
+        this.observed = [];
+        intersectionObservers.push(this);
+      }
+      observe(target) {
+        this.observed.push(target);
+      }
+      unobserve(target) {
+        this.observed = this.observed.filter((t) => t !== target);
+      }
+      disconnect() {
+        this.observed = [];
+      }
+      triggerIntersect(target, isIntersecting = true) {
+        this.callback([{ target, isIntersecting }]);
+      }
+    },
+    GM_registerMenuCommand: (name, fn) => {
+      menuCommands.set(name, fn);
+    },
     console,
   });
 
@@ -345,6 +385,8 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     body,
     location,
     gmStore,
+    intersectionObservers,
+    menuCommands,
     triggerMutation: () => observers.forEach((cb) => cb()),
     triggerHashChange: (newHash) => {
       location.hash = newHash;
@@ -796,17 +838,27 @@ test('a6api market page highlights rows matching quick channels by ID and suppre
   row2.textContent = 'deepseek-v4-pro 渠道 #5973 ★★★★★ 5.0';
   tbody.appendChild(row2);
 
-  // Row 3: matches custom channel 6007
+  // Row 2 expanded child: detail pane without channel ID, contains vendor #1268
+  const row2Expanded = new MockElement('tr');
+  row2Expanded.className = 'ant-table-expanded-row';
+  row2Expanded.textContent = '渠道说明 保真 不降智 供应商 #1268 能能AI 详情 计费模式 按量';
+  tbody.appendChild(row2Expanded);
+
+  // Row 3: matches custom channel 6007 (unexpanded)
   const row3 = new MockElement('tr');
   row3.textContent = 'claude-3-5-sonnet 渠道 #6007 ★★★★★ 5.0';
   tbody.appendChild(row3);
+  // Row 5: normal model row (not in quick channels)
+  const row5 = new MockElement('tr');
+  row5.textContent = 'gemini-2.5-flash 官方特惠 渠道 #9999';
+  tbody.appendChild(row5);
+
 
   // Row 4: expanded child row matching 5973
   const row4 = new MockElement('tr');
   row4.className = 'ant-table-expanded-row';
   row4.textContent = '子渠道供货 渠道 #5973';
   tbody.appendChild(row4);
-
   env.body.appendChild(tbody);
 
   env.runScript();
@@ -815,9 +867,12 @@ test('a6api market page highlights rows matching quick channels by ID and suppre
   // Row 2, Row 3, and Row 4 should be highlighted
   assert.equal(row1.classList.contains('a6-market-highlight'), false, 'Row 1 should not be highlighted');
   assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Row 2 (owned 5973) should be highlighted');
+  assert.equal(row2.classList.contains('a6-market-highlight-parent'), true, 'Row 2 should be marked as expanded parent');
+  assert.equal(row2Expanded.classList.contains('a6-market-highlight'), true, 'Row 2 expanded child should inherit highlight');
+  assert.equal(row2Expanded.classList.contains('a6-market-highlight-expanded'), true, 'Row 2 expanded child should have expanded class');
   assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Row 3 (custom 6007) should be highlighted');
+  assert.equal(row3.classList.contains('a6-market-highlight-parent'), false, 'Row 3 unexpanded should not have parent class');
   assert.equal(row4.classList.contains('a6-market-highlight'), true, 'Row 4 (expanded 5973) should be highlighted');
-
   // Search by model text: highlighting should STILL be active
   searchInput.value = 'deepseek';
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -829,14 +884,18 @@ test('a6api market page highlights rows matching quick channels by ID and suppre
   searchInput.value = '5973';
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-  assert.equal(row2.classList.contains('a6-market-highlight'), false, 'Highlighting should be suppressed in channel search');
-  assert.equal(row3.classList.contains('a6-market-highlight'), false, 'Highlighting should be suppressed in channel search');
-
+  assert.equal(row2.classList.contains('a6-market-highlight'), false, 'Row 2 highlight should be suppressed in channel search');
+  assert.equal(row2.classList.contains('a6-market-highlight-parent'), false, 'Row 2 parent class should be suppressed');
+  assert.equal(row2Expanded.classList.contains('a6-market-highlight'), false, 'Row 2 child highlight should be suppressed');
+  assert.equal(row2Expanded.classList.contains('a6-market-highlight-expanded'), false, 'Row 2 child expanded class should be suppressed');
+  assert.equal(row3.classList.contains('a6-market-highlight'), false, 'Row 3 highlight should be suppressed in channel search');
   // Clear channel search input: highlighting should restore
   searchInput.value = '';
   searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-  assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
-  assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Highlighting should restore when search query is cleared');
+  assert.equal(row2.classList.contains('a6-market-highlight'), true, 'Row 2 should restore highlight when query cleared');
+  assert.equal(row2.classList.contains('a6-market-highlight-parent'), true, 'Row 2 should restore parent class');
+  assert.equal(row2Expanded.classList.contains('a6-market-highlight-expanded'), true, 'Row 2 child should restore expanded class');
+  assert.equal(row3.classList.contains('a6-market-highlight'), true, 'Row 3 should restore highlight when query cleared');
 });
 
 test('a6api market page width scaling provides presets, slider, persistence, and dynamic CSS injection', () => {
@@ -851,21 +910,46 @@ test('a6api market page width scaling provides presets, slider, persistence, and
   assert.equal(valDisplay.textContent, '原版');
 
   const pills = widthBar.querySelectorAll('.a6-width-pill');
-  assert.equal(pills.length, 4, 'Should have 4 preset pills: 原版, 1.2x, 1.35x, 满宽');
+  assert.equal(pills.length, 4, 'Should have 4 preset pills: 原版, 1.35, 1.55, 满宽');
 
-  const pill135 = pills.find((p) => p.textContent === '1.35x');
+  const numInput = widthBar.querySelector('.a6-width-num-input');
+  assert.ok(numInput, 'Direct number input should exist');
+  assert.equal(numInput.value, '1.0');
+
+  // Test click '1.35'
+  const pill135 = pills.find((p) => p.textContent === '1.35');
   assert.ok(pill135);
   pill135.click();
 
-  // Storage should be updated
   assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), '1.35x');
   assert.equal(valDisplay.textContent, '1.35x');
+  assert.equal(numInput.value, '1.35');
   assert.equal(pill135.classList.contains('active'), true);
 
-  // Style element should have width rule
   const styleEl = env.document.getElementById('a6-width-style');
   assert.ok(styleEl, 'Width style element should be injected');
   assert.match(styleEl.textContent, /--a6-market-width:min\(1620px, calc\(100vw - 32px\)\)/);
+
+  // Test click '1.55'
+  const pill155 = pills.find((p) => p.textContent === '1.55');
+  assert.ok(pill155);
+  pill155.click();
+
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), '1.55x');
+  assert.equal(valDisplay.textContent, '1.55x');
+  assert.equal(numInput.value, '1.55');
+  assert.equal(pill155.classList.contains('active'), true);
+  assert.match(styleEl.textContent, /--a6-market-width:min\(1860px, calc\(100vw - 32px\)\)/);
+
+  // Test direct number input (e.g. 1.45)
+  numInput.value = '1.45';
+  numInput.dispatchEvent(new Event('input', { bubbles: true }));
+  numInput.dispatchEvent(new Event('change', { bubbles: true }));
+
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), '1.45x');
+  assert.equal(valDisplay.textContent, '1.45x');
+  assert.match(styleEl.textContent, /--a6-market-width:min\(1740px, calc\(100vw - 32px\)\)/);
+  assert.equal(pill155.classList.contains('active'), false);
 
   // Test click '满宽'
   const pillFull = pills.find((p) => p.textContent === '满宽');
@@ -873,6 +957,7 @@ test('a6api market page width scaling provides presets, slider, persistence, and
   pillFull.click();
   assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), 'full');
   assert.equal(valDisplay.textContent, '100% 满宽');
+  assert.equal(numInput.value, '');
   assert.match(styleEl.textContent, /--a6-market-width:100%/);
 
   // Test click '原版' to reset
@@ -880,5 +965,58 @@ test('a6api market page width scaling provides presets, slider, persistence, and
   pillDefault.click();
   assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), 'default');
   assert.equal(valDisplay.textContent, '原版');
+  assert.equal(numInput.value, '1.0');
   assert.equal(styleEl.textContent, '');
+});
+
+test('a6api market page supports auto load more setting, toolbar toggle, and intersection observer auto clicking', () => {
+  const env = createEnvironment('#/market', {});
+
+  const loadMoreBtn = new MockElement('button');
+  loadMoreBtn.textContent = '↓ 加载更多';
+  let clickedCount = 0;
+  loadMoreBtn.click = () => {
+    clickedCount++;
+  };
+  env.body.appendChild(loadMoreBtn);
+
+  env.runScript();
+
+  // 1. Initial state: auto load is off by default
+  const autoBtn = env.document.querySelector('.a6-btn-autoload');
+  assert.ok(autoBtn, 'Auto-load button should exist in drawer toolbar');
+  assert.equal(autoBtn.textContent.includes('⚡ 自动加载: 关'), true);
+  assert.equal(autoBtn.classList.contains('is-active'), false);
+  assert.equal(env.intersectionObservers.length, 0, 'No observer before enabling auto-load');
+
+  // 2. Click toolbar button to turn on auto-load
+  autoBtn.click();
+  assert.equal(autoBtn.textContent.includes('⚡ 自动加载: 开'), true);
+  assert.equal(autoBtn.classList.contains('is-active'), true);
+  assert.equal(JSON.parse(env.gmStore.get('a6_auto_load_more')), true);
+
+  // Observer should now be created and observing loadMoreBtn
+  assert.equal(env.intersectionObservers.length, 1);
+  const observer = env.intersectionObservers[0];
+  assert.equal(observer.observed.includes(loadMoreBtn), true);
+
+  // 3. Trigger intersection: button should be clicked
+  observer.triggerIntersect(loadMoreBtn, true);
+  assert.equal(clickedCount, 1, 'Load more button should be clicked on intersection');
+
+  // 4. Cooldown test: immediately trigger again (< 600ms), should not click
+  observer.triggerIntersect(loadMoreBtn, true);
+  assert.equal(clickedCount, 1, 'Should not click again within 600ms cooldown');
+
+  // 5. Toggle off via GM menu command
+  const toggleMenu = env.menuCommands.get('切换市场触底自动加载');
+  assert.ok(toggleMenu, 'GM menu command should be registered');
+  toggleMenu();
+
+  assert.equal(JSON.parse(env.gmStore.get('a6_auto_load_more')), false);
+  assert.equal(observer.observed.length, 0, 'Observer should disconnect when toggled off');
+
+  // 6. Leaving market disconnects observer
+  env.triggerHashChange('#/merchant/channels');
+  assert.equal(observer.observed.length, 0);
 });

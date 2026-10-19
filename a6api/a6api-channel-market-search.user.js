@@ -10,6 +10,8 @@
 // @grant        GM_getValue
 // @grant        GM.setValue
 // @grant        GM.getValue
+// @grant        GM_registerMenuCommand
+// @grant        GM.registerMenuCommand
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -23,6 +25,7 @@
   var STORAGE_KEY_DRAWER_OPEN = 'a6_drawer_open';
   var STORAGE_KEY_DRAWER_SIDE = 'a6_drawer_side';
   var STORAGE_KEY_MARKET_WIDTH = 'a6_market_width';
+  var STORAGE_KEY_AUTO_LOAD = 'a6_auto_load_more';
   /* ================= 通用本地存储 (GM API 优先，localStorage 兜底) ================= */
 
   function storageGet(key, fallback) {
@@ -243,10 +246,14 @@
       '.a6-toolbar-btn{flex:1;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#374151;background:#ffffff;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;white-space:nowrap;user-select:none;transition:all .15s ease;}' +
       '.a6-toolbar-btn:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.08);}' +
       '.a6-toolbar-btn:active{transform:translateY(1px);}' +
+      '.a6-toolbar-btn.is-active{color:#1677ff;border-color:rgba(22,119,255,.5);background:rgba(22,119,255,.08);font-weight:600;}' +
       /* 抽屉页面宽度调节栏 */
       '.a6-drawer-widthbar{flex-shrink:0;padding:8px 14px 10px;background:#fafafa;border-bottom:1px solid #f0f0f0;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;}' +
       '.a6-width-top{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;color:#6b7280;}' +
-      '.a6-width-val{font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;background:#e5e7eb;color:#374151;padding:1px 6px;border-radius:4px;font-weight:600;}' +
+      '.a6-width-input-wrap{display:inline-flex;align-items:center;gap:3px;}' +
+      '.a6-width-num-input{width:56px;height:22px;padding:2px 4px;font-size:11px;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;border:1px solid #d1d5db;border-radius:4px;background:#ffffff;color:#1f2937;outline:none;box-sizing:border-box;}' +
+      '.a6-width-num-input:focus{border-color:#1677ff;box-shadow:0 0 0 1px #1677ff;}' +
+      '.a6-width-unit{font-size:11px;font-weight:600;color:#6b7280;}' +
       '.a6-width-presets{display:flex;gap:6px;}' +
       '.a6-width-pill{flex:1;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;color:#4b5563;background:#ffffff;border:1px solid #d1d5db;border-radius:4px;cursor:pointer;user-select:none;transition:all .15s ease;}' +
       '.a6-width-pill:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.05);}' +
@@ -295,10 +302,28 @@
       '.a6-btn-primary:hover{background:#4096ff;}' +
       '.a6-btn-default{background:#fff;border-color:#d1d5db;color:#374151;}' +
       '.a6-btn-default:hover{background:#f3f4f6;}' +
-      /* 市场模型列表自选渠道高亮（金黄发光轮廓 + 金黄文字 + 浅金微光） */
-      '.a6-market-highlight{box-shadow:0 0 0 1px #f59e0b, 0 0 8px rgba(245,158,11,.25) !important;background:rgba(245,158,11,.05) !important;position:relative;z-index:2;border-radius:6px;}' +
-      '.a6-market-highlight td{background:transparent !important;}' +
+      /* 市场模型列表自选渠道高亮（金黄一体化内嵌发光卡片 + 金黄文字 + 浅金微光） */
+      '.a6-market-highlight, .a6-market-highlight-expanded{background:rgba(245,158,11,.06) !important;position:relative;z-index:2;}' +
+      '.a6-market-highlight td, .a6-market-highlight-expanded td{background:transparent !important;}' +
       '.a6-market-highlight td:first-child, .a6-market-highlight td:first-child *{color:#f59e0b !important;}' +
+      /* 1. 未展开的独立高亮行：四周边框内嵌闭合 + 四角圆角（防止容器 overflow:hidden 截断左右侧边框） */
+      '.a6-market-highlight:not(.a6-market-highlight-parent):not(.a6-market-highlight-expanded) td{box-shadow:inset 0 1px 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;}' +
+      '.a6-market-highlight:not(.a6-market-highlight-parent):not(.a6-market-highlight-expanded) td:first-child:not(:last-child){box-shadow:inset 1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-top-left-radius:6px;border-bottom-left-radius:6px;}' +
+      '.a6-market-highlight:not(.a6-market-highlight-parent):not(.a6-market-highlight-expanded) td:last-child:not(:first-child){box-shadow:inset -1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-top-right-radius:6px;border-bottom-right-radius:6px;}' +
+      '.a6-market-highlight:not(.a6-market-highlight-parent):not(.a6-market-highlight-expanded) td:first-child:last-child{box-shadow:inset 1px 0 0 #f59e0b, inset -1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-radius:6px;}' +
+      /* 2. 已展开的主行：上、左、右边框内嵌 + 顶部双圆角（去底边） */
+      '.a6-market-highlight.a6-market-highlight-parent td{box-shadow:inset 0 1px 0 #f59e0b !important;border-bottom:1px dashed rgba(245,158,11,.25) !important;}' +
+      '.a6-market-highlight.a6-market-highlight-parent td:first-child:not(:last-child){box-shadow:inset 1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b !important;border-top-left-radius:6px;border-bottom-left-radius:0;}' +
+      '.a6-market-highlight.a6-market-highlight-parent td:last-child:not(:first-child){box-shadow:inset -1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b !important;border-top-right-radius:6px;border-bottom-right-radius:0;}' +
+      '.a6-market-highlight.a6-market-highlight-parent td:first-child:last-child{box-shadow:inset 1px 0 0 #f59e0b, inset -1px 0 0 #f59e0b, inset 0 1px 0 #f59e0b !important;border-top-left-radius:6px;border-top-right-radius:6px;}' +
+      /* 3. 展开详情行：下、左、右边框内嵌 + 底部双圆角（去顶边，与主行缝合为一体大卡片） */
+      '.a6-market-highlight-expanded td{box-shadow:inset 0 -1px 0 #f59e0b !important;}' +
+      '.a6-market-highlight-expanded td:first-child:not(:last-child){box-shadow:inset 1px 0 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-bottom-left-radius:6px;border-top-left-radius:0;}' +
+      '.a6-market-highlight-expanded td:last-child:not(:first-child){box-shadow:inset -1px 0 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-bottom-right-radius:6px;border-top-right-radius:0;}' +
+      '.a6-market-highlight-expanded td:first-child:last-child{box-shadow:inset 1px 0 0 #f59e0b, inset -1px 0 0 #f59e0b, inset 0 -1px 0 #f59e0b !important;border-bottom-left-radius:6px;border-bottom-right-radius:6px;border-top-left-radius:0;border-top-right-radius:0;}' +
+      /* 4. 右侧操作区按钮自然融合：留足内边距防止遮挡右内边框，使按钮组背景融入行底色 */
+      '.a6-market-highlight td:last-child{padding-right:12px !important;}' +
+      '.a6-market-highlight td:last-child > div, .a6-market-highlight td:last-child [class*="action"], .a6-market-highlight td:last-child [class*="btn"]{background:transparent !important;border-color:rgba(245,158,11,.2) !important;}' +
       /* 暗色模式适配（同时支持系统 prefers-color-scheme 与页面 .dark / [data-theme="dark"]） */
       '@media (prefers-color-scheme:dark){' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
@@ -310,9 +335,11 @@
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-top{color:#a1a1aa;}' +
-      ':root:not(.light):not([data-theme="light"]) .a6-width-val{background:#3f3f46;color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-width-unit{color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-pill{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-pill:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-pill.active{background:#1677ff;border-color:#1677ff;color:#ffffff;}' +
@@ -342,9 +369,11 @@
       '.dark .a6-drawer-toolbar,[data-theme="dark"] .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-toolbar-btn,[data-theme="dark"] .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-toolbar-btn:hover,[data-theme="dark"] .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
+      '.dark .a6-toolbar-btn.is-active,[data-theme="dark"] .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
       '.dark .a6-drawer-widthbar,[data-theme="dark"] .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-width-top,[data-theme="dark"] .a6-width-top{color:#a1a1aa;}' +
-      '.dark .a6-width-val,[data-theme="dark"] .a6-width-val{background:#3f3f46;color:#f4f4f5;}' +
+      '.dark .a6-width-num-input,[data-theme="dark"] .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
+      '.dark .a6-width-unit,[data-theme="dark"] .a6-width-unit{color:#a1a1aa;}' +
       '.dark .a6-width-pill,[data-theme="dark"] .a6-width-pill{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-width-pill:hover,[data-theme="dark"] .a6-width-pill:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       '.dark .a6-width-pill.active,[data-theme="dark"] .a6-width-pill.active{background:#1677ff;border-color:#1677ff;color:#ffffff;}' +
@@ -404,6 +433,22 @@
   }
   /* ================= 市场模型列表自选渠道高亮联动 ================= */
 
+  function isExpandedChildRow(el) {
+    if (!el || !el.classList) return false;
+    if (el.style && (el.style.display === 'none' || el.hidden)) return false;
+    if (el.hasAttribute && el.hasAttribute('hidden')) return false;
+    var cls = el.className || '';
+    if (typeof cls !== 'string') cls = String(cls);
+    if (cls.indexOf('expanded-row') !== -1 || el.classList.contains('ant-table-expanded-row')) {
+      return true;
+    }
+    var tds = el.querySelectorAll ? el.querySelectorAll('td') : (el.children || []);
+    if (tds.length === 1 && tds[0] && tds[0].hasAttribute && tds[0].hasAttribute('colspan')) {
+      return true;
+    }
+    return false;
+  }
+
   function updateMarketHighlights() {
     if (location.hash.indexOf('#/market') !== 0) return;
 
@@ -425,9 +470,11 @@
     }
 
     if (isChannelSearch) {
-      var prevHighlights = document.querySelectorAll('.a6-market-highlight');
+      var prevHighlights = document.querySelectorAll('.a6-market-highlight, .a6-market-highlight-parent, .a6-market-highlight-expanded');
       for (var p = 0; p < prevHighlights.length; p++) {
         prevHighlights[p].classList.remove('a6-market-highlight');
+        prevHighlights[p].classList.remove('a6-market-highlight-parent');
+        prevHighlights[p].classList.remove('a6-market-highlight-expanded');
       }
       return;
     }
@@ -444,9 +491,11 @@
     }
 
     if (targetIds.size === 0) {
-      var noIdsHighlights = document.querySelectorAll('.a6-market-highlight');
+      var noIdsHighlights = document.querySelectorAll('.a6-market-highlight, .a6-market-highlight-parent, .a6-market-highlight-expanded');
       for (var nh = 0; nh < noIdsHighlights.length; nh++) {
         noIdsHighlights[nh].classList.remove('a6-market-highlight');
+        noIdsHighlights[nh].classList.remove('a6-market-highlight-parent');
+        noIdsHighlights[nh].classList.remove('a6-market-highlight-expanded');
       }
       return;
     }
@@ -455,22 +504,52 @@
     var rows = document.querySelectorAll('tbody tr, .market-row, [role="row"], .ant-table-row, [class*="table-row"]');
     for (var r = 0; r < rows.length; r++) {
       var row = rows[r];
-      // 提取“渠道 #ID”中的数字
+      // 提取“渠道 #ID”中的数字（排除“供应商 #ID”等非渠道编号）
       var text = row.textContent || '';
-      var m = text.match(/(?:渠道\s*#?|#)\s*(\d+)/);
+      var cleanText = text.replace(/供应商\s*#?\s*\d+/g, '');
+      var m = cleanText.match(/(?:渠道\s*#?|#)\s*(\d+)/);
       var rowCid = m ? m[1] : '';
 
       if (!rowCid && row.getAttribute) {
         rowCid = row.getAttribute('data-cid') || row.getAttribute('data-channel-id') || '';
       }
 
+      var nextRow = row.nextElementSibling;
+      var hasExpandedChild = nextRow && isExpandedChildRow(nextRow);
+
       if (rowCid && targetIds.has(rowCid)) {
         if (!row.classList.contains('a6-market-highlight')) {
           row.classList.add('a6-market-highlight');
         }
+        if (hasExpandedChild) {
+          if (!row.classList.contains('a6-market-highlight-parent')) {
+            row.classList.add('a6-market-highlight-parent');
+          }
+          if (!nextRow.classList.contains('a6-market-highlight')) {
+            nextRow.classList.add('a6-market-highlight');
+          }
+          if (!nextRow.classList.contains('a6-market-highlight-expanded')) {
+            nextRow.classList.add('a6-market-highlight-expanded');
+          }
+        } else {
+          if (row.classList.contains('a6-market-highlight-parent')) {
+            row.classList.remove('a6-market-highlight-parent');
+          }
+        }
       } else {
-        if (row.classList.contains('a6-market-highlight')) {
-          row.classList.remove('a6-market-highlight');
+        // 如果当前行不是快捷渠道，且也不是高亮父行的展开子行，则清理高亮
+        var prevRow = row.previousElementSibling;
+        var isChildOfHighlighted = isExpandedChildRow(row) && prevRow && prevRow.classList && prevRow.classList.contains('a6-market-highlight');
+        if (!isChildOfHighlighted) {
+          if (row.classList.contains('a6-market-highlight')) {
+            row.classList.remove('a6-market-highlight');
+          }
+          if (row.classList.contains('a6-market-highlight-parent')) {
+            row.classList.remove('a6-market-highlight-parent');
+          }
+          if (row.classList.contains('a6-market-highlight-expanded')) {
+            row.classList.remove('a6-market-highlight-expanded');
+          }
         }
       }
     }
@@ -773,6 +852,81 @@
     }
   }
 
+  /* ================= 市场页：模型列表触底自动加载更多 (Auto Load More) ================= */
+
+  var autoLoadObserver = null;
+  var autoLoadLastTrigger = 0;
+  var autoLoadObservedEl = null;
+
+  function findLoadMoreButton() {
+    if (location.hash.indexOf('#/market') !== 0) return null;
+    var candidates = document.querySelectorAll('button, [role="button"], .ant-btn, .btn, a, div');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var text = (el.textContent || '').trim();
+      if (text.indexOf('加载更多') !== -1) {
+        if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+        if (el.classList && (el.classList.contains('is-loading') || el.classList.contains('ant-btn-loading'))) continue;
+        if (el.style && el.style.display === 'none') continue;
+        return el;
+      }
+    }
+    return null;
+  }
+
+  function triggerAutoLoad(btn) {
+    var now = Date.now();
+    if (now - autoLoadLastTrigger < 600) return;
+    autoLoadLastTrigger = now;
+    try {
+      btn.click();
+    } catch (e) {}
+  }
+
+  function syncAutoLoadObserver() {
+    var isMarket = location.hash.indexOf('#/market') === 0;
+    var enabled = storageGet(STORAGE_KEY_AUTO_LOAD, false);
+    if (!isMarket || !enabled || typeof IntersectionObserver !== 'function') {
+      if (autoLoadObserver) {
+        autoLoadObserver.disconnect();
+        autoLoadObserver = null;
+        autoLoadObservedEl = null;
+      }
+      return;
+    }
+
+    var btn = findLoadMoreButton();
+    if (!btn) {
+      if (autoLoadObserver) {
+        autoLoadObserver.disconnect();
+        autoLoadObserver = null;
+        autoLoadObservedEl = null;
+      }
+      return;
+    }
+
+    if (autoLoadObservedEl === btn && autoLoadObserver) {
+      return;
+    }
+
+    if (autoLoadObserver) {
+      autoLoadObserver.disconnect();
+    }
+
+    autoLoadObservedEl = btn;
+    autoLoadObserver = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].isIntersecting) {
+          var targetBtn = findLoadMoreButton();
+          if (targetBtn) {
+            triggerAutoLoad(targetBtn);
+          }
+        }
+      }
+    });
+    autoLoadObserver.observe(btn);
+  }
+
   /* ================= 市场页：快捷渠道抽屉面板 (Quick Channel Drawer) ================= */
 
   function renderMarketDrawer(force) {
@@ -891,6 +1045,29 @@
 
     toolbar.appendChild(clearBtn);
     toolbar.appendChild(resetBtn);
+    var autoLoadBtn = document.createElement('button');
+    autoLoadBtn.type = 'button';
+    autoLoadBtn.className = 'a6-toolbar-btn a6-btn-autoload';
+    function updateAutoLoadBtn() {
+      var isAuto = storageGet(STORAGE_KEY_AUTO_LOAD, false);
+      if (isAuto) {
+        autoLoadBtn.classList.add('is-active');
+        autoLoadBtn.title = '触底自动加载更多: 已开启 (点击关闭)';
+        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 开</span>';
+      } else {
+        autoLoadBtn.classList.remove('is-active');
+        autoLoadBtn.title = '触底自动加载更多: 已关闭 (点击开启)';
+        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 关</span>';
+      }
+    }
+    updateAutoLoadBtn();
+    autoLoadBtn.addEventListener('click', function () {
+      var next = !storageGet(STORAGE_KEY_AUTO_LOAD, false);
+      storageSet(STORAGE_KEY_AUTO_LOAD, next);
+      updateAutoLoadBtn();
+      syncAutoLoadObserver();
+    });
+    toolbar.appendChild(autoLoadBtn);
     panel.appendChild(toolbar);
 
     // 页面宽度调节栏
@@ -905,6 +1082,9 @@
     widthLabel.textContent = '页面宽度';
 
     var currentWidth = storageGet(STORAGE_KEY_MARKET_WIDTH, 'default');
+    var widthRight = document.createElement('div');
+    widthRight.className = 'a6-width-input-wrap';
+
     var widthValDisplay = document.createElement('span');
     widthValDisplay.className = 'a6-width-val';
     function updateWidthDisplay(val) {
@@ -914,30 +1094,62 @@
     }
     updateWidthDisplay(currentWidth);
 
+    var numInput = document.createElement('input');
+    numInput.type = 'number';
+    numInput.step = '0.05';
+    numInput.min = '1.0';
+    numInput.max = '3.0';
+    numInput.className = 'a6-width-num-input';
+    numInput.placeholder = '倍率';
+    numInput.title = '直接输入放大倍率(如 1.35 或 1.55)，按回车生效';
+
+    var numSuffix = document.createElement('span');
+    numSuffix.className = 'a6-width-unit';
+    numSuffix.textContent = 'x';
+
+    function syncNumInput(val) {
+      if (val === 'default') {
+        numInput.value = '1.0';
+        numInput.placeholder = '1.0';
+      } else if (val === 'full') {
+        numInput.value = '';
+        numInput.placeholder = '满宽';
+      } else {
+        var n = parseFloat(val);
+        numInput.value = isNaN(n) ? '' : String(n);
+        numInput.placeholder = '倍率';
+      }
+    }
+    syncNumInput(currentWidth);
+
+    widthRight.appendChild(widthValDisplay);
+    widthRight.appendChild(numInput);
+    widthRight.appendChild(numSuffix);
+
     widthTop.appendChild(widthLabel);
-    widthTop.appendChild(widthValDisplay);
+    widthTop.appendChild(widthRight);
 
     var presetsWrap = document.createElement('div');
     presetsWrap.className = 'a6-width-presets';
 
     var presets = [
       { id: 'default', label: '原版' },
-      { id: '1.2x', label: '1.2x' },
-      { id: '1.35x', label: '1.35x' },
+      { id: '1.35x', label: '1.35' },
+      { id: '1.55x', label: '1.55' },
       { id: 'full', label: '满宽' },
     ];
 
     var slider = document.createElement('input');
     slider.type = 'range';
     slider.min = '100';
-    slider.max = '160';
+    slider.max = '180';
     slider.step = '5';
     slider.className = 'a6-width-slider';
     slider.title = '拖拽平滑调节宽度比例';
 
     function syncSlider(val) {
       if (val === 'default') slider.value = '100';
-      else if (val === 'full') slider.value = '160';
+      else if (val === 'full') slider.value = '180';
       else {
         var n = parseFloat(val);
         slider.value = isNaN(n) ? '100' : String(Math.round(n * 100));
@@ -957,6 +1169,7 @@
         applyMarketWidth(currentWidth);
         updateWidthDisplay(currentWidth);
         syncSlider(currentWidth);
+        syncNumInput(currentWidth);
         pillBtns.forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
       });
@@ -964,13 +1177,63 @@
       presetsWrap.appendChild(btn);
     });
 
-    slider.addEventListener('input', function () {
-      var num = parseInt(slider.value, 10);
-      var newVal = (num === 100) ? 'default' : ((num === 160) ? 'full' : (num / 100).toFixed(2).replace(/\.?0+$/, '') + 'x');
+    function commitNumInput() {
+      var raw = numInput.value.trim();
+      if (!raw) {
+        syncNumInput(currentWidth);
+        return;
+      }
+      var n = parseFloat(raw);
+      if (isNaN(n) || n < 0.8 || n > 3.0) {
+        syncNumInput(currentWidth);
+        return;
+      }
+      var newVal = (n === 1.0) ? 'default' : (n.toFixed(2).replace(/\.?0+$/, '') + 'x');
       currentWidth = newVal;
       storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
       applyMarketWidth(currentWidth);
       updateWidthDisplay(currentWidth);
+      syncSlider(currentWidth);
+      syncNumInput(currentWidth);
+      pillBtns.forEach(function (b, idx) {
+        if (presets[idx].id === newVal) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+    }
+
+    numInput.addEventListener('input', function () {
+      var raw = numInput.value.trim();
+      var n = parseFloat(raw);
+      if (!isNaN(n) && n >= 0.8 && n <= 3.0) {
+        var newVal = (n === 1.0) ? 'default' : (n + 'x');
+        currentWidth = newVal;
+        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+        applyMarketWidth(currentWidth);
+        updateWidthDisplay(currentWidth);
+        syncSlider(currentWidth);
+        pillBtns.forEach(function (b, idx) {
+          if (presets[idx].id === newVal) b.classList.add('active');
+          else b.classList.remove('active');
+        });
+      }
+    });
+
+    numInput.addEventListener('change', commitNumInput);
+    numInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        commitNumInput();
+        numInput.blur();
+      }
+    });
+
+    slider.addEventListener('input', function () {
+      var num = parseInt(slider.value, 10);
+      var newVal = (num === 100) ? 'default' : ((num === 180) ? 'full' : (num / 100).toFixed(2).replace(/\.?0+$/, '') + 'x');
+      currentWidth = newVal;
+      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+      applyMarketWidth(currentWidth);
+      updateWidthDisplay(currentWidth);
+      syncNumInput(currentWidth);
       pillBtns.forEach(function (b, idx) {
         if (presets[idx].id === newVal) b.classList.add('active');
         else b.classList.remove('active');
@@ -1330,6 +1593,7 @@
         }
         updateMarketHighlights();
         applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
+        syncAutoLoadObserver();
       }
     }, 250);
   }
@@ -1356,10 +1620,12 @@
     if (location.hash.indexOf('#/market') === 0) {
       applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
       renderMarketDrawer(true);
+      syncAutoLoadObserver();
     } else {
       applyMarketWidth('default');
       var c = document.getElementById('a6-drawer-container');
       if (c) c.style.display = 'none';
+      syncAutoLoadObserver();
     }
     schedule();
   });
@@ -1376,8 +1642,23 @@
     var tag = ev.target && ev.target.closest ? ev.target.closest('button.ui-switch-tag') : null;
     if (tag) {
       setTimeout(updateMarketHighlights, 50);
+      return;
+    }
+    var tr = ev.target && ev.target.closest ? ev.target.closest('tr, [role="row"], .market-row') : null;
+    if (tr) {
+      setTimeout(updateMarketHighlights, 60);
+      setTimeout(updateMarketHighlights, 200);
     }
   }, true);
   applyMarketWidth(storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'));
+  if (typeof GM_registerMenuCommand === 'function') {
+    GM_registerMenuCommand('切换市场触底自动加载', function () {
+      var next = !storageGet(STORAGE_KEY_AUTO_LOAD, false);
+      storageSet(STORAGE_KEY_AUTO_LOAD, next);
+      renderMarketDrawer(true);
+      syncAutoLoadObserver();
+    });
+  }
+  syncAutoLoadObserver();
   schedule();
 })();
