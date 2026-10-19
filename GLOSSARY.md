@@ -27,3 +27,11 @@ _Avoid_: 外部渠道, 手动渠道
 **快捷渠道抽屉 (Quick Channel Drawer)**:
 A collapsible floating side panel injected into the market page for quick one-click channel searches.
 _Avoid_: 侧边栏, 弹窗, 浮窗
+
+**清空搜索 (Clear Search)**:
+An action that clears the current channel search query and un-highlights active cards while preserving other user filter criteria.
+_Avoid_: 清空选择, 搜索复位
+
+**重置市场 (Reset Market)**:
+An action that fully restores the market page to its pristine default state, selecting all brands, all models, default recommendation sort, and an empty search query.
+_Avoid_: 全部重置, 恢复出厂

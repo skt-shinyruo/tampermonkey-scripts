@@ -589,3 +589,80 @@ test('a6api market drawer preserves scroll position and avoids re-render on arbi
   assert.equal(contentAfter, content, 'Drawer content should not be torn down on DOM mutations');
   assert.equal(contentAfter.scrollTop, 150, 'Scroll position should be preserved');
 });
+
+test('a6api market drawer toolbar provides clear search and reset marketplace buttons', () => {
+  const initialStorage = {
+    a6_owned_channels: JSON.stringify({
+      '101': { id: '101', name: '能能CC-2', desc: 'CC Kiro 保智商 保缓存' },
+    }),
+  };
+  const env = createEnvironment('#/market', initialStorage);
+
+  const searchInput = new MockElement('input');
+  searchInput.className = 'ui-search-field';
+  env.body.appendChild(searchInput);
+
+  const tagChip = new MockElement('button');
+  tagChip.className = 'ui-switch-tag';
+  tagChip.textContent = '渠道';
+  tagChip.addEventListener('click', () => tagChip.classList.add('active'));
+  env.body.appendChild(tagChip);
+
+  const officialResetBtn = new MockElement('button');
+  officialResetBtn.textContent = '⟲ 重置所有筛选';
+  let officialResetClicked = false;
+  officialResetBtn.addEventListener('click', () => { officialResetClicked = true; });
+  env.body.appendChild(officialResetBtn);
+
+  const allBrandsTag = new MockElement('button');
+  allBrandsTag.textContent = '全部品牌';
+  let allBrandsClicked = false;
+  allBrandsTag.addEventListener('click', () => { allBrandsClicked = true; allBrandsTag.classList.add('active'); });
+  env.body.appendChild(allBrandsTag);
+
+  const allModelsTag = new MockElement('button');
+  allModelsTag.textContent = '全部';
+  let allModelsClicked = false;
+  allModelsTag.addEventListener('click', () => { allModelsClicked = true; allModelsTag.classList.add('active'); });
+  env.body.appendChild(allModelsTag);
+
+  const defaultSortTag = new MockElement('button');
+  defaultSortTag.textContent = '综合推荐 (默认)';
+  let defaultSortClicked = false;
+  defaultSortTag.addEventListener('click', () => { defaultSortClicked = true; defaultSortTag.classList.add('active'); });
+  env.body.appendChild(defaultSortTag);
+
+  env.runScript();
+
+  const toolbar = env.document.querySelector('.a6-drawer-toolbar');
+  assert.ok(toolbar, 'Toolbar should exist in drawer');
+
+  const clearBtn = toolbar.querySelector('.a6-btn-clear');
+  const resetBtn = toolbar.querySelector('.a6-btn-reset');
+  assert.ok(clearBtn, 'Clear button should exist');
+  assert.ok(resetBtn, 'Reset button should exist');
+
+  // Select a card first
+  const card = env.document.querySelector('.a6-card');
+  card.click();
+  assert.equal(card.classList.contains('active'), true);
+  assert.equal(searchInput.value, '101');
+
+  // Test clearBtn: clears input and removes active highlight
+  clearBtn.click();
+  assert.equal(card.classList.contains('active'), false, 'Card should not be active after clear');
+  assert.equal(searchInput.value, '', 'Search input should be empty after clear');
+
+  // Select card again
+  card.click();
+  assert.equal(card.classList.contains('active'), true);
+
+  // Test resetBtn: clicks official reset, selects all brands, all models, default sort, and clears input
+  resetBtn.click();
+  assert.equal(card.classList.contains('active'), false);
+  assert.equal(searchInput.value, '');
+  assert.equal(officialResetClicked, true, 'Official reset button should be clicked');
+  assert.equal(allBrandsClicked, true, 'All brands tag should be clicked');
+  assert.equal(allModelsClicked, true, 'All models tag should be clicked');
+  assert.equal(defaultSortClicked, true, 'Default sort tag should be clicked');
+});
