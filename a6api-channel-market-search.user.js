@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.3.6
+// @version      1.3.7
 // @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道；在市场页提供快捷渠道抽屉面板，支持一键切换搜索渠道与自定义渠道管理
 // @match        https://a6api.com/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js
@@ -119,6 +119,11 @@
       '.a6-drawer-tool-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
       '.a6-drawer-close{background:none;border:none;color:#9ca3af;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px;}' +
       '.a6-drawer-close:hover{color:#374151;background:#e5e7eb;}' +
+      /* 抽屉顶部快捷操作工具栏 */
+      '.a6-drawer-toolbar{flex-shrink:0;display:flex;gap:8px;padding:8px 14px;background:#fafafa;border-bottom:1px solid #f0f0f0;box-sizing:border-box;}' +
+      '.a6-toolbar-btn{flex:1;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#374151;background:#ffffff;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;white-space:nowrap;user-select:none;transition:all .15s ease;}' +
+      '.a6-toolbar-btn:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.08);}' +
+      '.a6-toolbar-btn:active{transform:translateY(1px);}' +
       /* 抽屉内容区（填满 80vh 剩余高度 + 独立平滑滚动条） */
       '.a6-drawer-content{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:10px 14px;}' +
       '.a6-drawer-content::-webkit-scrollbar{width:5px;}' +
@@ -164,6 +169,9 @@
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-title{color:#fafafa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card:hover{background:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
@@ -184,6 +192,9 @@
       '.dark .a6-drawer-title,[data-theme="dark"] .a6-drawer-title{color:#fafafa;}' +
       '.dark .a6-drawer-tool-btn,[data-theme="dark"] .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
       '.dark .a6-drawer-tool-btn:hover,[data-theme="dark"] .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
+      '.dark .a6-drawer-toolbar,[data-theme="dark"] .a6-drawer-toolbar{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-toolbar-btn,[data-theme="dark"] .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
+      '.dark .a6-toolbar-btn:hover,[data-theme="dark"] .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       '.dark .a6-card,[data-theme="dark"] .a6-card{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-card:hover,[data-theme="dark"] .a6-card:hover{background:#3f3f46;}' +
       '.dark .a6-card.active,[data-theme="dark"] .a6-card.active{background:rgba(22,119,255,.18);border-color:#1677ff;}' +
@@ -275,6 +286,47 @@
     }, 300);
   }
 
+  function clearMarketSearch() {
+    activeChannelId = '';
+    highlightActiveCard('');
+    var input = document.querySelector('input.ui-search-field');
+    if (input) {
+      input.focus();
+      setReactInputValue(input, '');
+      setTimeout(function () {
+        pressEnter(input);
+      }, 100);
+    }
+  }
+
+  function resetMarketplace() {
+    clearMarketSearch();
+
+    // 1) 优先触发官方“重置所有筛选”按钮
+    var allBtns = document.querySelectorAll('button');
+    for (var i = 0; i < allBtns.length; i++) {
+      var btnText = (allBtns[i].textContent || '').trim();
+      if (btnText.indexOf('重置所有筛选') !== -1) {
+        allBtns[i].click();
+        break;
+      }
+    }
+
+    // 2) 兜底对齐全部品牌、全部模型、综合推荐与默认维度
+    setTimeout(function () {
+      var tags = document.querySelectorAll('button, div[role="button"], .ui-switch-tag, .ui-filter-tag, span');
+      for (var j = 0; j < tags.length; j++) {
+        var el = tags[j];
+        var txt = (el.textContent || '').trim();
+        if (txt === '全部品牌' || txt === '全部' || txt.indexOf('综合推荐') !== -1 || txt === '模型') {
+          var cls = el.className || '';
+          if (cls.indexOf('active') === -1 && cls.indexOf('selected') === -1) {
+            el.click();
+          }
+        }
+      }
+    }, 150);
+  }
   // 地址栏初始化渠道搜索（?cid=xxxx#/market）
   var pendingCid = (function () {
     var m = location.search.match(/[?&]cid=([^&]+)/);
@@ -582,6 +634,32 @@
     header.appendChild(titleWrap);
     header.appendChild(actionsWrap);
     panel.appendChild(header);
+
+    // 快捷操作工具栏
+    var toolbar = document.createElement('div');
+    toolbar.className = 'a6-drawer-toolbar';
+
+    var clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'a6-toolbar-btn a6-btn-clear';
+    clearBtn.title = '清空搜索框与渠道选择，保留其他筛选';
+    clearBtn.innerHTML = '<span>🧹 清空搜索</span>';
+    clearBtn.addEventListener('click', function () {
+      clearMarketSearch();
+    });
+
+    var resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'a6-toolbar-btn a6-btn-reset';
+    resetBtn.title = '还原市场至默认推荐状态（全部品牌/全部模型/综合推荐）';
+    resetBtn.innerHTML = '<span>⟲ 重置市场</span>';
+    resetBtn.addEventListener('click', function () {
+      resetMarketplace();
+    });
+
+    toolbar.appendChild(clearBtn);
+    toolbar.appendChild(resetBtn);
+    panel.appendChild(toolbar);
 
     // 内容区
     var content = document.createElement('div');
