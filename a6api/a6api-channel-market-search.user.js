@@ -88,27 +88,27 @@
       '.a6jump-btn:active{transform:translateY(1px);}' +
 
       /* 市场页快捷抽屉浮动触发按钮 */
-      '.a6-drawer-trigger{position:fixed;top:130px;z-index:9999;' +
-      'background:#1677ff;color:#ffffff;padding:8px 6px;cursor:pointer;' +
-      'font-size:12px;font-weight:500;' +
+      '.a6-drawer-trigger{position:fixed;top:50%;transform:translateY(-50%);z-index:9999;' +
+      'background:#1677ff;color:#ffffff;padding:10px 8px;cursor:pointer;' +
+      'font-size:13px;font-weight:500;' +
       'display:flex;align-items:center;writing-mode:vertical-rl;letter-spacing:2px;user-select:none;transition:all .2s ease;}' +
-      '.a6-drawer-trigger.is-side-right{right:0;left:auto;border-radius:6px 0 0 6px;box-shadow:-2px 2px 8px rgba(22,119,255,.35);}' +
-      '.a6-drawer-trigger.is-side-left{left:0;right:auto;border-radius:0 6px 6px 0;box-shadow:2px 2px 8px rgba(22,119,255,.35);}' +
-      '.a6-drawer-trigger.is-side-right:hover{background:#4096ff;padding-right:9px;}' +
-      '.a6-drawer-trigger.is-side-left:hover{background:#4096ff;padding-left:9px;}' +
+      '.a6-drawer-trigger.is-side-right{right:0;left:auto;border-radius:8px 0 0 8px;box-shadow:-2px 2px 10px rgba(22,119,255,.35);}' +
+      '.a6-drawer-trigger.is-side-left{left:0;right:auto;border-radius:0 8px 8px 0;box-shadow:2px 2px 10px rgba(22,119,255,.35);}' +
+      '.a6-drawer-trigger.is-side-right:hover{background:#4096ff;padding-right:11px;}' +
+      '.a6-drawer-trigger.is-side-left:hover{background:#4096ff;padding-left:11px;}' +
       '.a6-drawer-trigger.is-hidden{display:none !important;}' +
 
-      /* 抽屉面板（高度紧凑化，避免遮挡全部高度） */
-      '.a6-drawer-panel{position:fixed;top:90px;height:auto;max-height:min(480px,calc(100vh - 140px));width:290px;max-width:calc(100vw - 32px);' +
-      'background:#ffffff;box-shadow:0 8px 24px rgba(0,0,0,.14);z-index:10000;display:flex;flex-direction:column;' +
+      /* 抽屉面板（占据页面 80% 高度，上下各留白 10%） */
+      '.a6-drawer-panel{position:fixed;top:10vh;bottom:10vh;height:80vh;width:300px;max-width:calc(100vw - 32px);' +
+      'background:#ffffff;box-shadow:0 8px 30px rgba(0,0,0,.16);z-index:10000;display:flex;flex-direction:column;' +
       'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;box-sizing:border-box;' +
       'border:1px solid #e4e4e7;overflow:hidden;transition:transform .25s cubic-bezier(0.16,1,0.3,1);}' +
-      '.a6-drawer-panel.is-side-right{right:0;left:auto;border-radius:8px 0 0 8px;border-right:none;transform:translateX(100%);}' +
-      '.a6-drawer-panel.is-side-left{left:0;right:auto;border-radius:0 8px 8px 0;border-left:none;transform:translateX(-100%);}' +
+      '.a6-drawer-panel.is-side-right{right:0;left:auto;border-radius:10px 0 0 10px;border-right:none;transform:translateX(100%);}' +
+      '.a6-drawer-panel.is-side-left{left:0;right:auto;border-radius:0 10px 10px 0;border-left:none;transform:translateX(-100%);}' +
       '.a6-drawer-panel.is-open{transform:translateX(0) !important;}' +
 
       /* 抽屉头部与操作按钮 */
-      '.a6-drawer-header{flex-shrink:0;padding:10px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;}' +
+      '.a6-drawer-header{flex-shrink:0;padding:12px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;}' +
       '.a6-drawer-title-wrap{display:flex;align-items:center;gap:6px;}' +
       '.a6-drawer-title{font-size:14px;font-weight:600;color:#1f2937;}' +
       '.a6-drawer-count{font-size:11px;background:#e5e7eb;color:#4b5563;padding:1px 6px;border-radius:10px;font-weight:600;}' +
@@ -117,8 +117,8 @@
       '.a6-drawer-tool-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
       '.a6-drawer-close{background:none;border:none;color:#9ca3af;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px;}' +
       '.a6-drawer-close:hover{color:#374151;background:#e5e7eb;}' +
-      /* 抽屉内容区（弹性自适应 + 强制可滚动 + 滚动条美化） */
-      '.a6-drawer-content{flex:1 1 auto;min-height:0;max-height:min(420px,calc(100vh - 190px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:10px 12px;}' +
+      /* 抽屉内容区（填满 80vh 剩余高度 + 独立平滑滚动条） */
+      '.a6-drawer-content{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;padding:10px 14px;}' +
       '.a6-drawer-content::-webkit-scrollbar{width:5px;}' +
       '.a6-drawer-content::-webkit-scrollbar-track{background:transparent;}' +
       '.a6-drawer-content::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:4px;}' +
