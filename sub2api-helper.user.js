@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.44
+// @version      0.22.46
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.44';
+  const SCRIPT_VERSION = '0.22.46';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -43,6 +43,7 @@
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
+  const EXCLUDED_ORIGINS_STORAGE_NAME = 'excluded-origins';
   const THEME_MODE_STORAGE_NAME = 'theme-mode';
   const THEME_MODE_VALUES = {
     DARK: 'dark',
@@ -389,6 +390,54 @@
 
   function getCurrentPageFeatureSettingsStorageKey(featureId) {
     return getCurrentPageSettingsStorageKey(`feature:${featureId}:enabled`);
+  }
+
+  function normalizeOrigin(origin) {
+    if (!origin) {
+      return '';
+    }
+    try {
+      return new URL(origin).origin;
+    } catch {
+      return String(origin).trim();
+    }
+  }
+
+  function getExcludedOrigins() {
+    const raw = storage.get(getGlobalSettingsStorageKey(EXCLUDED_ORIGINS_STORAGE_NAME), []);
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return [...new Set(raw.map(normalizeOrigin).filter(Boolean))];
+  }
+
+  function setExcludedOrigins(origins) {
+    const normalized = [...new Set((origins || []).map(normalizeOrigin).filter(Boolean))];
+    storage.set(getGlobalSettingsStorageKey(EXCLUDED_ORIGINS_STORAGE_NAME), normalized);
+  }
+
+  function isOriginExcluded(origin) {
+    const target = normalizeOrigin(origin);
+    return Boolean(target && getExcludedOrigins().includes(target));
+  }
+
+  function isCurrentOriginExcluded() {
+    return isOriginExcluded(getCurrentOrigin());
+  }
+
+  function setOriginExcluded(origin, excluded) {
+    const target = normalizeOrigin(origin);
+    if (!target) {
+      return;
+    }
+    const list = getExcludedOrigins();
+    const exists = list.includes(target);
+    if (excluded && !exists) {
+      list.push(target);
+      setExcludedOrigins(list);
+    } else if (!excluded && exists) {
+      setExcludedOrigins(list.filter((item) => item !== target));
+    }
   }
 
   function normalizeEnabledSetting(value, fallback = true) {
@@ -1497,6 +1546,9 @@
   }
 
   function shouldEnableSub2apiHelper() {
+    if (isCurrentOriginExcluded()) {
+      return false;
+    }
     return (
       hasSub2apiAppFingerprint() &&
       (
@@ -1509,6 +1561,9 @@
   }
 
   function shouldRetrySub2apiHelperActivation() {
+    if (isCurrentOriginExcluded()) {
+      return false;
+    }
     return hasSub2apiAppFingerprint() && (isUsagePage() || isDashboardPage());
   }
 
@@ -1619,14 +1674,17 @@
   }
 
   function getSettingsState() {
-    const isSub2apiPage = shouldEnableSub2apiHelper();
+    const isExcluded = isCurrentOriginExcluded();
+    const isSub2apiPage = !isExcluded && shouldEnableSub2apiHelper();
     const features = FEATURE_SETTINGS.map(getFeatureState);
     const enabledRelevantFeatureCount = features.filter((feature) => feature.relevant && feature.enabled).length;
     const relevantFeatureCount = features.filter((feature) => feature.relevant).length;
     return {
       effectiveEnabled: Boolean(isSub2apiPage && enabledRelevantFeatureCount),
       enabledRelevantFeatureCount,
+      excludedOrigins: getExcludedOrigins(),
       features,
+      isCurrentOriginExcluded: isExcluded,
       isSub2apiPage,
       relevantFeatureCount,
       sidebarWidth: getSidebarWidthSettingsState(),
@@ -1635,6 +1693,9 @@
   }
 
   function getSettingsStatusText(state) {
+    if (state.isCurrentOriginExcluded) {
+      return '此网站已排除';
+    }
     if (!state.isSub2apiPage) {
       return '当前页面不匹配';
     }
@@ -1699,7 +1760,7 @@
 
     const pageStatusText = settingsPanelRoot?.querySelector('[data-sub2api-settings-page-status="true"]');
     if (pageStatusText) {
-      pageStatusText.textContent = `当前页面: ${state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面'}`;
+      pageStatusText.textContent = `当前页面: ${state.isCurrentOriginExcluded ? '已排除网站' : (state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面')}`;
     }
 
     const effectStatusText = settingsPanelRoot?.querySelector('[data-sub2api-settings-effect-status="true"]');
@@ -1708,6 +1769,11 @@
       setStyles(effectStatusText, {
         color: state.effectiveEnabled ? '#047857' : '#64748b',
       });
+    }
+
+    const siteExclusionSwitch = settingsPanelRoot?.querySelector('input[data-sub2api-site-exclusion-switch="true"]');
+    if (siteExclusionSwitch) {
+      siteExclusionSwitch.checked = !state.isCurrentOriginExcluded;
     }
   }
 
@@ -2233,6 +2299,115 @@
     return row;
   }
 
+  function createExcludedOriginsSettingsRow(excludedOrigins) {
+    const row = document.createElement('div');
+    row.dataset.sub2apiExcludedOriginsRow = 'true';
+    row.setAttribute('data-sub2api-excluded-origins-row', 'true');
+    setStyles(row, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const textWrap = document.createElement('div');
+    setStyles(textWrap, {
+      display: 'grid',
+      gap: '4px',
+    });
+
+    const title = document.createElement('span');
+    title.textContent = `已排除网站 (${excludedOrigins.length})`;
+    setStyles(title, {
+      color: '#0f172a',
+      fontSize: '14px',
+      fontWeight: '800',
+    });
+
+    const hint = document.createElement('span');
+    hint.textContent = '被排除的网站将彻底静默运行，不产生任何 DOM 注入与网络拦截。';
+    setStyles(hint, {
+      color: '#64748b',
+      fontSize: '12px',
+      lineHeight: '1.4',
+    });
+
+    textWrap.appendChild(title);
+    textWrap.appendChild(hint);
+    row.appendChild(textWrap);
+
+    const listWrap = document.createElement('div');
+    listWrap.setAttribute('data-sub2api-excluded-origins-list', 'true');
+    setStyles(listWrap, {
+      display: 'grid',
+      gap: '6px',
+    });
+
+    if (excludedOrigins.length === 0) {
+      const emptyText = document.createElement('div');
+      emptyText.textContent = '暂无已排除网站';
+      setStyles(emptyText, {
+        color: '#94a3b8',
+        fontSize: '12px',
+      });
+      listWrap.appendChild(emptyText);
+    } else {
+      for (const origin of excludedOrigins) {
+        const item = document.createElement('div');
+        item.setAttribute('data-sub2api-excluded-origin-item', origin);
+        setStyles(item, {
+          alignItems: 'center',
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '6px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '6px 10px',
+        });
+
+        const originText = document.createElement('span');
+        originText.textContent = origin;
+        setStyles(originText, {
+          color: '#334155',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          overflowWrap: 'anywhere',
+        });
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.textContent = '移除';
+        removeButton.setAttribute('data-sub2api-remove-excluded-origin', origin);
+        setStyles(removeButton, {
+          background: '#ffffff',
+          border: '1px solid #cbd5e1',
+          borderRadius: '4px',
+          color: '#ef4444',
+          cursor: 'pointer',
+          fontSize: '12px',
+          fontWeight: '600',
+          padding: '2px 8px',
+        });
+        removeButton.addEventListener('click', () => {
+          setOriginExcluded(origin, false);
+          if (origin === getCurrentOrigin() && typeof location.reload === 'function') {
+            location.reload();
+          } else {
+            refreshSettingsPanel();
+          }
+        });
+
+        item.appendChild(originText);
+        item.appendChild(removeButton);
+        listWrap.appendChild(item);
+      }
+    }
+
+    row.appendChild(listWrap);
+    return row;
+  }
+
   function getSettingsGroupMeta(groupId) {
     switch (groupId) {
       case SETTINGS_GROUPS.USAGE:
@@ -2417,18 +2592,59 @@
       gap: '4px',
       padding: '12px',
     });
-    const pageStatusText = createSettingsText(`当前页面: ${state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面'}`, {
+    const pageStatusText = createSettingsText(`当前页面: ${state.isCurrentOriginExcluded ? '已排除网站' : (state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面')}`, {
       color: '#0f172a',
       fontWeight: '700',
     });
     pageStatusText.dataset.sub2apiSettingsPageStatus = 'true';
     status.appendChild(pageStatusText);
+
     const effectStatusText = createSettingsText(`修改功能: ${getSettingsStatusText(state)}`, {
       color: state.effectiveEnabled ? '#047857' : '#64748b',
       fontWeight: '700',
     });
     effectStatusText.dataset.sub2apiSettingsEffectStatus = 'true';
     status.appendChild(effectStatusText);
+
+    const originSwitchRow = document.createElement('div');
+    setStyles(originSwitchRow, {
+      alignItems: 'center',
+      borderTop: '1px solid ' + (state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'),
+      display: 'flex',
+      justifyContent: 'space-between',
+      marginTop: '4px',
+      paddingTop: '6px',
+    });
+
+    const originSwitchLabel = document.createElement('span');
+    originSwitchLabel.textContent = '在此网站启用脚本';
+    setStyles(originSwitchLabel, {
+      color: '#334155',
+      fontSize: '13px',
+      fontWeight: '600',
+    });
+
+    const originSwitchInput = document.createElement('input');
+    originSwitchInput.type = 'checkbox';
+    originSwitchInput.checked = !state.isCurrentOriginExcluded;
+    originSwitchInput.setAttribute('role', 'switch');
+    originSwitchInput.setAttribute('data-sub2api-site-exclusion-switch', 'true');
+    originSwitchInput.addEventListener('change', () => {
+      const currentOrigin = getCurrentOrigin();
+      if (!currentOrigin) {
+        return;
+      }
+      setOriginExcluded(currentOrigin, !originSwitchInput.checked);
+      if (typeof location.reload === 'function') {
+        location.reload();
+      } else {
+        refreshSettingsPanel();
+      }
+    });
+
+    originSwitchRow.appendChild(originSwitchLabel);
+    originSwitchRow.appendChild(originSwitchInput);
+    status.appendChild(originSwitchRow);
 
     const featureGroups = document.createElement('div');
     setStyles(featureGroups, {
@@ -2459,7 +2675,7 @@
       featureGroups.appendChild(createSidebarWidthSettingsRow(state.sidebarWidth));
       featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
     }
-
+    featureGroups.appendChild(createExcludedOriginsSettingsRow(state.excludedOrigins));
     panel.appendChild(header);
     panel.appendChild(status);
     panel.appendChild(featureGroups);
@@ -2505,7 +2721,28 @@
       return;
     }
 
+    const currentOrigin = getCurrentOrigin();
+    const isExcluded = isCurrentOriginExcluded();
+
     try {
+      if (currentOrigin) {
+        if (isExcluded) {
+          GM_registerMenuCommand(`✅ 恢复在此网站启用 (${currentOrigin})`, () => {
+            setOriginExcluded(currentOrigin, false);
+            if (typeof location.reload === 'function') {
+              location.reload();
+            }
+          });
+        } else {
+          GM_registerMenuCommand(`🚫 排除当前网站 (${currentOrigin})`, () => {
+            setOriginExcluded(currentOrigin, true);
+            if (typeof location.reload === 'function') {
+              location.reload();
+            }
+          });
+        }
+      }
+
       GM_registerMenuCommand(SETTINGS_MENU_LABEL, openSettingsPanel);
     } catch (error) {
       // Some userscript managers expose GM_registerMenuCommand only in specific contexts.
@@ -3076,6 +3313,9 @@
     if (typeof window.fetch === 'function') {
       const originalFetch = window.fetch.bind(window);
       const patchedFetch = function patchedFetch(input, init) {
+        if (isCurrentOriginExcluded()) {
+          return originalFetch(input, init);
+        }
         const rewrittenInput = rewriteFetchInput(input);
         const urlInput = typeof rewrittenInput === 'string' || rewrittenInput instanceof URL
           ? String(rewrittenInput)
@@ -3091,6 +3331,9 @@
     if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype?.open) {
       const originalOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
+        if (isCurrentOriginExcluded()) {
+          return originalOpen.call(this, method, url, ...rest);
+        }
         const rewrittenUrl = rewriteUsageRequestUrl(url);
         this.__sub2apiUsageRequestUrl = rewrittenUrl;
         this.addEventListener?.('load', () => {
@@ -4536,8 +4779,10 @@
     return String(element?.textContent || '').trim().replace(/\s+/g, ' ');
   }
   async function applyPageEnhancements() {
-    if (!shouldEnableSub2apiHelper()) {
-      scheduleActivationRetry();
+    if (isCurrentOriginExcluded() || !shouldEnableSub2apiHelper()) {
+      if (!isCurrentOriginExcluded()) {
+        scheduleActivationRetry();
+      }
       removeSettingsLauncherButton();
       cleanupDisabledFeatures();
       return;
@@ -4949,6 +5194,9 @@
   }
 
   function tryActivateSub2apiHelper() {
+    if (isCurrentOriginExcluded()) {
+      return false;
+    }
     if (helperActivated) {
       return true;
     }
@@ -4978,6 +5226,9 @@
   }
 
   function startSub2apiEnhancements() {
+    if (isCurrentOriginExcluded()) {
+      return;
+    }
     installActivationWatcher();
     tryActivateSub2apiHelper();
   }
