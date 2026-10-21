@@ -1,6 +1,8 @@
   async function applyPageEnhancements() {
-    if (!shouldEnableSub2apiHelper()) {
-      scheduleActivationRetry();
+    if (isCurrentOriginExcluded() || !shouldEnableSub2apiHelper()) {
+      if (!isCurrentOriginExcluded()) {
+        scheduleActivationRetry();
+      }
       removeSettingsLauncherButton();
       cleanupDisabledFeatures();
       return;
@@ -412,6 +414,9 @@
   }
 
   function tryActivateSub2apiHelper() {
+    if (isCurrentOriginExcluded()) {
+      return false;
+    }
     if (helperActivated) {
       return true;
     }
@@ -441,6 +446,9 @@
   }
 
   function startSub2apiEnhancements() {
+    if (isCurrentOriginExcluded()) {
+      return;
+    }
     installActivationWatcher();
     tryActivateSub2apiHelper();
   }

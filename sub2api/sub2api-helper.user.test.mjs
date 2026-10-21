@@ -291,6 +291,10 @@ class TestElement {
 
   setAttribute(name, value) {
     this.attributes[name] = String(value);
+    if (name.startsWith('data-')) {
+      const camelKey = name.slice(5).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+      this.dataset[camelKey] = String(value);
+    }
   }
 
   getAttribute(name) {
@@ -391,6 +395,10 @@ function createTestEnvironment({
     href: `${origin}${pathname}`,
     origin,
     pathname,
+    reload() {
+      location.reloadCount = (location.reloadCount || 0) + 1;
+    },
+    reloadCount: 0,
   };
 
   const document = {
@@ -1096,6 +1104,7 @@ function createTestEnvironment({
     setFocused(value) {
       focused = Boolean(value);
     },
+    location,
     vmContext: vm.createContext(context),
   };
 }
@@ -4657,3 +4666,138 @@ for (const {
     assert.equal(datePicker.findPreset('今天')?.classList.contains('date-picker-preset-active'), false);
   });
 }
+
+test('excluded origin stays completely silent without injecting DOM or registering watchers', async () => {
+  const origin = 'https://modded-sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      'sub2api-helper:global:excluded-origins': [origin],
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(environment.findSettingsLauncherButton(), null);
+  assert.equal(environment.findAutoRefreshButton(), null);
+  assert.equal(environment.findSettingsRoot(), null);
+  assert.equal(environment.vmContext.document.documentElement.dataset.sub2apiHelperVersion, undefined);
+});
+
+test('bypasses usage request rewriting when origin is in excluded list', async () => {
+  const origin = 'https://modded-sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      'sub2api-helper:global:excluded-origins': [origin],
+      [getScopedStorageKey(origin, 'usage-date-range')]: {
+        end_time: '2026-05-02T23:59:59+08:00',
+        label: '自选',
+        start_time: '2026-05-01T00:00:00+08:00',
+        type: 'custom',
+      },
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  await environment.vmContext.fetch('/api/v1/usage?start_time=raw_start&end_time=raw_end');
+  const calls = environment.getFetchCalls();
+  const lastCall = calls[calls.length - 1];
+  assert.equal(lastCall.url, '/api/v1/usage?start_time=raw_start&end_time=raw_end');
+});
+
+test('registers menu commands to toggle origin exclusion and reload page', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const excludeCommand = environment.getMenuCommand(`🚫 排除当前网站 (${origin})`);
+  assert.equal(typeof excludeCommand, 'function');
+
+  excludeCommand();
+  assert.equal(environment.location.reloadCount, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(environment.getStoredValue('sub2api-helper:global:excluded-origins'))),
+    [origin],
+  );
+
+  const excludedEnv = createTestEnvironment({
+    gmValues: {
+      'sub2api-helper:global:excluded-origins': [origin],
+    },
+    origin,
+    pathname: '/usage',
+  });
+  vm.runInContext(source, excludedEnv.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  const restoreCommand = excludedEnv.getMenuCommand(`✅ 恢复在此网站启用 (${origin})`);
+  assert.equal(typeof restoreCommand, 'function');
+
+  restoreCommand();
+  assert.equal(excludedEnv.location.reloadCount, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(excludedEnv.getStoredValue('sub2api-helper:global:excluded-origins'))),
+    [],
+  );
+});
+
+test('settings panel displays site exclusion switch and manages excluded origins list', async () => {
+  const origin = 'https://sub2api.example.test';
+  const otherOrigin = 'https://other-broken.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      'sub2api-helper:global:excluded-origins': [otherOrigin],
+    },
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  assert.ok(settingsRoot);
+
+  const siteSwitch = settingsRoot.querySelector('input[data-sub2api-site-exclusion-switch="true"]');
+  assert.ok(siteSwitch);
+  assert.equal(siteSwitch.checked, true);
+
+  const excludedRow = settingsRoot.querySelector('[data-sub2api-excluded-origins-row="true"]');
+  assert.ok(excludedRow);
+  assert.match(excludedRow.textContent, /已排除网站 \(1\)/);
+  assert.match(excludedRow.textContent, new RegExp(otherOrigin));
+
+  const removeBtn = settingsRoot.querySelector(`button[data-sub2api-remove-excluded-origin="${otherOrigin}"]`);
+  assert.ok(removeBtn);
+  removeBtn.click();
+  await flushMicrotasks();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(environment.getStoredValue('sub2api-helper:global:excluded-origins'))),
+    [],
+  );
+
+  siteSwitch.checked = false;
+  siteSwitch.dispatchEvent({ type: 'change' });
+  assert.equal(environment.location.reloadCount, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(environment.getStoredValue('sub2api-helper:global:excluded-origins'))),
+    [origin],
+  );
+});

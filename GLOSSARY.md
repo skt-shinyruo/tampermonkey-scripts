@@ -1,8 +1,8 @@
-# A6API Tampermonkey Scripts
+# Tampermonkey Scripts Glossary
 
-Tampermonkey userscript suite enhancing A6API channel management and market exploration.
+Shared domain terminology for Tampermonkey userscripts across A6API and Sub2API.
 
-## Language
+## A6API Market Search
 
 **渠道 (Channel)**:
 A model distribution endpoint identified by a unique ID and display name.
@@ -75,3 +75,21 @@ _Avoid_: 标签换行, 展开标签
 **紧凑指标排版 (Compact Metric Layout)**:
 A table column allocation strategy that fixes metric columns to compact widths while assigning expanded space to descriptive and identity columns, avoiding rubber-band empty gaps.
 _Avoid_: 列宽压缩, 紧凑表格
+
+## Sub2API Helper
+
+**站点排除 (Site Exclusion)**:
+A configuration that completely blacklists a specific origin from running Sub2API Helper, enforcing total silence and zero host DOM/network manipulation.
+_Avoid_: 网页禁用, 路径拉黑, 插件关闭
+
+**彻底静默 (Total Silence)**:
+An execution state where the userscript terminates early on an excluded origin, preventing DOM injection, observer registration, and fetch/XHR rewriting.
+_Avoid_: 隐蔽模式, 静音运行, 后台禁用
+
+**扩展菜单兜底 (Extension Menu Fallback)**:
+An interaction pattern utilizing Tampermonkey's native popup menu (`GM_registerMenuCommand`) to toggle exclusion and open settings when in-page DOM controls are suppressed or host pages conflict.
+_Avoid_: 快捷键唤醒, 隐蔽触点, 右键菜单
+
+**排除名单 (Excluded Origins)**:
+A globally persisted set of origin URLs where Sub2API Helper is deactivated, manageable across all sites via the settings panel.
+_Avoid_: 域名黑名单, 屏蔽网站列表

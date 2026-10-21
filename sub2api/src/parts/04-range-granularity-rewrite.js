@@ -563,6 +563,9 @@
     if (typeof window.fetch === 'function') {
       const originalFetch = window.fetch.bind(window);
       const patchedFetch = function patchedFetch(input, init) {
+        if (isCurrentOriginExcluded()) {
+          return originalFetch(input, init);
+        }
         const rewrittenInput = rewriteFetchInput(input);
         const urlInput = typeof rewrittenInput === 'string' || rewrittenInput instanceof URL
           ? String(rewrittenInput)
@@ -578,6 +581,9 @@
     if (typeof XMLHttpRequest !== 'undefined' && XMLHttpRequest.prototype?.open) {
       const originalOpen = XMLHttpRequest.prototype.open;
       XMLHttpRequest.prototype.open = function patchedOpen(method, url, ...rest) {
+        if (isCurrentOriginExcluded()) {
+          return originalOpen.call(this, method, url, ...rest);
+        }
         const rewrittenUrl = rewriteUsageRequestUrl(url);
         this.__sub2apiUsageRequestUrl = rewrittenUrl;
         this.addEventListener?.('load', () => {

@@ -25,6 +25,7 @@
     USAGE_DATE_RANGE: 'usage-date-range',
     USAGE_GRANULARITY: 'usage-granularity',
   };
+  const EXCLUDED_ORIGINS_STORAGE_NAME = 'excluded-origins';
   const THEME_MODE_STORAGE_NAME = 'theme-mode';
   const THEME_MODE_VALUES = {
     DARK: 'dark',
@@ -371,6 +372,54 @@
 
   function getCurrentPageFeatureSettingsStorageKey(featureId) {
     return getCurrentPageSettingsStorageKey(`feature:${featureId}:enabled`);
+  }
+
+  function normalizeOrigin(origin) {
+    if (!origin) {
+      return '';
+    }
+    try {
+      return new URL(origin).origin;
+    } catch {
+      return String(origin).trim();
+    }
+  }
+
+  function getExcludedOrigins() {
+    const raw = storage.get(getGlobalSettingsStorageKey(EXCLUDED_ORIGINS_STORAGE_NAME), []);
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return [...new Set(raw.map(normalizeOrigin).filter(Boolean))];
+  }
+
+  function setExcludedOrigins(origins) {
+    const normalized = [...new Set((origins || []).map(normalizeOrigin).filter(Boolean))];
+    storage.set(getGlobalSettingsStorageKey(EXCLUDED_ORIGINS_STORAGE_NAME), normalized);
+  }
+
+  function isOriginExcluded(origin) {
+    const target = normalizeOrigin(origin);
+    return Boolean(target && getExcludedOrigins().includes(target));
+  }
+
+  function isCurrentOriginExcluded() {
+    return isOriginExcluded(getCurrentOrigin());
+  }
+
+  function setOriginExcluded(origin, excluded) {
+    const target = normalizeOrigin(origin);
+    if (!target) {
+      return;
+    }
+    const list = getExcludedOrigins();
+    const exists = list.includes(target);
+    if (excluded && !exists) {
+      list.push(target);
+      setExcludedOrigins(list);
+    } else if (!excluded && exists) {
+      setExcludedOrigins(list.filter((item) => item !== target));
+    }
   }
 
   function normalizeEnabledSetting(value, fallback = true) {
