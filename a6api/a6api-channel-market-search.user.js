@@ -212,14 +212,14 @@
       '.a6jump-btn:active{transform:translateY(1px);}' +
 
       /* 市场页快捷抽屉浮动触发按钮 */
-      '.a6-drawer-trigger{position:fixed;top:50%;transform:translateY(-50%);z-index:9999;' +
-      'background:#1677ff;color:#ffffff;padding:10px 8px;cursor:pointer;' +
+      '.a6-drawer-trigger{position:fixed;top:10vh;z-index:9999;' +
+      'background:#1677ff;color:#ffffff;height:40px;padding:0 12px;cursor:pointer;' +
       'font-size:13px;font-weight:500;' +
-      'display:flex;align-items:center;writing-mode:vertical-rl;letter-spacing:2px;user-select:none;transition:all .2s ease;}' +
+      'display:flex;align-items:center;justify-content:center;user-select:none;transition:all .2s ease;box-sizing:border-box;}' +
       '.a6-drawer-trigger.is-side-right{right:0;left:auto;border-radius:8px 0 0 8px;box-shadow:-2px 2px 10px rgba(22,119,255,.35);}' +
       '.a6-drawer-trigger.is-side-left{left:0;right:auto;border-radius:0 8px 8px 0;box-shadow:2px 2px 10px rgba(22,119,255,.35);}' +
-      '.a6-drawer-trigger.is-side-right:hover{background:#4096ff;padding-right:11px;}' +
-      '.a6-drawer-trigger.is-side-left:hover{background:#4096ff;padding-left:11px;}' +
+      '.a6-drawer-trigger.is-side-right:hover{background:#4096ff;padding-right:14px;}' +
+      '.a6-drawer-trigger.is-side-left:hover{background:#4096ff;padding-left:14px;}' +
       '.a6-drawer-trigger.is-hidden{display:none !important;}' +
 
       /* 抽屉面板（占据页面 80% 高度，上下各留白 10%） */
@@ -232,23 +232,28 @@
       '.a6-drawer-panel.is-open{transform:translateX(0) !important;}' +
 
       /* 抽屉头部与操作按钮 */
-      '.a6-drawer-header{flex-shrink:0;padding:12px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;}' +
-      '.a6-drawer-title-wrap{display:flex;align-items:center;gap:6px;}' +
+      '.a6-drawer-header{flex-shrink:0;height:40px;padding:0;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;box-sizing:border-box;}' +
+      '.a6-drawer-header.is-side-left{flex-direction:row-reverse;}' +
+      '.a6-drawer-title-wrap{display:flex;align-items:center;gap:6px;padding:0 14px;}' +
       '.a6-drawer-title{font-size:14px;font-weight:600;color:#1f2937;}' +
-      '.a6-drawer-count{font-size:11px;background:#e5e7eb;color:#4b5563;padding:1px 6px;border-radius:10px;font-weight:600;}' +
-      '.a6-drawer-actions{display:flex;align-items:center;gap:6px;}' +
+      '.a6-drawer-count{font-size:11px;background:#e5e7eb;color:#4b5563;padding:2px 8px;border-radius:10px;font-weight:600;}' +
+      '.a6-drawer-actions{display:flex;align-items:center;height:40px;}' +
       '.a6-drawer-tool-btn{background:#f4f4f5;border:1px solid #e4e4e7;color:#52525b;font-size:11px;padding:2px 6px;border-radius:4px;cursor:pointer;line-height:1.2;transition:all .15s ease;}' +
       '.a6-drawer-tool-btn:hover{color:#1677ff;background:rgba(22,119,255,.08);border-color:rgba(22,119,255,.45);}' +
-      '.a6-drawer-close{background:none;border:none;color:#9ca3af;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px;border-radius:4px;}' +
-      '.a6-drawer-close:hover{color:#374151;background:#e5e7eb;}' +
+      '.a6-drawer-close{height:40px;padding:0 12px;cursor:pointer;font-size:13px;font-weight:500;border:none;background:#1677ff;color:#ffffff;display:inline-flex;align-items:center;justify-content:center;user-select:none;transition:all .2s ease;box-sizing:border-box;white-space:nowrap;}' +
+      '.a6-drawer-close:hover{background:#4096ff;}' +
+      '.a6-drawer-header.is-side-left .a6-drawer-close{border-radius:0 8px 8px 0;box-shadow:2px 2px 10px rgba(22,119,255,.35);}' +
+      '.a6-drawer-header.is-side-right .a6-drawer-close{border-radius:8px 0 0 8px;box-shadow:-2px 2px 10px rgba(22,119,255,.35);}' +
       /* 抽屉顶部快捷操作工具栏 */
       '.a6-drawer-toolbar{flex-shrink:0;display:flex;gap:8px;padding:8px 14px;background:#fafafa;border-bottom:1px solid #f0f0f0;box-sizing:border-box;}' +
       '.a6-toolbar-btn{flex:1;height:26px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:#374151;background:#ffffff;border:1px solid #d1d5db;border-radius:5px;cursor:pointer;white-space:nowrap;user-select:none;transition:all .15s ease;}' +
       '.a6-toolbar-btn:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.08);}' +
       '.a6-toolbar-btn:active{transform:translateY(1px);}' +
       '.a6-toolbar-btn.is-active{color:#1677ff;border-color:rgba(22,119,255,.5);background:rgba(22,119,255,.08);font-weight:600;}' +
-      /* 抽屉页面宽度调节栏 */
-      '.a6-drawer-widthbar{flex-shrink:0;padding:8px 14px 10px;background:#fafafa;border-bottom:1px solid #f0f0f0;display:flex;flex-direction:column;gap:6px;box-sizing:border-box;}' +
+      /* 抽屉底部常驻设置栏 */
+      '.a6-drawer-footer{flex-shrink:0;padding:10px 14px 12px;background:#fafafa;border-top:1px solid #f0f0f0;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;}' +
+      '.a6-footer-row1{display:flex;gap:8px;}' +
+      '.a6-drawer-widthbar{display:flex;flex-direction:column;gap:6px;}' +
       '.a6-width-top{display:flex;align-items:center;justify-content:space-between;font-size:11px;font-weight:600;color:#6b7280;}' +
       '.a6-width-input-wrap{display:inline-flex;align-items:center;gap:3px;}' +
       '.a6-width-num-input{width:56px;height:22px;padding:2px 4px;font-size:11px;text-align:center;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;border:1px solid #d1d5db;border-radius:4px;background:#ffffff;color:#1f2937;outline:none;box-sizing:border-box;}' +
@@ -329,6 +334,7 @@
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-panel.is-side-left{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-left:none;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-header{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-count{background:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-title{color:#fafafa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
@@ -336,7 +342,7 @@
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
-      ':root:not(.light):not([data-theme="light"]) .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-drawer-footer{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-top{color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-unit{color:#a1a1aa;}' +
@@ -363,6 +369,7 @@
       '.dark .a6-drawer-panel.is-side-right,[data-theme="dark"] .a6-drawer-panel.is-side-right{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-right:none;}' +
       '.dark .a6-drawer-panel.is-side-left,[data-theme="dark"] .a6-drawer-panel.is-side-left{background:#18181b;box-shadow:0 8px 24px rgba(0,0,0,.45);border-color:#3f3f46;border-left:none;}' +
       '.dark .a6-drawer-header,[data-theme="dark"] .a6-drawer-header{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-drawer-count,[data-theme="dark"] .a6-drawer-count{background:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-drawer-title,[data-theme="dark"] .a6-drawer-title{color:#fafafa;}' +
       '.dark .a6-drawer-tool-btn,[data-theme="dark"] .a6-drawer-tool-btn{background:#27272a;border-color:#3f3f46;color:#a1a1aa;}' +
       '.dark .a6-drawer-tool-btn:hover,[data-theme="dark"] .a6-drawer-tool-btn:hover{color:#60a5fa;border-color:#60a5fa;}' +
@@ -370,7 +377,7 @@
       '.dark .a6-toolbar-btn,[data-theme="dark"] .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-toolbar-btn:hover,[data-theme="dark"] .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       '.dark .a6-toolbar-btn.is-active,[data-theme="dark"] .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
-      '.dark .a6-drawer-widthbar,[data-theme="dark"] .a6-drawer-widthbar{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-drawer-footer,[data-theme="dark"] .a6-drawer-footer{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-width-top,[data-theme="dark"] .a6-width-top{color:#a1a1aa;}' +
       '.dark .a6-width-num-input,[data-theme="dark"] .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
       '.dark .a6-width-unit,[data-theme="dark"] .a6-width-unit{color:#a1a1aa;}' +
@@ -554,6 +561,31 @@
       }
     }
   }
+  function alignMarketFiltersToDefault() {
+    var tags = document.querySelectorAll('button, div[role="button"], .ui-switch-tag, .ui-filter-tag, span, [class*="tag"]');
+    for (var j = 0; j < tags.length; j++) {
+      var el = tags[j];
+      var txt = (el.textContent || '').trim();
+      var isBrandAll = txt === '全部品牌' || txt.indexOf('全部品牌') === 0;
+      var isModelAll = txt === '全部';
+      var isRecommend = txt.indexOf('综合推荐') !== -1;
+
+      if (isBrandAll || isModelAll || isRecommend) {
+        var cls = el.className || '';
+        var parentCls = (el.parentElement && el.parentElement.className) || '';
+        var isActive = cls.indexOf('active') !== -1 || cls.indexOf('selected') !== -1 ||
+                       parentCls.indexOf('active') !== -1 || parentCls.indexOf('selected') !== -1;
+        if (!isActive) {
+          var targetEl = (el.tagName === 'BUTTON' || (el.getAttribute && el.getAttribute('role') === 'button'))
+            ? el
+            : ((el.closest && el.closest('button, [role="button"]')) || el);
+          try {
+            targetEl.click();
+          } catch (e) {}
+        }
+      }
+    }
+  }
 
   function performMarketSearch(cid) {
     if (!cid) return;
@@ -561,6 +593,9 @@
     highlightActiveCard(activeChannelId);
 
     if (location.hash.indexOf('#/market') !== 0) return;
+
+    // 0) 靶向对齐重置多维筛选：全部品牌、全部(模型系列)、综合推荐(默认)
+    alignMarketFiltersToDefault();
 
     var tries = 0;
     var timer = setInterval(function () {
@@ -579,6 +614,9 @@
         return;
       }
       clearInterval(timer);
+
+      // 再次确保多维筛选对齐
+      alignMarketFiltersToDefault();
 
       // 1) 选中“渠道”维度
       if ((chip.className || '').indexOf('active') < 0) chip.click();
@@ -954,8 +992,8 @@
 
     var rawOpen = storageGet(STORAGE_KEY_DRAWER_OPEN, true);
     var isOpen = rawOpen !== false && rawOpen !== 'false';
-    var currentSide = storageGet(STORAGE_KEY_DRAWER_SIDE, 'right');
-    if (currentSide !== 'left' && currentSide !== 'right') currentSide = 'right';
+    var currentSide = storageGet(STORAGE_KEY_DRAWER_SIDE, 'left');
+    if (currentSide !== 'left' && currentSide !== 'right') currentSide = 'left';
 
     var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
     var customList = storageGet(STORAGE_KEY_CUSTOM, []);
@@ -981,41 +1019,26 @@
 
     // 头部
     var header = document.createElement('div');
-    header.className = 'a6-drawer-header';
+    header.className = 'a6-drawer-header' + (currentSide === 'left' ? ' is-side-left' : ' is-side-right');
     var titleWrap = document.createElement('div');
     titleWrap.className = 'a6-drawer-title-wrap';
-    var title = document.createElement('span');
-    title.className = 'a6-drawer-title';
-    title.textContent = '快捷渠道';
     var countBadge = document.createElement('span');
     countBadge.className = 'a6-drawer-count';
-    countBadge.textContent = String(ownedList.length + customList.length);
-    titleWrap.appendChild(title);
+    countBadge.textContent = '共 ' + (ownedList.length + customList.length) + ' 渠道';
     titleWrap.appendChild(countBadge);
 
     var actionsWrap = document.createElement('div');
     actionsWrap.className = 'a6-drawer-actions';
 
-    var sideBtn = document.createElement('button');
-    sideBtn.type = 'button';
-    sideBtn.className = 'a6-drawer-tool-btn';
-    sideBtn.title = currentSide === 'right' ? '切换到左侧贴边' : '切换到右侧贴边';
-    sideBtn.textContent = currentSide === 'right' ? '⇋ 靠左' : '⇋ 靠右';
-    sideBtn.addEventListener('click', function () {
-      currentSide = currentSide === 'right' ? 'left' : 'right';
-      storageSet(STORAGE_KEY_DRAWER_SIDE, currentSide);
-      renderMarketDrawer(true);
-    });
     var closeBtn = document.createElement('button');
     closeBtn.type = 'button';
     closeBtn.className = 'a6-drawer-close';
     closeBtn.title = '收起面板';
-    closeBtn.innerHTML = '✕';
+    closeBtn.innerHTML = '<span>✕ 快捷渠道</span>';
     closeBtn.addEventListener('click', function () {
       setDrawerOpen(false);
     });
 
-    actionsWrap.appendChild(sideBtn);
     actionsWrap.appendChild(closeBtn);
     header.appendChild(titleWrap);
     header.appendChild(actionsWrap);
@@ -1045,205 +1068,8 @@
 
     toolbar.appendChild(clearBtn);
     toolbar.appendChild(resetBtn);
-    var autoLoadBtn = document.createElement('button');
-    autoLoadBtn.type = 'button';
-    autoLoadBtn.className = 'a6-toolbar-btn a6-btn-autoload';
-    function updateAutoLoadBtn() {
-      var isAuto = storageGet(STORAGE_KEY_AUTO_LOAD, false);
-      if (isAuto) {
-        autoLoadBtn.classList.add('is-active');
-        autoLoadBtn.title = '触底自动加载更多: 已开启 (点击关闭)';
-        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 开</span>';
-      } else {
-        autoLoadBtn.classList.remove('is-active');
-        autoLoadBtn.title = '触底自动加载更多: 已关闭 (点击开启)';
-        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 关</span>';
-      }
-    }
-    updateAutoLoadBtn();
-    autoLoadBtn.addEventListener('click', function () {
-      var next = !storageGet(STORAGE_KEY_AUTO_LOAD, false);
-      storageSet(STORAGE_KEY_AUTO_LOAD, next);
-      updateAutoLoadBtn();
-      syncAutoLoadObserver();
-    });
-    toolbar.appendChild(autoLoadBtn);
     panel.appendChild(toolbar);
 
-    // 页面宽度调节栏
-    var widthBar = document.createElement('div');
-    widthBar.className = 'a6-drawer-widthbar';
-
-    var widthTop = document.createElement('div');
-    widthTop.className = 'a6-width-top';
-
-    var widthLabel = document.createElement('span');
-    widthLabel.className = 'a6-width-label';
-    widthLabel.textContent = '页面宽度';
-
-    var currentWidth = storageGet(STORAGE_KEY_MARKET_WIDTH, 'default');
-    var widthRight = document.createElement('div');
-    widthRight.className = 'a6-width-input-wrap';
-
-    var widthValDisplay = document.createElement('span');
-    widthValDisplay.className = 'a6-width-val';
-    function updateWidthDisplay(val) {
-      if (val === 'default') widthValDisplay.textContent = '原版';
-      else if (val === 'full') widthValDisplay.textContent = '100% 满宽';
-      else widthValDisplay.textContent = val;
-    }
-    updateWidthDisplay(currentWidth);
-
-    var numInput = document.createElement('input');
-    numInput.type = 'number';
-    numInput.step = '0.05';
-    numInput.min = '1.0';
-    numInput.max = '3.0';
-    numInput.className = 'a6-width-num-input';
-    numInput.placeholder = '倍率';
-    numInput.title = '直接输入放大倍率(如 1.35 或 1.55)，按回车生效';
-
-    var numSuffix = document.createElement('span');
-    numSuffix.className = 'a6-width-unit';
-    numSuffix.textContent = 'x';
-
-    function syncNumInput(val) {
-      if (val === 'default') {
-        numInput.value = '1.0';
-        numInput.placeholder = '1.0';
-      } else if (val === 'full') {
-        numInput.value = '';
-        numInput.placeholder = '满宽';
-      } else {
-        var n = parseFloat(val);
-        numInput.value = isNaN(n) ? '' : String(n);
-        numInput.placeholder = '倍率';
-      }
-    }
-    syncNumInput(currentWidth);
-
-    widthRight.appendChild(widthValDisplay);
-    widthRight.appendChild(numInput);
-    widthRight.appendChild(numSuffix);
-
-    widthTop.appendChild(widthLabel);
-    widthTop.appendChild(widthRight);
-
-    var presetsWrap = document.createElement('div');
-    presetsWrap.className = 'a6-width-presets';
-
-    var presets = [
-      { id: 'default', label: '原版' },
-      { id: '1.35x', label: '1.35' },
-      { id: '1.55x', label: '1.55' },
-      { id: 'full', label: '满宽' },
-    ];
-
-    var slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = '100';
-    slider.max = '180';
-    slider.step = '5';
-    slider.className = 'a6-width-slider';
-    slider.title = '拖拽平滑调节宽度比例';
-
-    function syncSlider(val) {
-      if (val === 'default') slider.value = '100';
-      else if (val === 'full') slider.value = '180';
-      else {
-        var n = parseFloat(val);
-        slider.value = isNaN(n) ? '100' : String(Math.round(n * 100));
-      }
-    }
-    syncSlider(currentWidth);
-
-    var pillBtns = [];
-    presets.forEach(function (p) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'a6-width-pill' + (currentWidth === p.id ? ' active' : '');
-      btn.textContent = p.label;
-      btn.addEventListener('click', function () {
-        currentWidth = p.id;
-        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
-        applyMarketWidth(currentWidth);
-        updateWidthDisplay(currentWidth);
-        syncSlider(currentWidth);
-        syncNumInput(currentWidth);
-        pillBtns.forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-      });
-      pillBtns.push(btn);
-      presetsWrap.appendChild(btn);
-    });
-
-    function commitNumInput() {
-      var raw = numInput.value.trim();
-      if (!raw) {
-        syncNumInput(currentWidth);
-        return;
-      }
-      var n = parseFloat(raw);
-      if (isNaN(n) || n < 0.8 || n > 3.0) {
-        syncNumInput(currentWidth);
-        return;
-      }
-      var newVal = (n === 1.0) ? 'default' : (n.toFixed(2).replace(/\.?0+$/, '') + 'x');
-      currentWidth = newVal;
-      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
-      applyMarketWidth(currentWidth);
-      updateWidthDisplay(currentWidth);
-      syncSlider(currentWidth);
-      syncNumInput(currentWidth);
-      pillBtns.forEach(function (b, idx) {
-        if (presets[idx].id === newVal) b.classList.add('active');
-        else b.classList.remove('active');
-      });
-    }
-
-    numInput.addEventListener('input', function () {
-      var raw = numInput.value.trim();
-      var n = parseFloat(raw);
-      if (!isNaN(n) && n >= 0.8 && n <= 3.0) {
-        var newVal = (n === 1.0) ? 'default' : (n + 'x');
-        currentWidth = newVal;
-        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
-        applyMarketWidth(currentWidth);
-        updateWidthDisplay(currentWidth);
-        syncSlider(currentWidth);
-        pillBtns.forEach(function (b, idx) {
-          if (presets[idx].id === newVal) b.classList.add('active');
-          else b.classList.remove('active');
-        });
-      }
-    });
-
-    numInput.addEventListener('change', commitNumInput);
-    numInput.addEventListener('keydown', function (ev) {
-      if (ev.key === 'Enter') {
-        commitNumInput();
-        numInput.blur();
-      }
-    });
-
-    slider.addEventListener('input', function () {
-      var num = parseInt(slider.value, 10);
-      var newVal = (num === 100) ? 'default' : ((num === 180) ? 'full' : (num / 100).toFixed(2).replace(/\.?0+$/, '') + 'x');
-      currentWidth = newVal;
-      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
-      applyMarketWidth(currentWidth);
-      updateWidthDisplay(currentWidth);
-      syncNumInput(currentWidth);
-      pillBtns.forEach(function (b, idx) {
-        if (presets[idx].id === newVal) b.classList.add('active');
-        else b.classList.remove('active');
-      });
-    });
-
-    widthBar.appendChild(widthTop);
-    widthBar.appendChild(presetsWrap);
-    widthBar.appendChild(slider);
-    panel.appendChild(widthBar);
     // 内容区
     var content = document.createElement('div');
     content.className = 'a6-drawer-content';
@@ -1427,6 +1253,227 @@
     content.appendChild(secCustom);
 
     panel.appendChild(content);
+
+    // 底部常驻设置栏
+    var footer = document.createElement('div');
+    footer.className = 'a6-drawer-footer';
+
+    var footerRow1 = document.createElement('div');
+    footerRow1.className = 'a6-footer-row1';
+
+    var sideBtn = document.createElement('button');
+    sideBtn.type = 'button';
+    sideBtn.className = 'a6-toolbar-btn a6-drawer-tool-btn a6-btn-side';
+    sideBtn.title = currentSide === 'right' ? '切换到左侧贴边' : '切换到右侧贴边';
+    sideBtn.textContent = currentSide === 'right' ? '⇋ 靠左' : '⇋ 靠右';
+    sideBtn.addEventListener('click', function () {
+      currentSide = currentSide === 'right' ? 'left' : 'right';
+      storageSet(STORAGE_KEY_DRAWER_SIDE, currentSide);
+      renderMarketDrawer(true);
+    });
+
+    var autoLoadBtn = document.createElement('button');
+    autoLoadBtn.type = 'button';
+    autoLoadBtn.className = 'a6-toolbar-btn a6-btn-autoload';
+    function updateAutoLoadBtn() {
+      var isAuto = storageGet(STORAGE_KEY_AUTO_LOAD, false);
+      if (isAuto) {
+        autoLoadBtn.classList.add('is-active');
+        autoLoadBtn.title = '触底自动加载更多: 已开启 (点击关闭)';
+        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 开</span>';
+      } else {
+        autoLoadBtn.classList.remove('is-active');
+        autoLoadBtn.title = '触底自动加载更多: 已关闭 (点击开启)';
+        autoLoadBtn.innerHTML = '<span>⚡ 自动加载: 关</span>';
+      }
+    }
+    updateAutoLoadBtn();
+    autoLoadBtn.addEventListener('click', function () {
+      var next = !storageGet(STORAGE_KEY_AUTO_LOAD, false);
+      storageSet(STORAGE_KEY_AUTO_LOAD, next);
+      updateAutoLoadBtn();
+      syncAutoLoadObserver();
+    });
+
+    footerRow1.appendChild(sideBtn);
+    footerRow1.appendChild(autoLoadBtn);
+    footer.appendChild(footerRow1);
+
+    // 页面宽度调节栏
+    var widthBar = document.createElement('div');
+    widthBar.className = 'a6-drawer-widthbar';
+
+    var widthTop = document.createElement('div');
+    widthTop.className = 'a6-width-top';
+
+    var widthLabel = document.createElement('span');
+    widthLabel.className = 'a6-width-label';
+    widthLabel.textContent = '页面宽度';
+
+    var currentWidth = storageGet(STORAGE_KEY_MARKET_WIDTH, 'default');
+    var widthRight = document.createElement('div');
+    widthRight.className = 'a6-width-input-wrap';
+
+    var widthValDisplay = document.createElement('span');
+    widthValDisplay.className = 'a6-width-val';
+    function updateWidthDisplay(val) {
+      if (val === 'default') widthValDisplay.textContent = '原版';
+      else if (val === 'full') widthValDisplay.textContent = '100% 满宽';
+      else widthValDisplay.textContent = val;
+    }
+    updateWidthDisplay(currentWidth);
+
+    var numInput = document.createElement('input');
+    numInput.type = 'number';
+    numInput.step = '0.05';
+    numInput.min = '1.0';
+    numInput.max = '3.0';
+    numInput.className = 'a6-width-num-input';
+    numInput.placeholder = '倍率';
+    numInput.title = '直接输入放大倍率(如 1.35 或 1.55)，按回车生效';
+
+    var numSuffix = document.createElement('span');
+    numSuffix.className = 'a6-width-unit';
+    numSuffix.textContent = 'x';
+
+    function syncNumInput(val) {
+      if (val === 'default') {
+        numInput.value = '1.0';
+        numInput.placeholder = '1.0';
+      } else if (val === 'full') {
+        numInput.value = '';
+        numInput.placeholder = '满宽';
+      } else {
+        var n = parseFloat(val);
+        numInput.value = isNaN(n) ? '' : String(n);
+        numInput.placeholder = '倍率';
+      }
+    }
+    syncNumInput(currentWidth);
+
+    widthRight.appendChild(widthValDisplay);
+    widthRight.appendChild(numInput);
+    widthRight.appendChild(numSuffix);
+
+    widthTop.appendChild(widthLabel);
+    widthTop.appendChild(widthRight);
+
+    var presetsWrap = document.createElement('div');
+    presetsWrap.className = 'a6-width-presets';
+
+    var presets = [
+      { id: 'default', label: '原版' },
+      { id: '1.35x', label: '1.35' },
+      { id: '1.55x', label: '1.55' },
+      { id: 'full', label: '满宽' },
+    ];
+
+    var slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '100';
+    slider.max = '180';
+    slider.step = '5';
+    slider.className = 'a6-width-slider';
+    slider.title = '拖拽平滑调节宽度比例';
+
+    function syncSlider(val) {
+      if (val === 'default') slider.value = '100';
+      else if (val === 'full') slider.value = '180';
+      else {
+        var n = parseFloat(val);
+        slider.value = isNaN(n) ? '100' : String(Math.round(n * 100));
+      }
+    }
+    syncSlider(currentWidth);
+
+    var pillBtns = [];
+    presets.forEach(function (p) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'a6-width-pill' + (currentWidth === p.id ? ' active' : '');
+      btn.textContent = p.label;
+      btn.addEventListener('click', function () {
+        currentWidth = p.id;
+        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+        applyMarketWidth(currentWidth);
+        updateWidthDisplay(currentWidth);
+        syncSlider(currentWidth);
+        syncNumInput(currentWidth);
+        pillBtns.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+      });
+      pillBtns.push(btn);
+      presetsWrap.appendChild(btn);
+    });
+
+    function commitNumInput() {
+      var raw = numInput.value.trim();
+      if (!raw) {
+        syncNumInput(currentWidth);
+        return;
+      }
+      var n = parseFloat(raw);
+      if (isNaN(n) || n < 0.8 || n > 3.0) {
+        syncNumInput(currentWidth);
+        return;
+      }
+      var newVal = (n === 1.0) ? 'default' : (n.toFixed(2).replace(/\.?0+$/, '') + 'x');
+      currentWidth = newVal;
+      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+      applyMarketWidth(currentWidth);
+      updateWidthDisplay(currentWidth);
+      syncSlider(currentWidth);
+      syncNumInput(currentWidth);
+      pillBtns.forEach(function (b, idx) {
+        if (presets[idx].id === newVal) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+    }
+
+    numInput.addEventListener('input', function () {
+      var raw = numInput.value.trim();
+      var n = parseFloat(raw);
+      if (!isNaN(n) && n >= 0.8 && n <= 3.0) {
+        var newVal = (n === 1.0) ? 'default' : (n + 'x');
+        currentWidth = newVal;
+        storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+        applyMarketWidth(currentWidth);
+        updateWidthDisplay(currentWidth);
+        syncSlider(currentWidth);
+        pillBtns.forEach(function (b, idx) {
+          if (presets[idx].id === newVal) b.classList.add('active');
+          else b.classList.remove('active');
+        });
+      }
+    });
+
+    numInput.addEventListener('change', commitNumInput);
+    numInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        commitNumInput();
+        numInput.blur();
+      }
+    });
+
+    slider.addEventListener('input', function () {
+      var num = parseInt(slider.value, 10);
+      var newVal = (num === 100) ? 'default' : ((num === 180) ? 'full' : (num / 100).toFixed(2).replace(/\.?0+$/, '') + 'x');
+      currentWidth = newVal;
+      storageSet(STORAGE_KEY_MARKET_WIDTH, currentWidth);
+      applyMarketWidth(currentWidth);
+      updateWidthDisplay(currentWidth);
+      syncNumInput(currentWidth);
+      pillBtns.forEach(function (b, idx) {
+        if (presets[idx].id === newVal) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+    });
+
+    widthBar.appendChild(widthTop);
+    widthBar.appendChild(presetsWrap);
+    widthBar.appendChild(slider);
+    footer.appendChild(widthBar);
+    panel.appendChild(footer);
     container.appendChild(panel);
     if (savedScrollTop > 0) {
       content.scrollTop = savedScrollTop;

@@ -56,6 +56,22 @@ _Avoid_: 屏幕拉伸, 界面缩放
 The paginated table of model supply rows on the market page (`#/market`), browsable by brand, model, and category.
 _Avoid_: 模型类别页, 模型详情页, 模型列表
 
+**多维快速筛选联动 (Multi-dimensional Filter Alignment)**:
+An automated reset action triggered upon selecting a quick channel in the drawer, restoring brand ("全部品牌"), model series ("全部"), and sort ("综合推荐 (默认)") to their pristine states to eliminate 0-result false positives caused by lingering filter constraints.
+_Avoid_: 强制全量重置, 筛选清空
+
 **自动加载更多 (Auto Load More)**:
 A configurable automation setting that observes the pagination button and triggers next-page loading via viewport intersection as the user scrolls.
 _Avoid_: 无限滚动, 自动翻页, 连点展开
+
+**抽屉贴边触点 (Drawer Edge Touchpoint)**:
+An in-place edge anchor located at `top: 10vh` that serves as the unified, identical click target for both expanding and collapsing the quick channel drawer without coordinate or dimension shift.
+_Avoid_: 悬浮球, 展开叉号, 侧边拉手
+
+**筛选平铺流 (Filter Tag Flow)**:
+An unconstrained multi-line tag presentation mode that allows brand and model filters to wrap naturally in wide layouts instead of hiding behind "+N" collapse buttons.
+_Avoid_: 标签换行, 展开标签
+
+**紧凑指标排版 (Compact Metric Layout)**:
+A table column allocation strategy that fixes metric columns to compact widths while assigning expanded space to descriptive and identity columns, avoiding rubber-band empty gaps.
+_Avoid_: 列宽压缩, 紧凑表格

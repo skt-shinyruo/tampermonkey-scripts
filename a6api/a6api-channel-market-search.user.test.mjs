@@ -296,10 +296,15 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
   const intersectionObservers = [];
   const menuCommands = new Map();
 
+  const hashIdx = initialHash.indexOf('#');
+  const parsedHash = hashIdx !== -1 ? initialHash.slice(hashIdx) : initialHash;
+  const parsedSearch = initialHash.includes('?')
+    ? initialHash.slice(initialHash.indexOf('?'), hashIdx !== -1 ? hashIdx : undefined)
+    : '';
   const location = {
-    hash: initialHash,
+    hash: parsedHash,
     href: `https://a6api.com/${initialHash}`,
-    search: '',
+    search: parsedSearch,
     pathname: '/',
   };
 
@@ -547,6 +552,37 @@ test('a6api market page initializes quick channel drawer with owned and custom c
 
   env.body.appendChild(tagChip);
   env.body.appendChild(searchInput);
+  // Setup multi-dimensional filter tags (simulating user having filtered by a brand/model)
+  const brandAll = new MockElement('button');
+  brandAll.className = 'ui-filter-tag';
+  brandAll.textContent = '全部品牌 2941家供货';
+  let brandAllClicked = false;
+  brandAll.addEventListener('click', () => {
+    brandAllClicked = true;
+    brandAll.classList.add('active');
+  });
+
+  const modelAll = new MockElement('button');
+  modelAll.className = 'ui-filter-tag';
+  modelAll.textContent = '全部';
+  let modelAllClicked = false;
+  modelAll.addEventListener('click', () => {
+    modelAllClicked = true;
+    modelAll.classList.add('active');
+  });
+
+  const sortRecommend = new MockElement('button');
+  sortRecommend.className = 'ui-filter-tag';
+  sortRecommend.textContent = '综合推荐 (默认)';
+  let sortRecommendClicked = false;
+  sortRecommend.addEventListener('click', () => {
+    sortRecommendClicked = true;
+    sortRecommend.classList.add('active');
+  });
+
+  env.body.appendChild(brandAll);
+  env.body.appendChild(modelAll);
+  env.body.appendChild(sortRecommend);
 
   env.runScript();
 
@@ -581,6 +617,9 @@ test('a6api market page initializes quick channel drawer with owned and custom c
   assert.equal(tagClicked, true, 'Clicking channel card should click 渠道 switch tag');
   assert.equal(searchInput.value, '101', 'Clicking channel card should set search field to channel ID');
   assert.equal(card101.classList.contains('active'), true, 'Selected card should have active class');
+  assert.equal(brandAllClicked, true, 'Clicking channel card should reset brand filter to 全部品牌');
+  assert.equal(modelAllClicked, true, 'Clicking channel card should reset model series filter to 全部');
+  assert.equal(sortRecommendClicked, true, 'Clicking channel card should reset sort filter to 综合推荐');
   // Test toggle deselect: click card101 again to unselect
   card101.click();
   assert.equal(card101.classList.contains('active'), false, 'Card should be deselected on second click');
@@ -630,21 +669,46 @@ test('a6api market page initializes quick channel drawer with owned and custom c
   assert.equal(remarksAfterAdd['303'], '生产主力');
   const sideBtn = panel.querySelector('.a6-drawer-tool-btn');
   assert.ok(sideBtn);
-  assert.match(sideBtn.textContent, /靠左/);
+  assert.match(sideBtn.textContent, /靠右/);
   sideBtn.click();
 
   const updatedPanel = env.document.getElementById('a6-drawer-panel');
-  assert.equal(updatedPanel.classList.contains('is-side-left'), true);
-  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_side')), 'left');
+  assert.equal(updatedPanel.classList.contains('is-side-right'), true);
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_side')), 'right');
 });
 
-test('a6api market drawer defaults to open when no state is saved in storage', () => {
+test('a6api market drawer defaults to open when no state is saved in storage and supports dual-state edge touchpoint', () => {
   const env = createEnvironment('#/market', {});
   env.runScript();
   const panel = env.document.getElementById('a6-drawer-panel');
+  const trigger = env.document.getElementById('a6-drawer-trigger');
   assert.ok(panel);
+  assert.ok(trigger);
   assert.equal(panel.classList.contains('is-open'), true, 'Drawer should default to open on first visit');
-  assert.equal(panel.classList.contains('is-side-right'), true, 'Drawer should default to right side');
+  assert.equal(panel.classList.contains('is-side-left'), true, 'Drawer should default to left side');
+  assert.equal(trigger.classList.contains('is-side-left'), true);
+  assert.equal(trigger.classList.contains('is-hidden'), true);
+  assert.equal(trigger.textContent.includes('📌 快捷渠道'), true);
+
+  const header = panel.querySelector('.a6-drawer-header');
+  assert.ok(header);
+  assert.equal(header.classList.contains('is-side-left'), true);
+
+  const closeBtn = panel.querySelector('.a6-drawer-close');
+  assert.ok(closeBtn, 'Close button capsule should exist in header');
+  assert.equal(closeBtn.textContent.includes('✕ 快捷渠道'), true, 'Close button should mirror trigger text with ✕');
+
+  // Click close button -> panel closes, trigger reveals
+  closeBtn.click();
+  assert.equal(panel.classList.contains('is-open'), false);
+  assert.equal(trigger.classList.contains('is-hidden'), false);
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_open')), false);
+
+  // Click trigger -> panel opens, trigger hides
+  trigger.click();
+  assert.equal(panel.classList.contains('is-open'), true);
+  assert.equal(trigger.classList.contains('is-hidden'), true);
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_open')), true);
 });
 
 test('a6api market drawer preserves scroll position and avoids re-render on arbitrary DOM mutations', () => {
@@ -1019,4 +1083,61 @@ test('a6api market page supports auto load more setting, toolbar toggle, and int
   // 6. Leaving market disconnects observer
   env.triggerHashChange('#/merchant/channels');
   assert.equal(observer.observed.length, 0);
+});
+
+test('a6api market page automatically aligns multi-dimensional filters when entering via ?cid=... URL parameter', () => {
+  const env = createEnvironment('?cid=5973#/market', {});
+
+  const tagChip = new MockElement('button');
+  tagChip.className = 'ui-switch-tag';
+  tagChip.textContent = '渠道';
+  let tagClicked = false;
+  tagChip.addEventListener('click', () => {
+    tagClicked = true;
+    tagChip.classList.add('active');
+  });
+
+  const searchInput = new MockElement('input');
+  searchInput.className = 'ui-search-field';
+
+  const brandAll = new MockElement('button');
+  brandAll.className = 'ui-filter-tag';
+  brandAll.textContent = '全部品牌 2941家供货';
+  let brandAllClicked = false;
+  brandAll.addEventListener('click', () => {
+    brandAllClicked = true;
+    brandAll.classList.add('active');
+  });
+
+  const modelAll = new MockElement('button');
+  modelAll.className = 'ui-filter-tag';
+  modelAll.textContent = '全部';
+  let modelAllClicked = false;
+  modelAll.addEventListener('click', () => {
+    modelAllClicked = true;
+    modelAll.classList.add('active');
+  });
+
+  const sortRecommend = new MockElement('button');
+  sortRecommend.className = 'ui-filter-tag';
+  sortRecommend.textContent = '综合推荐 (默认)';
+  let sortRecommendClicked = false;
+  sortRecommend.addEventListener('click', () => {
+    sortRecommendClicked = true;
+    sortRecommend.classList.add('active');
+  });
+
+  env.body.appendChild(tagChip);
+  env.body.appendChild(searchInput);
+  env.body.appendChild(brandAll);
+  env.body.appendChild(modelAll);
+  env.body.appendChild(sortRecommend);
+
+  env.runScript();
+
+  assert.equal(brandAllClicked, true, 'Entering via ?cid URL should align brand to 全部品牌');
+  assert.equal(modelAllClicked, true, 'Entering via ?cid URL should align model to 全部');
+  assert.equal(sortRecommendClicked, true, 'Entering via ?cid URL should align sort to 综合推荐');
+  assert.equal(tagClicked, true, 'Entering via ?cid URL should click 渠道 tag');
+  assert.equal(searchInput.value, '5973', 'Entering via ?cid URL should set search input to cid');
 });
