@@ -7,6 +7,7 @@ on:
       - Publish Sub2API Userscript
       - Publish Linux.do Userscript
       - Publish Cursor Userscript
+      - Publish AIHub Userscript
     branches:
       - main
     types:

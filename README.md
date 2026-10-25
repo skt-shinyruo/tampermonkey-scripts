@@ -16,6 +16,7 @@
 | **Sub2API Helper** | `*://*/*` (Sub2API 管理端) | 深色/浅色/系统主题记忆；侧边栏收起与宽度记忆（紧凑/原版/自定义）；账号页每页数量记忆；使用记录页日期范围/粒度记忆；自动刷新倒计时与行级缓存命中率分析；站点彻底静默排除 | [🚀 点击安装](https://skt-shinyruo.github.io/tampermonkey-scripts/sub2api-helper.user.js) | [🔗 Raw 链接](https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js) | [`sub2api/`](./sub2api/) |
 | **Linux.do 新标签页打开链接** | `linux.do` | 在 Linux.do 论坛中以新标签页（后台标签）打开帖子链接与侧边栏导航链接，保留原列表浏览位置 | [🚀 点击安装](https://skt-shinyruo.github.io/tampermonkey-scripts/linuxdo-open-links-new-tab.user.js) | [🔗 Raw 链接](https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/linuxdo-open-links-new-tab.user.js) | [`linuxdo/`](./linuxdo/) |
 | **Cursor Spending 显示用量总额** | `cursor.com` | 在 Cursor Spending 页面将 "x% used" 替换为两位小数精确百分比，并内联调用官方接口计算展示真实花费金额与上限总量 | [🚀 点击安装](https://skt-shinyruo.github.io/tampermonkey-scripts/cursor-spending-total.user.js) | [🔗 Raw 链接](https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/cursor-spending-total.user.js) | [`cursor/`](./cursor/) |
+| **AIHub 供应商大厅增强** | `aihub.top` | 高亮以 S012 开头的关键分组；每页数量档位与默认记忆值自定义；超长监测请求自动分片；分组名综合分直观透出与卡片指标内联、排序算法拆解 | [🚀 点击安装](https://skt-shinyruo.github.io/tampermonkey-scripts/aihub-supplier-hall.user.js) | [🔗 Raw 链接](https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/aihub-supplier-hall.user.js) | [`aihub/`](./aihub/) |
 
 ---
 
@@ -95,10 +96,12 @@ node --check a6api/a6api-channel-market-search.user.js
 node --check sub2api/build-userscript.mjs
 node --check linuxdo/linuxdo-open-links-new-tab.user.js
 node --check cursor/cursor-spending-total.user.js
+node --check aihub/aihub-supplier-hall.user.js
 
 # 运行全量单测
 node a6api/a6api-channel-market-search.user.test.mjs
 node sub2api/sub2api-helper.user.test.mjs
 node linuxdo/linuxdo-open-links-new-tab.user.test.mjs
 node --test cursor/cursor-spending-total.user.test.mjs
+node --test aihub/aihub-supplier-hall.user.test.mjs
 ```

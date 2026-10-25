@@ -110,6 +110,16 @@ _Avoid_: 快捷键唤醒, 隐蔽触点, 右键菜单
 A globally persisted set of origin URLs where Sub2API Helper is deactivated, manageable across all sites via the settings panel.
 _Avoid_: 域名黑名单, 屏蔽网站列表
 
+## AIHub Supplier Hall
+
+**供应商大厅 (Supplier Hall)**:
+The marketplace overview and supplier rating interface on `aihub.top` displaying grouped supplier endpoints and operational metrics.
+_Avoid_: 服务市场, 节点列表
+
+**S012 分组高亮 (S012 Group Highlighting)**:
+Visual emphasis applied to supplier groups prefixed with `S012` in the supplier hall for instant distinction.
+_Avoid_: 自定义分组发光, 重点标记
+
 ## Userscript Repository Infrastructure
 
 **用户脚本分发标准 (Userscript Distribution Standard)**:

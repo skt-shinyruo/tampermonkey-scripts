@@ -1,0 +1,85 @@
+name: Publish AIHub Userscript
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'aihub/**'
+      - '.github/workflows/aihub-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: userscripts-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check source syntax
+        run: node --check aihub/aihub-supplier-hall.user.js
+
+      - name: Check build script syntax
+        run: node --check aihub/build-userscript.mjs
+
+      - name: Test build script
+        run: node --test aihub/aihub-supplier-hall.user.test.mjs
+
+      - name: Build userscript
+        run: |
+          script_url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/build/aihub-supplier-hall.user.js"
+          AIHUB_VERSION="2.0.${GITHUB_RUN_NUMBER}" \
+          AIHUB_UPDATE_URL="$script_url" \
+          AIHUB_DOWNLOAD_URL="$script_url" \
+          node aihub/build-userscript.mjs --output=dist/aihub-supplier-hall.user.js
+
+      - name: Check userscript syntax
+        run: node --check dist/aihub-supplier-hall.user.js
+
+      - name: Publish userscript to build branch
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          publish_dir="$(mktemp -d)"
+          cp dist/aihub-supplier-hall.user.js "$publish_dir/aihub-supplier-hall.user.js.new"
+
+          git fetch origin build:refs/remotes/origin/build || true
+          if git show-ref --verify --quiet refs/remotes/origin/build; then
+            git switch --detach origin/build
+            for f in *.user.js; do
+              if [ -f "$f" ]; then
+                cp "$f" "$publish_dir/"
+              fi
+            done
+          else
+            git switch --orphan build
+            git rm -rf . || true
+          fi
+
+          mv "$publish_dir/aihub-supplier-hall.user.js.new" "$publish_dir/aihub-supplier-hall.user.js"
+
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp "$publish_dir"/*.user.js .
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No build branch changes to publish."
+          else
+            git commit -m "chore: publish aihub userscript build"
+            git push origin HEAD:build
+          fi
