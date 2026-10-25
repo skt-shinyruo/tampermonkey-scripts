@@ -76,6 +76,22 @@ _Avoid_: 标签换行, 展开标签
 A table column allocation strategy that fixes metric columns to compact widths while assigning expanded space to descriptive and identity columns, avoiding rubber-band empty gaps.
 _Avoid_: 列宽压缩, 紧凑表格
 
+
+**渠道信息同步 (Channel Info Sync)**:
+An operation that queries the marketplace search API to retrieve the latest channel name and channel description for owned and custom channels, updating local storage while preserving channel remarks.
+_Avoid_: 渠道全量克隆, 渠道覆盖, 列表重建
+
+**被动同步 (Passive Channel Refresh)**:
+A throttled background update triggered upon selecting a channel in the drawer, refreshing stale metadata against the public API without disrupting the search interaction.
+_Avoid_: 实时轮询, 动态拉取, 页面拦截
+
+**同步渠道按钮 (Sync Channels Toolbar Action)**:
+A manual drawer toolbar action that initiates an on-demand batch refresh of all owned and custom channels with concurrent throttling and transient status feedback.
+_Avoid_: 强制同步, 刷新所有
+
+**下架渠道标识 (Delisted Channel Badge)**:
+A visual indicator (`[已下架]`) displayed on a quick channel card when upstream data confirms the channel is inactive or unlisted, preserving the card and user remarks while clearly signaling its offline state.
+_Avoid_: 渠道删除, 报错提示, 异常卡片
 ## Sub2API Helper
 
 **站点排除 (Site Exclusion)**:

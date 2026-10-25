@@ -101,10 +101,26 @@
       var p = fetchFn(apiUrl, { credentials: 'include' });
       if (!p || typeof p.then !== 'function') return callback(null);
       p.then(function (res) {
-        if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : ''));
-        return res.json();
+        if (!res) throw new Error('No response');
+        if (res.status === 404) {
+          return { status: 404, items: [] };
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json().then(function (json) {
+          return { status: 200, json: json };
+        });
       })
-      .then(function (json) {
+      .then(function (result) {
+        if (!result) return callback(null);
+        if (result.status === 404) {
+          return callback({
+            name: '',
+            desc: '',
+            delisted: true,
+            remark: getChannelRemark(cid),
+          });
+        }
+        var json = result.json;
         var items = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : [];
         if (items.length > 0) {
           var it = items[0];
@@ -113,10 +129,17 @@
           return callback({
             name: (name || '').trim(),
             desc: (desc || '').trim(),
+            delisted: false,
+            remark: getChannelRemark(cid),
+          });
+        } else {
+          return callback({
+            name: '',
+            desc: '',
+            delisted: true,
             remark: getChannelRemark(cid),
           });
         }
-        callback(null);
       })
       .catch(function () {
         callback(null);
@@ -159,33 +182,35 @@
     var targetId = String(cid).trim();
     if (!targetId) return cb(null);
 
-    // 1) 优先从已同步的商户自有渠道缓存匹配
-    var owned = storageGet(STORAGE_KEY_OWNED, {});
-    if (owned[targetId]) {
-      var item = owned[targetId];
-      return cb({
-        name: item.name || '',
-        desc: item.desc || '',
-        remark: getChannelRemark(targetId),
-      });
-    }
-
-    // 2) 检查已有的自定义渠道与备注
-    var custom = storageGet(STORAGE_KEY_CUSTOM, []);
-    for (var i = 0; i < custom.length; i++) {
-      if (String(custom[i].id) === targetId) {
-        return cb({
-          name: custom[i].name || '',
-          desc: custom[i].desc || '',
-          remark: getChannelRemark(targetId),
-        });
-      }
-    }
-
-    // 3) 优先通过官方市场公开检索接口精准获取
+    // 1) 优先通过官方市场公开检索接口精准获取
     fetchChannelInfoFromApi(targetId, function (apiInfo) {
       if (apiInfo && (apiInfo.name || apiInfo.desc)) {
         return cb(apiInfo);
+      }
+
+      // 2) 检查已同步的商户自有渠道缓存匹配
+      var owned = storageGet(STORAGE_KEY_OWNED, {});
+      if (owned[targetId]) {
+        var item = owned[targetId];
+        return cb({
+          name: item.name || '',
+          desc: item.desc || '',
+          delisted: !!item.delisted,
+          remark: getChannelRemark(targetId),
+        });
+      }
+
+      // 3) 检查已有的自定义渠道与备注
+      var custom = storageGet(STORAGE_KEY_CUSTOM, []);
+      for (var i = 0; i < custom.length; i++) {
+        if (String(custom[i].id) === targetId) {
+          return cb({
+            name: custom[i].name || '',
+            desc: custom[i].desc || '',
+            delisted: !!custom[i].delisted,
+            remark: getChannelRemark(targetId),
+          });
+        }
       }
 
       // 4) 若 API 未命中或无网络环境，按行精准解析当前市场 DOM（杜绝卡片容器贪婪匹配）
@@ -197,8 +222,151 @@
       return cb({
         name: '',
         desc: '',
+        delisted: apiInfo ? !!apiInfo.delisted : false,
         remark: getChannelRemark(targetId),
       });
+    });
+  }
+
+  var CHANNEL_SYNC_TTL = 2 * 60 * 60 * 1000; // 2 hours
+
+  function updateChannelMetadata(id, remoteInfo) {
+    if (!id || !remoteInfo) return false;
+    var targetId = String(id).trim();
+    var changed = false;
+
+    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+    if (ownedMap[targetId]) {
+      var ownedItem = ownedMap[targetId];
+      if (remoteInfo.delisted) {
+        if (!ownedItem.delisted) {
+          ownedItem.delisted = true;
+          ownedItem.updatedAt = Date.now();
+          changed = true;
+        }
+      } else {
+        var newName = remoteInfo.name || ownedItem.name || targetId;
+        var newDesc = remoteInfo.desc !== undefined ? remoteInfo.desc : ownedItem.desc;
+        if (ownedItem.name !== newName || ownedItem.desc !== newDesc || ownedItem.delisted) {
+          ownedItem.name = newName;
+          ownedItem.desc = newDesc;
+          ownedItem.delisted = false;
+          ownedItem.updatedAt = Date.now();
+          changed = true;
+        }
+      }
+      if (changed) {
+        storageSet(STORAGE_KEY_OWNED, ownedMap);
+      }
+    }
+
+    var customList = storageGet(STORAGE_KEY_CUSTOM, []);
+    var customChanged = false;
+    for (var i = 0; i < customList.length; i++) {
+      if (String(customList[i].id) === targetId) {
+        var custItem = customList[i];
+        if (remoteInfo.delisted) {
+          if (!custItem.delisted) {
+            custItem.delisted = true;
+            custItem.updatedAt = Date.now();
+            customChanged = true;
+          }
+        } else {
+          var cNewName = remoteInfo.name || custItem.name || targetId;
+          var cNewDesc = remoteInfo.desc !== undefined ? remoteInfo.desc : custItem.desc;
+          if (custItem.name !== cNewName || custItem.desc !== cNewDesc || custItem.delisted) {
+            custItem.name = cNewName;
+            custItem.desc = cNewDesc;
+            custItem.delisted = false;
+            custItem.updatedAt = Date.now();
+            customChanged = true;
+          }
+        }
+      }
+    }
+    if (customChanged) {
+      storageSet(STORAGE_KEY_CUSTOM, customList);
+      changed = true;
+    }
+
+    return changed;
+  }
+
+  function syncAllChannels(callback) {
+    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+    var customList = storageGet(STORAGE_KEY_CUSTOM, []);
+    var ids = [];
+    Object.keys(ownedMap).forEach(function (k) {
+      if (ids.indexOf(k) === -1) ids.push(k);
+    });
+    customList.forEach(function (c) {
+      if (c && c.id && ids.indexOf(String(c.id)) === -1) ids.push(String(c.id));
+    });
+
+    if (ids.length === 0) {
+      if (callback) callback({ total: 0, updated: 0 });
+      return;
+    }
+
+    var idx = 0;
+    var active = 0;
+    var updatedCount = 0;
+    var completed = 0;
+    var concurrency = 3;
+
+    function next() {
+      while (active < concurrency && idx < ids.length) {
+        var cid = ids[idx++];
+        active++;
+        (function (id) {
+          fetchChannelInfoFromApi(id, function (remoteInfo) {
+            active--;
+            completed++;
+            if (remoteInfo) {
+              var changed = updateChannelMetadata(id, remoteInfo);
+              if (changed) updatedCount++;
+            }
+            if (completed === ids.length) {
+              if (callback) callback({ total: ids.length, updated: updatedCount });
+            } else {
+              next();
+            }
+          });
+        })(cid);
+      }
+    }
+    next();
+  }
+
+  function triggerPassiveSync(cid) {
+    if (!cid) return;
+    var targetId = String(cid).trim();
+    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+    var customList = storageGet(STORAGE_KEY_CUSTOM, []);
+
+    var targetItem = ownedMap[targetId];
+    if (!targetItem) {
+      for (var i = 0; i < customList.length; i++) {
+        if (String(customList[i].id) === targetId) {
+          targetItem = customList[i];
+          break;
+        }
+      }
+    }
+    if (!targetItem) return;
+
+    var lastUpdated = targetItem.updatedAt || 0;
+    if (Date.now() - lastUpdated < CHANNEL_SYNC_TTL) {
+      return;
+    }
+
+    fetchChannelInfoFromApi(targetId, function (remoteInfo) {
+      if (remoteInfo) {
+        var changed = updateChannelMetadata(targetId, remoteInfo);
+        if (changed) {
+          renderMarketDrawer(true);
+        }
+      }
     });
   }
   /* ================= 市场主容器宽度缩放机制 ================= */
@@ -338,6 +506,8 @@
 
       /* 渠道卡片（双行） */
       '.a6-card{background:#ffffff;border:1px solid #e5e7eb;border-radius:6px;padding:9px 12px;margin-bottom:8px;cursor:pointer;transition:all .15s ease;user-select:none;}' +
+      '.a6-card.is-delisted{opacity:0.65;}' +
+      '.a6-card-delisted{font-size:11px;font-weight:500;background:#fee2e2;color:#ef4444;border:1px solid #fca5a5;padding:1px 5px;border-radius:4px;flex-shrink:0;}' +
       '.a6-card:hover{background:#f8fafc;border-color:#cbd5e1;}' +
       '.a6-card.active{background:#eff6ff;border-color:#1677ff;box-shadow:0 0 0 1px #1677ff;}' +
       '.a6-card-row1{display:flex;align-items:center;justify-content:space-between;gap:8px;}' +
@@ -415,6 +585,7 @@
       ':root:not(.light):not([data-theme="light"]) .a6-card-desc{color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-remark{background:#082f49;color:#7dd3fc;border-color:#0369a1;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-editbox{background:#18181b;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-card-delisted{background:#451a1a;color:#fca5a5;border-color:#7f1d1d;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
@@ -450,6 +621,7 @@
       '.dark .a6-card-desc,[data-theme="dark"] .a6-card-desc{color:#a1a1aa;}' +
       '.dark .a6-card-remark,[data-theme="dark"] .a6-card-remark{background:#082f49;color:#7dd3fc;border-color:#0369a1;}' +
       '.dark .a6-card-editbox,[data-theme="dark"] .a6-card-editbox{background:#18181b;border-color:#3f3f46;}' +
+      '.dark .a6-card-delisted,[data-theme="dark"] .a6-card-delisted{background:#451a1a;color:#fca5a5;border-color:#7f1d1d;}' +
       '.dark .a6-card-id,[data-theme="dark"] .a6-card-id{background:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-input,[data-theme="dark"] .a6-input{background:#27272a;border-color:#3f3f46;color:#f4f4f5;}' +
       '.dark .a6-add-box,[data-theme="dark"] .a6-add-box{background:#27272a;border-color:#3f3f46;}' +
@@ -917,7 +1089,15 @@
       if (!online) {
         for (var j = 0; j < stale.length; j++) stale[j].remove();
         if (ownedMap[id]) {
-          delete ownedMap[id];
+          if (!ownedMap[id].delisted) {
+            ownedMap[id].delisted = true;
+            ownedMap[id].updatedAt = Date.now();
+            changed = true;
+          }
+        } else {
+          var offCleanName = getCleanChannelName(nameSpan);
+          var offDesc = getRowDesc(row, offCleanName);
+          ownedMap[id] = { id: id, name: offCleanName || id, desc: offDesc, delisted: true, updatedAt: Date.now() };
           changed = true;
         }
         continue;
@@ -926,8 +1106,8 @@
       var cleanName = getCleanChannelName(nameSpan);
       var desc = getRowDesc(row, cleanName);
       var existing = ownedMap[id];
-      if (!existing || existing.name !== cleanName || existing.desc !== desc) {
-        ownedMap[id] = { id: id, name: cleanName || id, desc: desc, updatedAt: Date.now() };
+      if (!existing || existing.name !== cleanName || existing.desc !== desc || existing.delisted) {
+        ownedMap[id] = { id: id, name: cleanName || id, desc: desc, delisted: false, updatedAt: Date.now() };
         changed = true;
       }
 
@@ -1132,8 +1312,33 @@
       resetMarketplace();
     });
 
+    var syncBtn = document.createElement('button');
+    syncBtn.type = 'button';
+    syncBtn.className = 'a6-toolbar-btn a6-btn-sync';
+    syncBtn.title = '批量拉取所有快捷渠道的最新名称、说明与在架状态';
+    syncBtn.innerHTML = '<span>⟳ 同步渠道</span>';
+    syncBtn.addEventListener('click', function () {
+      if (syncBtn.disabled) return;
+      syncBtn.disabled = true;
+      syncBtn.innerHTML = '<span>⏳ 同步中...</span>';
+      syncAllChannels(function () {
+        renderMarketDrawer(true);
+        var curSyncBtn = document.querySelector('.a6-btn-sync');
+        if (curSyncBtn) {
+          curSyncBtn.innerHTML = '<span>✓ 已同步</span>';
+          setTimeout(function () {
+            if (curSyncBtn) {
+              curSyncBtn.innerHTML = '<span>⟳ 同步渠道</span>';
+              curSyncBtn.disabled = false;
+            }
+          }, 2000);
+        }
+      });
+    });
+
     toolbar.appendChild(clearBtn);
     toolbar.appendChild(resetBtn);
+    toolbar.appendChild(syncBtn);
     panel.appendChild(toolbar);
 
     // 内容区
@@ -1573,7 +1778,7 @@
 
     function createChannelCard(ch, isCustom, onDelete) {
       var card = document.createElement('div');
-      card.className = 'a6-card' + (ch.id === activeChannelId ? ' active' : '');
+      card.className = 'a6-card' + (ch.id === activeChannelId ? ' active' : '') + (ch.delisted ? ' is-delisted' : '');
       card.setAttribute('data-cid', ch.id);
 
       var row1 = document.createElement('div');
@@ -1587,6 +1792,13 @@
       var badges = document.createElement('div');
       badges.className = 'a6-card-badges';
 
+      if (ch.delisted) {
+        var delistedBadge = document.createElement('span');
+        delistedBadge.className = 'a6-card-delisted';
+        delistedBadge.textContent = '已下架';
+        delistedBadge.title = '此渠道当前已无供应或已下架';
+        badges.appendChild(delistedBadge);
+      }
       var idBadge = document.createElement('span');
       idBadge.className = 'a6-card-id';
       idBadge.textContent = '#' + ch.id;
@@ -1697,6 +1909,7 @@
           clearMarketSearch();
         } else {
           performMarketSearch(ch.id);
+          triggerPassiveSync(ch.id);
         }
       });
 

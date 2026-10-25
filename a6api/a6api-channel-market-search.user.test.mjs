@@ -533,7 +533,8 @@ test('a6api script syncs online channel with name and description to GM storage'
   statusSpan.textContent = '已下架';
   env.triggerMutation();
   const updatedOwned = JSON.parse(env.gmStore.get('a6_owned_channels'));
-  assert.equal(updatedOwned['101'], undefined, 'Offline channel should be removed from cache');
+  assert.equal(updatedOwned['101']?.delisted, true, 'Offline channel should be marked as delisted in cache');
+  assert.equal(updatedOwned['101']?.name, '能能CC-2', 'Offline channel should retain its name');
 });
 
 test('a6api market page initializes quick channel drawer with owned and custom channels and handles search and CRUD', () => {
@@ -1361,4 +1362,196 @@ test('a6api custom channel fetch avoids substring channel ID collision', async (
 
   assert.equal(inputs[1].value, '', '2612 must not match row with channel 12612');
   assert.equal(inputs[2].value, '');
+});
+
+test('a6api toolbar sync button updates channels, detects delisted status, and preserves remarks', async () => {
+  const fakeApiDb = {
+    '101': {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          items: [
+            { channel_id: 101, channel_name: '新能能CC-2', description: '最新强力高缓' },
+          ],
+        },
+      }),
+    },
+    '102': {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { items: [] }, // 0 items -> delisted
+      }),
+    },
+    '201': {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          items: [
+            { channel_id: 201, channel_name: '官方新名', description: '官方新说明' },
+          ],
+        },
+      }),
+    },
+  };
+
+  const mockFetch = async (url) => {
+    const match = url.match(/channel_id=(\d+)/);
+    const cid = match ? match[1] : '';
+    if (fakeApiDb[cid]) {
+      return fakeApiDb[cid];
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: '旧能能CC-2', desc: '旧说明', updatedAt: 1000 },
+        '102': { id: '102', name: '下架渠道', desc: '下架前说明', updatedAt: 1000 },
+      }),
+      a6_custom_channels: JSON.stringify([
+        { id: '201', name: '自定义旧名', desc: '自定义旧说明', updatedAt: 1000 },
+      ]),
+      a6_channel_remarks: JSON.stringify({
+        '101': '重要的个人备注',
+        '102': '下架渠道备注',
+        '201': '自选重要备注',
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    { fetch: mockFetch },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  assert.ok(panel);
+
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  assert.ok(syncBtn, 'Sync button should exist in toolbar');
+
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['101'].name, '新能能CC-2', 'Owned channel name should be updated');
+  assert.equal(owned['101'].desc, '最新强力高缓', 'Owned channel desc should be updated');
+  assert.equal(owned['101'].delisted, false);
+
+  assert.equal(owned['102'].delisted, true, 'Channel with empty items should be marked delisted');
+  assert.equal(owned['102'].name, '下架渠道', 'Delisted channel should preserve its original name');
+
+  const custom = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  const c201 = custom.find((c) => String(c.id) === '201');
+  assert.ok(c201);
+  assert.equal(c201.name, '官方新名', 'Custom channel name should be updated to official');
+  assert.equal(c201.desc, '官方新说明');
+  assert.equal(c201.delisted, false);
+
+  // Channel remarks preserved
+  const remarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
+  assert.equal(remarks['101'], '重要的个人备注');
+  assert.equal(remarks['102'], '下架渠道备注');
+  assert.equal(remarks['201'], '自选重要备注');
+
+  // Check DOM rendering of delisted badge
+  const cards = env.document.querySelectorAll('.a6-card');
+  const card102 = cards.find((c) => c.getAttribute('data-cid') === '102');
+  assert.ok(card102);
+  assert.ok(card102.className.includes('is-delisted'), 'Delisted card should have is-delisted class');
+  const badge102 = card102.querySelector('.a6-card-delisted');
+  assert.ok(badge102, 'Delisted card should display [已下架] badge');
+  assert.equal(badge102.textContent, '已下架');
+
+  const card101 = cards.find((c) => c.getAttribute('data-cid') === '101');
+  assert.ok(card101);
+  assert.ok(!card101.className.includes('is-delisted'));
+  assert.equal(card101.querySelector('.a6-card-delisted'), null);
+});
+
+test('a6api passive channel sync respects 2-hour TTL and updates stale channel on card click', async () => {
+  const fetched = [];
+  const mockFetch = async (url) => {
+    const match = url.match(/channel_id=(\d+)/);
+    const cid = match ? match[1] : '';
+    fetched.push(cid);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: {
+          items: [
+            { channel_id: Number(cid), channel_name: 'Name ' + cid, description: 'Desc ' + cid },
+          ],
+        },
+      }),
+    };
+  };
+
+  const now = Date.now();
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: 'Fresh', desc: 'Fresh', updatedAt: now - 30 * 60 * 1000 }, // 30m ago (< 2h)
+        '102': { id: '102', name: 'Stale', desc: 'Stale', updatedAt: now - 3 * 3600 * 1000 }, // 3h ago (> 2h)
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    { fetch: mockFetch },
+  );
+
+  env.runScript();
+
+  const cards = env.document.querySelectorAll('.a6-card');
+  // Click fresh card (101)
+  const card101 = cards.find((c) => c.getAttribute('data-cid') === '101');
+  assert.ok(card101);
+  card101.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(!fetched.includes('101'), 'Passive sync should skip channel updated < 2 hours ago');
+
+  // Click stale card (102)
+  const card102 = cards.find((c) => c.getAttribute('data-cid') === '102');
+  assert.ok(card102);
+  card102.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(fetched.includes('102'), 'Passive sync should trigger for channel updated > 2 hours ago');
+
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['102'].name, 'Name 102');
+  assert.equal(owned['102'].desc, 'Desc 102');
+});
+
+test('a6api sync preserves channel state on API network errors or server exceptions', async () => {
+  const mockFetch = async () => {
+    throw new Error('Network offline');
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: '能能CC', desc: '稳定', delisted: false, updatedAt: 1000 },
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    { fetch: mockFetch },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['101'].name, '能能CC', 'Name should be preserved on network error');
+  assert.equal(owned['101'].desc, '稳定', 'Desc should be preserved on network error');
+  assert.equal(owned['101'].delisted, false, 'Channel should NOT be marked delisted on network error');
 });
