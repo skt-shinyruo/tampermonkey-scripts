@@ -41,7 +41,7 @@
 
 ```bash
 node a6api/build-userscript.mjs
-A6API_VERSION="1.3.${GITHUB_RUN_NUMBER}" \
+A6API_VERSION="1.4.${GITHUB_RUN_NUMBER}" \
 A6API_UPDATE_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js" \
 A6API_DOWNLOAD_URL="https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js" \
 node a6api/build-userscript.mjs --output=dist/a6api-channel-market-search.user.js
