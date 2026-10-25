@@ -180,7 +180,7 @@
     const normalizedValue = String(value || '').trim();
     return SIDEBAR_WIDTH_MODE_OPTIONS.some((option) => option.value === normalizedValue)
       ? normalizedValue
-      : SIDEBAR_WIDTH_MODE_VALUES.DEFAULT;
+      : SIDEBAR_WIDTH_MODE_VALUES.COMPACT;
   }
 
   function normalizeSidebarWidthPx(value) {
@@ -199,7 +199,7 @@
 
   function getSavedSidebarWidthMode() {
     return normalizeSidebarWidthMode(
-      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.DEFAULT),
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.COMPACT),
     );
   }
 

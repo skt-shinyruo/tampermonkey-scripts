@@ -57,7 +57,7 @@
   const SIDEBAR_WIDTH_MODE_OPTIONS = [
     {
       description: '不覆盖 Sub2API 原始侧边栏宽度。',
-      label: '默认',
+      label: '原始',
       value: SIDEBAR_WIDTH_MODE_VALUES.DEFAULT,
     },
     {

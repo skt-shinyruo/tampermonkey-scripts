@@ -1825,6 +1825,22 @@ test('sidebar width applies after restoring a saved expanded sidebar asynchronou
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
 });
 
+test('unconfigured sidebar width mode defaults to compact on expanded sidebars', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/usage',
+  });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false, nativeWidth: '214px' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, 'true');
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
+});
+
 test('default sidebar width mode leaves expanded sidebar width untouched', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
@@ -2572,6 +2588,35 @@ test('settings panel stores compact sidebar width mode for the current origin', 
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '160px');
   assert.equal(
     environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-mode-option="compact"]').checked,
+    true,
+  );
+});
+
+test('settings panel stores original sidebar width mode for the current origin', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/usage' });
+  createUsageFingerprint(environment);
+  const { sidebar } = environment.createSidebar({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const defaultOption = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-sidebar-width-mode-option="default"]');
+  assert.ok(defaultOption);
+  assert.equal(defaultOption.parentElement.textContent.includes('原始'), true);
+
+  defaultOption.checked = true;
+  defaultOption.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'sidebar-width-mode')), 'default');
+  assert.equal(sidebar.dataset.sub2apiSidebarWidthApplied, undefined);
+  assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '');
+  assert.equal(
+    environment.findSettingsRoot().querySelector('input[data-sub2api-sidebar-width-mode-option="default"]').checked,
     true,
   );
 });
