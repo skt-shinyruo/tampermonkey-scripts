@@ -91,9 +91,74 @@
     storageSet(STORAGE_KEY_REMARKS, remarks);
   }
 
+  function fetchChannelInfoFromApi(cid, callback) {
+    var fetchFn = typeof fetch === 'function' ? fetch : (typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch : null);
+    if (!fetchFn) {
+      return callback(null);
+    }
+    var apiUrl = '/api/marketplace/public/channels/search?channel_id=' + encodeURIComponent(cid);
+    try {
+      var p = fetchFn(apiUrl, { credentials: 'include' });
+      if (!p || typeof p.then !== 'function') return callback(null);
+      p.then(function (res) {
+        if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : ''));
+        return res.json();
+      })
+      .then(function (json) {
+        var items = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : [];
+        if (items.length > 0) {
+          var it = items[0];
+          var name = it.channel_name || it.supplier_nickname || it.supplier_name || (it.model_name ? it.model_name + ' 渠道' : '') || '';
+          var desc = it.description || it.supplier_name || '';
+          return callback({
+            name: (name || '').trim(),
+            desc: (desc || '').trim(),
+            remark: getChannelRemark(cid),
+          });
+        }
+        callback(null);
+      })
+      .catch(function () {
+        callback(null);
+      });
+    } catch (e) {
+      callback(null);
+    }
+  }
+
+  function fetchChannelInfoFromDom(targetId) {
+    var rows = document.querySelectorAll('tbody tr, .market-row, [role="row"], .ant-table-row, [class*="table-row"]');
+    for (var k = 0; k < rows.length; k++) {
+      var row = rows[k];
+      var text = row.textContent || '';
+      var cleanText = text.replace(/供应商\s*#?\s*\d+/g, '');
+      var m = cleanText.match(/(?:渠道\s*#?|#)\s*(\d+)/);
+      var rowCid = m ? m[1] : '';
+      if (!rowCid && row.getAttribute) {
+        rowCid = row.getAttribute('data-cid') || row.getAttribute('data-channel-id') || '';
+      }
+      if (rowCid === targetId) {
+        var nameEl = row.querySelector('.model-name-text, [class*="model-name"], .sc-channel-name, .name, [class*="name"], .title, [class*="title"], h3, h4');
+        var descEl = row.querySelector('.model-sub-desc, [class*="model-sub-desc"], .sc-channel-desc, .desc, [class*="desc"]');
+        var foundName = nameEl ? (nameEl.textContent || '').trim() : '';
+        var foundDesc = descEl ? (descEl.textContent || '').trim() : '';
+        if (foundName || foundDesc) {
+          return {
+            name: foundName,
+            desc: foundDesc,
+            remark: getChannelRemark(targetId),
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   function fetchChannelInfo(cid, cb) {
     if (!cid) return cb(null);
     var targetId = String(cid).trim();
+    if (!targetId) return cb(null);
+
     // 1) 优先从已同步的商户自有渠道缓存匹配
     var owned = storageGet(STORAGE_KEY_OWNED, {});
     if (owned[targetId]) {
@@ -117,30 +182,23 @@
       }
     }
 
-    // 3) 若在市场页，尝试从已渲染的市场卡片 DOM 中检索
-    var allCards = document.querySelectorAll('.ui-card, .market-card, [class*="card"]');
-    for (var k = 0; k < allCards.length; k++) {
-      var card = allCards[k];
-      var txt = card.textContent || '';
-      if (txt.indexOf(targetId) !== -1) {
-        var nameEl = card.querySelector('.name, .title, [class*="name"], [class*="title"], h3, h4');
-        var descEl = card.querySelector('.desc, [class*="desc"]');
-        var foundName = nameEl ? (nameEl.textContent || '').trim() : '';
-        var foundDesc = descEl ? (descEl.textContent || '').trim() : '';
-        if (foundName || foundDesc) {
-          return cb({
-            name: foundName,
-            desc: foundDesc,
-            remark: getChannelRemark(targetId),
-          });
-        }
+    // 3) 优先通过官方市场公开检索接口精准获取
+    fetchChannelInfoFromApi(targetId, function (apiInfo) {
+      if (apiInfo && (apiInfo.name || apiInfo.desc)) {
+        return cb(apiInfo);
       }
-    }
 
-    return cb({
-      name: '',
-      desc: '',
-      remark: getChannelRemark(targetId),
+      // 4) 若 API 未命中或无网络环境，按行精准解析当前市场 DOM（杜绝卡片容器贪婪匹配）
+      var domInfo = fetchChannelInfoFromDom(targetId);
+      if (domInfo) {
+        return cb(domInfo);
+      }
+
+      return cb({
+        name: '',
+        desc: '',
+        remark: getChannelRemark(targetId),
+      });
     });
   }
   /* ================= 市场主容器宽度缩放机制 ================= */
@@ -896,17 +954,25 @@
   var autoLoadLastTrigger = 0;
   var autoLoadObservedEl = null;
 
+  function isLoadMoreUsable(el) {
+    if (!el) return false;
+    if (el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+    if (el.classList && (el.classList.contains('is-loading') || el.classList.contains('ant-btn-loading'))) return false;
+    if (el.style && el.style.display === 'none') return false;
+    return true;
+  }
+
   function findLoadMoreButton() {
     if (location.hash.indexOf('#/market') !== 0) return null;
-    var candidates = document.querySelectorAll('button, [role="button"], .ant-btn, .btn, a, div');
+    var direct = document.querySelector('.mp-load-more-btn');
+    if (direct && isLoadMoreUsable(direct)) return direct;
+
+    var candidates = document.querySelectorAll('.mp-load-more-btn, button, [role="button"], .ant-btn, .btn, a');
     for (var i = 0; i < candidates.length; i++) {
       var el = candidates[i];
       var text = (el.textContent || '').trim();
-      if (text.indexOf('加载更多') !== -1) {
-        if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
-        if (el.classList && (el.classList.contains('is-loading') || el.classList.contains('ant-btn-loading'))) continue;
-        if (el.style && el.style.display === 'none') continue;
-        return el;
+      if (text.indexOf('加载更多') !== -1 || /load\s*more/i.test(text)) {
+        if (isLoadMoreUsable(el)) return el;
       }
     }
     return null;
@@ -961,7 +1027,7 @@
           }
         }
       }
-    });
+    }, { rootMargin: '200px' });
     autoLoadObserver.observe(btn);
   }
 
@@ -1148,13 +1214,28 @@
         idInput.focus();
         return;
       }
+      var origText = fetchBtn.textContent;
+      fetchBtn.disabled = true;
+      fetchBtn.textContent = '⏳ ...';
       fetchChannelInfo(cid, function (info) {
+        fetchBtn.disabled = false;
+        fetchBtn.textContent = origText;
         if (info) {
           if (info.name) nameInput.value = info.name;
           if (info.desc) descInput.value = info.desc;
           if (info.remark && !remarkInput.value) remarkInput.value = info.remark;
+          if (!info.name && !info.desc) {
+            nameInput.focus();
+          }
         }
       });
+    });
+
+    idInput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        fetchBtn.click();
+      }
     });
 
     idRow.appendChild(idInput);

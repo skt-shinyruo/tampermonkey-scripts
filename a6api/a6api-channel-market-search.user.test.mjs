@@ -77,7 +77,7 @@ class MockElement {
     this.children = [];
     this.attributes = {};
     this.className = '';
-    this.textContent = '';
+    this._textContent = undefined;
     this.parentNode = null;
     this.eventListeners = {};
     this.style = {};
@@ -101,6 +101,16 @@ class MockElement {
   }
   get innerHTML() {
     return this.textContent;
+  }
+  get textContent() {
+    if (this._textContent !== undefined) return this._textContent;
+    if (this.children.length > 0) {
+      return this.children.map((c) => c.textContent).join(' ');
+    }
+    return '';
+  }
+  set textContent(val) {
+    this._textContent = String(val);
   }
   get classList() {
     return {
@@ -266,7 +276,7 @@ class MockElement {
   }
 }
 
-function createEnvironment(initialHash = '#/merchant/channels', initialStorage = {}) {
+function createEnvironment(initialHash = '#/merchant/channels', initialStorage = {}, options = {}) {
   const document = new MockElement('document');
   const html = new MockElement('html');
   const head = new MockElement('head');
@@ -314,6 +324,7 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     },
     setTimeout: (fn) => fn(),
     location,
+    fetch: options.fetch,
     HTMLInputElement: {
       prototype: {
         get value() {
@@ -330,6 +341,7 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     document,
     window: windowObj,
     location,
+    fetch: options.fetch,
     MutationObserver: class {
       constructor(cb) {
         observers.push(cb);
@@ -1084,6 +1096,47 @@ test('a6api market page supports auto load more setting, toolbar toggle, and int
   env.triggerHashChange('#/merchant/channels');
   assert.equal(observer.observed.length, 0);
 });
+test('a6api auto load accurately targets nested load more button without matching outer container divs', () => {
+  const env = createEnvironment('#/market', {
+    a6_auto_load_more: JSON.stringify(true),
+  });
+
+  const footer = new MockElement('div');
+  footer.className = 'mp-waterfall-footer';
+
+  const box = new MockElement('div');
+  box.className = 'mp-load-more-box';
+
+  const realBtn = new MockElement('button');
+  realBtn.className = 'mp-load-more-btn';
+  realBtn.textContent = '↓ 加载更多';
+
+  const stat = new MockElement('div');
+  stat.className = 'mp-waterfall-stat';
+  stat.textContent = '当前已展开 20 条 (第 1 至 20 条, 共 10161 条)';
+
+  box.appendChild(realBtn);
+  box.appendChild(stat);
+  footer.appendChild(box);
+  env.body.appendChild(footer);
+
+  let clicked = false;
+  realBtn.click = () => {
+    clicked = true;
+  };
+  footer.click = () => {
+    throw new Error('Should not click outer container div');
+  };
+
+  env.runScript();
+
+  assert.equal(env.intersectionObservers.length, 1);
+  const observer = env.intersectionObservers[0];
+  assert.equal(observer.observed[0], realBtn, 'Should observe the real button, not outer divs');
+
+  observer.triggerIntersect(realBtn, true);
+  assert.equal(clicked, true, 'Real button should be clicked');
+});
 
 test('a6api market page automatically aligns multi-dimensional filters when entering via ?cid=... URL parameter', () => {
   const env = createEnvironment('?cid=5973#/market', {});
@@ -1140,4 +1193,172 @@ test('a6api market page automatically aligns multi-dimensional filters when ente
   assert.equal(sortRecommendClicked, true, 'Entering via ?cid URL should align sort to 综合推荐');
   assert.equal(tagClicked, true, 'Entering via ?cid URL should click 渠道 tag');
   assert.equal(searchInput.value, '5973', 'Entering via ?cid URL should set search input to cid');
+});
+
+test('a6api custom channel fetch accurately fills channel name and description via marketplace search API', async () => {
+  const fakeApiData = {
+    data: {
+      items: [
+        {
+          channel_id: 2612,
+          channel_name: 'pro-plus混池',
+          supplier_name: '树状图算力中心',
+          description: 'Azure 官 Key，99%缓存包不降智，请固定',
+        },
+      ],
+    },
+  };
+
+  const mockFetch = async (url) => {
+    if (url.includes('channel_id=2612')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => fakeApiData,
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment('#/market', {}, { fetch: mockFetch });
+
+  // DOM has a table with another model as first row (reproducing the bug where grok-4.7 was picked)
+  const tbody = new MockElement('tbody');
+  const rowGrok = new MockElement('tr');
+  const grokName = new MockElement('span');
+  grokName.className = 'model-name-text';
+  grokName.textContent = 'grok-4.7';
+  const grokDesc = new MockElement('span');
+  grokDesc.className = 'model-sub-desc';
+  grokDesc.textContent = '纯heavy号池，支持工具调用，随意验牌';
+  const grokChip = new MockElement('button');
+  grokChip.className = 'chip-channel';
+  grokChip.textContent = '渠道 #9999';
+  rowGrok.appendChild(grokName);
+  rowGrok.appendChild(grokDesc);
+  rowGrok.appendChild(grokChip);
+  tbody.appendChild(rowGrok);
+  env.body.appendChild(tbody);
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  assert.ok(panel);
+
+  const addBtn = panel.querySelector('.a6-btn-link');
+  addBtn.click();
+
+  const addBox = panel.querySelector('.a6-add-box');
+  const inputs = addBox.querySelectorAll('input');
+  const fetchBtn = addBox.querySelector('.a6-btn-fetch');
+
+  inputs[0].value = '2612';
+  fetchBtn.click();
+
+  // Allow promise tick
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(inputs[1].value, 'pro-plus混池', 'Channel name should be filled from API, not grok-4.7');
+  assert.equal(inputs[2].value, 'Azure 官 Key，99%缓存包不降智，请固定', 'Channel desc should be filled from API');
+});
+
+test('a6api custom channel fetch falls back to strict row matching in DOM without outer card greedy pollution', async () => {
+  const env = createEnvironment('#/market', {});
+
+  // Simulate an outer card container (which triggered the bug with [class*="card"])
+  const cardContainer = new MockElement('div');
+  cardContainer.className = 'cl-table-card rounded-lg border bg-card';
+  env.body.appendChild(cardContainer);
+
+  const tbody = new MockElement('tbody');
+  cardContainer.appendChild(tbody);
+
+  // Row 1: grok-4.7 under channel 9999
+  const row1 = new MockElement('tr');
+  const name1 = new MockElement('span');
+  name1.className = 'model-name-text';
+  name1.textContent = 'grok-4.7';
+  const desc1 = new MockElement('span');
+  desc1.className = 'model-sub-desc';
+  desc1.textContent = '纯heavy号池，支持工具调用，随意验牌';
+  const chip1 = new MockElement('button');
+  chip1.className = 'chip-channel';
+  chip1.textContent = '渠道 #9999';
+  row1.appendChild(name1);
+  row1.appendChild(desc1);
+  row1.appendChild(chip1);
+  tbody.appendChild(row1);
+
+  // Row 2: gpt-6.1-sol under channel 2612
+  const row2 = new MockElement('tr');
+  const name2 = new MockElement('span');
+  name2.className = 'model-name-text';
+  name2.textContent = 'gpt-6.1-sol';
+  const desc2 = new MockElement('span');
+  desc2.className = 'model-sub-desc';
+  desc2.textContent = 'Azure 官 Key，99%缓存包不降智，请固定';
+  const chip2 = new MockElement('button');
+  chip2.className = 'chip-channel';
+  chip2.textContent = '渠道 #2612';
+  row2.appendChild(name2);
+  row2.appendChild(desc2);
+  row2.appendChild(chip2);
+  tbody.appendChild(row2);
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const addBtn = panel.querySelector('.a6-btn-link');
+  addBtn.click();
+
+  const addBox = panel.querySelector('.a6-add-box');
+  const inputs = addBox.querySelectorAll('input');
+  const fetchBtn = addBox.querySelector('.a6-btn-fetch');
+
+  inputs[0].value = '2612';
+  fetchBtn.click();
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(inputs[1].value, 'gpt-6.1-sol', 'DOM fallback should target channel 2612 row, not grok-4.7 from row 1');
+  assert.equal(inputs[2].value, 'Azure 官 Key，99%缓存包不降智，请固定');
+});
+
+test('a6api custom channel fetch avoids substring channel ID collision', async () => {
+  const env = createEnvironment('#/market', {});
+
+  const tbody = new MockElement('tbody');
+  const row = new MockElement('tr');
+  const name = new MockElement('span');
+  name.className = 'model-name-text';
+  name.textContent = 'partial-match-model';
+  const desc = new MockElement('span');
+  desc.className = 'model-sub-desc';
+  desc.textContent = 'some description';
+  const chip = new MockElement('button');
+  chip.className = 'chip-channel';
+  chip.textContent = '渠道 #12612';
+  row.appendChild(name);
+  row.appendChild(desc);
+  row.appendChild(chip);
+  tbody.appendChild(row);
+  env.body.appendChild(tbody);
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const addBtn = panel.querySelector('.a6-btn-link');
+  addBtn.click();
+
+  const addBox = panel.querySelector('.a6-add-box');
+  const inputs = addBox.querySelectorAll('input');
+  const fetchBtn = addBox.querySelector('.a6-btn-fetch');
+
+  inputs[0].value = '2612';
+  fetchBtn.click();
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(inputs[1].value, '', '2612 must not match row with channel 12612');
+  assert.equal(inputs[2].value, '');
 });
