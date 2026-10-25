@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.48
+// @version      0.22.49
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,10 +16,9 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.48';
+  const SCRIPT_VERSION = '0.22.49';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
-  const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
@@ -202,13 +201,6 @@
       label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },
   ];
-  const LEGACY_STORAGE_KEYS = {
-    [STORAGE_NAMES.AUTO_REFRESH]: 'ciii-codex-auto-refresh-ms',
-    [STORAGE_NAMES.DASHBOARD_DATE_RANGE]: 'ciii-codex-dashboard-date-range',
-    [STORAGE_NAMES.DASHBOARD_GRANULARITY]: 'ciii-codex-dashboard-granularity',
-    [STORAGE_NAMES.PAGE_SIZE]: 'ciii-codex-usage-page-size',
-    [STORAGE_NAMES.USAGE_DATE_RANGE]: 'ciii-codex-usage-date-range',
-  };
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
@@ -495,28 +487,7 @@
   }
 
   function getStorageValue(name, fallback = null) {
-    const scopedKey = getScopedStorageKey(name);
-    const scopedValue = storage.get(scopedKey, STORAGE_MISSING);
-    if (scopedValue !== STORAGE_MISSING) {
-      return scopedValue;
-    }
-
-    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
-      return fallback;
-    }
-
-    const legacyKey = LEGACY_STORAGE_KEYS[name];
-    if (!legacyKey) {
-      return fallback;
-    }
-
-    const legacyValue = storage.get(legacyKey, STORAGE_MISSING);
-    if (legacyValue === STORAGE_MISSING) {
-      return fallback;
-    }
-
-    storage.set(scopedKey, legacyValue);
-    return legacyValue;
+    return storage.get(getScopedStorageKey(name), fallback);
   }
 
   function setStorageValue(name, value) {
@@ -525,14 +496,6 @@
 
   function deleteStorageValue(name) {
     storage.delete(getScopedStorageKey(name));
-    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
-      return;
-    }
-
-    const legacyKey = LEGACY_STORAGE_KEYS[name];
-    if (legacyKey) {
-      storage.delete(legacyKey);
-    }
   }
 
   function sleep(ms) {
