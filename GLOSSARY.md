@@ -109,3 +109,17 @@ _Avoid_: 快捷键唤醒, 隐蔽触点, 右键菜单
 **排除名单 (Excluded Origins)**:
 A globally persisted set of origin URLs where Sub2API Helper is deactivated, manageable across all sites via the settings panel.
 _Avoid_: 域名黑名单, 屏蔽网站列表
+
+## Userscript Repository Infrastructure
+
+**用户脚本分发标准 (Userscript Distribution Standard)**:
+A unified repository architecture where every script module maintains a dedicated directory with source code, build script, tests, and CI workflow, delivering versioned release artifacts to the `build` branch and GitHub Pages.
+_Avoid_: 散装发布, 手工合并, 跨目录散落
+
+**自动更新元数据 (Auto-Update Metadata)**:
+The `@updateURL` and `@downloadURL` userscript headers injected during CI build that bind an installed script to its remote distribution URL for automatic background checking and silent updates.
+_Avoid_: 强制更新链接, 校验头, 外部引用
+
+**发布产物分支 (Distribution Branch)**:
+The isolated branch (`build`) dedicated to hosting compiled, release-ready `*.user.js` files, decoupling build output from the `main` source branch and feeding GitHub Pages deployments.
+_Avoid_: release 分支, 产物仓库, 静态分支

@@ -6,6 +6,7 @@ on:
       - Publish A6API Userscript
       - Publish Sub2API Userscript
       - Publish Linux.do Userscript
+      - Publish Cursor Userscript
     branches:
       - main
     types:
