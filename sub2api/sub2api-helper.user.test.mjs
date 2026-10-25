@@ -349,7 +349,7 @@ function createTestEnvironment({
   },
   gmValues = {},
   now = 0,
-  origin = 'https://codex.ciii.club',
+  origin = 'https://sub2api.example.test',
   pathname = '/usage',
   preferredColorScheme = 'light',
   savedAutoRefreshValue = 'off',
@@ -2743,13 +2743,12 @@ test('sidebar width storage is isolated per Sub2API origin', async () => {
   assert.equal(sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width'), '176px');
 });
 
-test('metadata targets generic Sub2API deployments instead of one Ciii domain', () => {
+test('metadata targets generic Sub2API deployments', () => {
   assert.match(source, /\/\/ @name\s+Sub2API Helper/);
   assert.match(source, /\/\/ @namespace\s+https:\/\/github\.com\/skt-shinyruo\/tampermonkey-scripts/);
   assert.match(source, /\/\/ @match\s+\*:\/\/\*\/\*/);
   assert.match(source, /\/\/ @grant\s+GM_registerMenuCommand/);
   assert.match(source, /\/\/ @run-at\s+document-start/);
-  assert.doesNotMatch(source, /\/\/ @match\s+https:\/\/codex\.ciii\.club\/\*/);
 });
 
 test('usage summary adds cache hit rate on user and admin usage pages', async () => {
@@ -3615,7 +3614,7 @@ test('visible without focus does not resume auto refresh', async () => {
 });
 
 test('usage restores saved date range through picker clicks after SPA tab switch', async () => {
-  const origin = 'https://codex.ciii.club';
+  const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
       [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
@@ -3658,7 +3657,7 @@ test('usage restores saved date range through picker clicks after SPA tab switch
 });
 
 test('usage restores saved date range again after the trigger text resets to default', async () => {
-  const origin = 'https://codex.ciii.club';
+  const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
       [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
@@ -3681,7 +3680,7 @@ test('usage restores saved date range again after the trigger text resets to def
 });
 
 test('usage restores saved date range again when a delayed picker update resets to the original default', async () => {
-  const origin = 'https://codex.ciii.club';
+  const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
       [getScopedStorageKey(origin, 'usage-date-range')]: { type: 'preset', label: '近 30 天' },
@@ -4357,11 +4356,11 @@ test('admin usage stores selected custom date range and granularity', async () =
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-granularity')), '按天');
 });
 
-test('non-Ciii Sub2API deployments ignore legacy Ciii storage keys', async () => {
+test('unscoped legacy storage keys are ignored', async () => {
   const origin = 'https://team-c.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      'ciii-codex-usage-date-range': {
+      'unscoped-usage-date-range': {
         type: 'preset',
         label: '今天',
       },

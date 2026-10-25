@@ -1,7 +1,6 @@
   const SCRIPT_VERSION = '0.22.6';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
-  const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
@@ -184,13 +183,6 @@
       label: '管理端仪表盘 tab (/admin/dashboard) - 粒度',
     },
   ];
-  const LEGACY_STORAGE_KEYS = {
-    [STORAGE_NAMES.AUTO_REFRESH]: 'ciii-codex-auto-refresh-ms',
-    [STORAGE_NAMES.DASHBOARD_DATE_RANGE]: 'ciii-codex-dashboard-date-range',
-    [STORAGE_NAMES.DASHBOARD_GRANULARITY]: 'ciii-codex-dashboard-granularity',
-    [STORAGE_NAMES.PAGE_SIZE]: 'ciii-codex-usage-page-size',
-    [STORAGE_NAMES.USAGE_DATE_RANGE]: 'ciii-codex-usage-date-range',
-  };
   const PAGE_THEME_STORAGE_KEY = 'theme';
   const WAIT_INTERVAL_MS = 250;
   const WAIT_TIMEOUT_MS = 15000;
@@ -477,28 +469,7 @@
   }
 
   function getStorageValue(name, fallback = null) {
-    const scopedKey = getScopedStorageKey(name);
-    const scopedValue = storage.get(scopedKey, STORAGE_MISSING);
-    if (scopedValue !== STORAGE_MISSING) {
-      return scopedValue;
-    }
-
-    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
-      return fallback;
-    }
-
-    const legacyKey = LEGACY_STORAGE_KEYS[name];
-    if (!legacyKey) {
-      return fallback;
-    }
-
-    const legacyValue = storage.get(legacyKey, STORAGE_MISSING);
-    if (legacyValue === STORAGE_MISSING) {
-      return fallback;
-    }
-
-    storage.set(scopedKey, legacyValue);
-    return legacyValue;
+    return storage.get(getScopedStorageKey(name), fallback);
   }
 
   function setStorageValue(name, value) {
@@ -507,14 +478,6 @@
 
   function deleteStorageValue(name) {
     storage.delete(getScopedStorageKey(name));
-    if (getCurrentOrigin() !== LEGACY_STORAGE_ORIGIN) {
-      return;
-    }
-
-    const legacyKey = LEGACY_STORAGE_KEYS[name];
-    if (legacyKey) {
-      storage.delete(legacyKey);
-    }
   }
 
   function sleep(ms) {
