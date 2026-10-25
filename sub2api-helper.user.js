@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.46
+// @version      0.22.47
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.46';
+  const SCRIPT_VERSION = '0.22.47';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const LEGACY_STORAGE_ORIGIN = 'https://codex.ciii.club';
@@ -75,7 +75,7 @@
   const SIDEBAR_WIDTH_MODE_OPTIONS = [
     {
       description: '不覆盖 Sub2API 原始侧边栏宽度。',
-      label: '默认',
+      label: '原始',
       value: SIDEBAR_WIDTH_MODE_VALUES.DEFAULT,
     },
     {
@@ -925,7 +925,7 @@
     const normalizedValue = String(value || '').trim();
     return SIDEBAR_WIDTH_MODE_OPTIONS.some((option) => option.value === normalizedValue)
       ? normalizedValue
-      : SIDEBAR_WIDTH_MODE_VALUES.DEFAULT;
+      : SIDEBAR_WIDTH_MODE_VALUES.COMPACT;
   }
 
   function normalizeSidebarWidthPx(value) {
@@ -944,7 +944,7 @@
 
   function getSavedSidebarWidthMode() {
     return normalizeSidebarWidthMode(
-      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.DEFAULT),
+      getStorageValue(STORAGE_NAMES.SIDEBAR_WIDTH_MODE, SIDEBAR_WIDTH_MODE_VALUES.COMPACT),
     );
   }
 
