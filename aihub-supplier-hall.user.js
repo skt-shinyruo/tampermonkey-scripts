@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      2.0.4
+// @version      2.0.5
 // @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名完整换行展示，并显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
@@ -184,17 +184,17 @@
       border-color: #cf8f1b;
     }
 
-    /* ===== 分组格：名称完整换行展示，徽标在空间不足时自动换到下一行 ===== */
+    /* ===== 分组格：名称完整换行，徽标固定在名称同一行右侧 ===== */
     .decision-row.ledger-row .group-cell.s012-scored {
       display: flex;
       flex-wrap: wrap;
-      align-items: flex-start;
+      align-items: baseline;
       min-width: 0;
-      column-gap: 6px;
+      column-gap: 3px;
       row-gap: 5px;
     }
     .decision-row.ledger-row .group-cell.s012-scored > strong {
-      flex: 0 1 auto;
+      flex: 1 1 0;
       min-width: 0;
       /* 覆盖站点对分组名的单行省略样式，改为完整换行显示 */
       white-space: normal;
@@ -212,22 +212,23 @@
       flex: 0 0 100%;
     }
 
-    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，字号跟随分组名 ===== */
+    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，固定在名称同一行右侧 ===== */
     .group-cell .s012-score {
       display: inline-flex;
+      flex: 0 0 auto;
+      align-self: baseline;
       align-items: baseline;
-      gap: 3px;
+      gap: 2px;
       box-sizing: border-box;
-      margin-left: 4px;
-      padding: 0 4px;
+      margin-left: 0;
+      padding: 0 3px;
       border: 1px solid transparent;
       border-radius: 4px;
-      font-size: inherit;
+      font-size: 11.5px;
       font-weight: 700;
       line-height: 1.2;
       letter-spacing: 0;
       font-variant-numeric: tabular-nums;
-      vertical-align: baseline;
       cursor: help;
       white-space: nowrap;
     }
@@ -1249,13 +1250,13 @@
         continue;
       }
 
-      /* 徽标放进 strong 末尾，跟随名称文本流，尽量与名称保持同一行 */
+      /* 徽标作为名称的兄弟节点，名称列可收缩换行，徽标固定在同一行右侧 */
       if (badge && !badge.querySelector('.s012-score-sep')) {
         badge.remove();
         badge = null;
       }
-      if (badge && (badge.parentElement !== strong || strong.lastChild !== badge)) {
-        strong.appendChild(badge);
+      if (badge && (badge.parentElement !== groupCell || badge.previousElementSibling !== strong)) {
+        strong.insertAdjacentElement('afterend', badge);
       }
 
       const text = info.score.toFixed(1);
@@ -1285,7 +1286,7 @@
         badge.appendChild(sepEl);
         badge.appendChild(numEl);
 
-        strong.appendChild(badge);
+        strong.insertAdjacentElement('afterend', badge);
       }
       groupCell.classList.add('s012-scored');
 
