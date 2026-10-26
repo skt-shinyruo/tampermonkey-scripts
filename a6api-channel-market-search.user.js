@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.4.18
-// @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道；在市场页提供快捷渠道抽屉面板，支持一键切换搜索渠道与自定义渠道管理
+// @version      1.4.19
+// @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道;在市场页提供快捷渠道抽屉面板,支持一键切换搜索渠道与自定义渠道管理及数据备份恢复
 // @match        https://a6api.com/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js
 // @downloadURL  https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js
@@ -92,6 +92,222 @@
     }
     storageSet(STORAGE_KEY_REMARKS, remarks);
   }
+
+  /* ================= 数据备份与恢复 (JSON 导出与覆盖合并导入) ================= */
+
+  function buildA6BackupData() {
+    var custom = storageGet(STORAGE_KEY_CUSTOM, []);
+    var remarks = storageGet(STORAGE_KEY_REMARKS, {});
+    var owned = storageGet(STORAGE_KEY_OWNED, {});
+    var settings = {
+      market_width: storageGet(STORAGE_KEY_MARKET_WIDTH, 'default'),
+      drawer_side: storageGet(STORAGE_KEY_DRAWER_SIDE, 'left'),
+      auto_load_more: storageGet(STORAGE_KEY_AUTO_LOAD, false),
+    };
+    return {
+      app: 'a6api-channel-market-search',
+      version: 1,
+      exported_at: Date.now(),
+      data: {
+        custom_channels: custom,
+        channel_remarks: remarks,
+        owned_channels: owned,
+        settings: settings,
+      },
+    };
+  }
+
+  function downloadA6Backup() {
+    try {
+      var payload = buildA6BackupData();
+      var jsonStr = JSON.stringify(payload, null, 2);
+      if (typeof Blob === 'undefined') return false;
+      var blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+      var url = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(blob) : null;
+      if (!url) return false;
+      var a = document.createElement('a');
+      var now = new Date();
+      var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+      var dateStr = now.getFullYear() +
+        pad(now.getMonth() + 1) +
+        pad(now.getDate()) + '-' +
+        pad(now.getHours()) +
+        pad(now.getMinutes()) +
+        pad(now.getSeconds());
+      a.href = url;
+      a.download = 'a6api-backup-' + dateStr + '.json';
+      (document.body || document.documentElement).appendChild(a);
+      a.click();
+      setTimeout(function () {
+        if (a && typeof a.remove === 'function') a.remove();
+        else if (a && a.parentNode && typeof a.parentNode.removeChild === 'function') a.parentNode.removeChild(a);
+        if (typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url);
+      }, 1000);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function importA6BackupData(rawText) {
+    if (!rawText || typeof rawText !== 'string') {
+      return { ok: false, error: 'empty_input' };
+    }
+    var trimmed = rawText.trim();
+    if (!trimmed) {
+      return { ok: false, error: 'empty_input' };
+    }
+    var parsed;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (e) {
+      return { ok: false, error: 'invalid_json' };
+    }
+    if (!parsed || typeof parsed !== 'object') {
+      return { ok: false, error: 'invalid_format' };
+    }
+
+    var data = parsed.data || parsed;
+    var customList = Array.isArray(data.custom_channels) ? data.custom_channels : [];
+    var remarksObj = (data.channel_remarks && typeof data.channel_remarks === 'object' && !Array.isArray(data.channel_remarks)) ? data.channel_remarks : {};
+    var ownedObj = (data.owned_channels && typeof data.owned_channels === 'object' && !Array.isArray(data.owned_channels)) ? data.owned_channels : {};
+    var settingsObj = (data.settings && typeof data.settings === 'object') ? data.settings : {};
+
+    if (customList.length === 0 && Object.keys(remarksObj).length === 0 && Object.keys(ownedObj).length === 0 && Object.keys(settingsObj).length === 0) {
+      return { ok: false, error: 'no_valid_data' };
+    }
+
+    // 1) 覆盖合并 自定义渠道
+    var currentCustom = storageGet(STORAGE_KEY_CUSTOM, []);
+    var mergedCustomCount = 0;
+    for (var i = 0; i < customList.length; i++) {
+      var item = customList[i];
+      if (!item || !item.id) continue;
+      var cid = String(item.id).trim();
+      if (!cid) continue;
+      var found = false;
+      for (var j = 0; j < currentCustom.length; j++) {
+        if (String(currentCustom[j].id) === cid) {
+          currentCustom[j] = {
+            id: cid,
+            name: item.name || currentCustom[j].name || cid,
+            desc: item.desc !== undefined ? item.desc : (currentCustom[j].desc || ''),
+            delisted: item.delisted !== undefined ? !!item.delisted : !!currentCustom[j].delisted,
+            updatedAt: Date.now(),
+          };
+          found = true;
+          mergedCustomCount++;
+          break;
+        }
+      }
+      if (!found) {
+        currentCustom.push({
+          id: cid,
+          name: item.name || cid,
+          desc: item.desc || '',
+          delisted: !!item.delisted,
+          updatedAt: Date.now(),
+        });
+        mergedCustomCount++;
+      }
+    }
+    storageSet(STORAGE_KEY_CUSTOM, currentCustom);
+
+    // 2) 覆盖合并 渠道备注
+    var currentRemarks = storageGet(STORAGE_KEY_REMARKS, {});
+    var mergedRemarksCount = 0;
+    Object.keys(remarksObj).forEach(function (k) {
+      var val = remarksObj[k];
+      if (typeof val === 'string' && val.trim()) {
+        currentRemarks[String(k)] = val.trim();
+        mergedRemarksCount++;
+      }
+    });
+    storageSet(STORAGE_KEY_REMARKS, currentRemarks);
+
+    // 3) 覆盖合并 商户渠道缓存
+    var currentOwned = storageGet(STORAGE_KEY_OWNED, {});
+    var mergedOwnedCount = 0;
+    Object.keys(ownedObj).forEach(function (k) {
+      var ch = ownedObj[k];
+      if (!ch) return;
+      var cid = String(ch.id || k).trim();
+      if (!cid) return;
+      var existing = currentOwned[cid];
+      currentOwned[cid] = {
+        id: cid,
+        name: ch.name || (existing ? existing.name : '') || cid,
+        desc: ch.desc !== undefined ? ch.desc : (existing ? existing.desc : ''),
+        delisted: ch.delisted !== undefined ? !!ch.delisted : (existing ? !!existing.delisted : false),
+        updatedAt: Date.now(),
+      };
+      mergedOwnedCount++;
+    });
+    storageSet(STORAGE_KEY_OWNED, currentOwned);
+
+    // 4) 恢复偏好配置
+    if (settingsObj.market_width) {
+      storageSet(STORAGE_KEY_MARKET_WIDTH, settingsObj.market_width);
+      if (typeof applyMarketWidth === 'function') applyMarketWidth(settingsObj.market_width);
+    }
+    if (settingsObj.drawer_side === 'left' || settingsObj.drawer_side === 'right') {
+      storageSet(STORAGE_KEY_DRAWER_SIDE, settingsObj.drawer_side);
+    }
+    if (typeof settingsObj.auto_load_more === 'boolean') {
+      storageSet(STORAGE_KEY_AUTO_LOAD, settingsObj.auto_load_more);
+      if (typeof syncAutoLoadObserver === 'function') syncAutoLoadObserver();
+    }
+
+    return {
+      ok: true,
+      customCount: mergedCustomCount,
+      remarksCount: mergedRemarksCount,
+      ownedCount: mergedOwnedCount,
+    };
+  }
+
+  function triggerImportFileDialog(callback) {
+    if (typeof document === 'undefined' || !document.createElement) {
+      if (callback) callback({ ok: false, error: 'no_document' });
+      return;
+    }
+    var fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.json,application/json';
+    fileInput.style.display = 'none';
+    fileInput.addEventListener('change', function () {
+      if (!fileInput.files || !fileInput.files[0]) return;
+      var file = fileInput.files[0];
+      if (typeof FileReader !== 'undefined') {
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          var text = e.target.result;
+          var res = importA6BackupData(text);
+          if (callback) callback(res);
+        };
+        reader.onerror = function () {
+          if (callback) callback({ ok: false, error: 'read_failed' });
+        };
+        reader.readAsText(file);
+      } else {
+        if (callback) callback({ ok: false, error: 'no_filereader' });
+      }
+    });
+    (document.body || document.documentElement).appendChild(fileInput);
+    fileInput.click();
+    setTimeout(function () {
+      if (fileInput && fileInput.parentNode) fileInput.parentNode.removeChild(fileInput);
+    }, 1000);
+  }
+
+  var a6Backup = {
+    exportData: buildA6BackupData,
+    downloadBackup: downloadA6Backup,
+    importData: importA6BackupData,
+    triggerImportDialog: triggerImportFileDialog,
+  };
+  try { if (typeof unsafeWindow !== 'undefined' && unsafeWindow) unsafeWindow.a6Backup = a6Backup; } catch (e) {}
+  try { if (typeof window !== 'undefined' && window) window.a6Backup = a6Backup; } catch (e) {}
 
   function isAnonymizedPlaceholder(name) {
     if (!name || typeof name !== 'string') return false;
@@ -708,6 +924,13 @@
       '.a6-toolbar-btn:hover{color:#1677ff;border-color:rgba(22,119,255,.45);background:rgba(22,119,255,.08);}' +
       '.a6-toolbar-btn:active{transform:translateY(1px);}' +
       '.a6-toolbar-btn.is-active{color:#1677ff;border-color:rgba(22,119,255,.5);background:rgba(22,119,255,.08);font-weight:600;}' +
+      /* 备份与恢复折叠面板 */ +
+      '.a6-backup-box{display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:#fafafa;border-bottom:1px solid #f0f0f0;box-sizing:border-box;}' +
+      '.a6-backup-tip{font-size:11px;color:#6b7280;line-height:1.4;}' +
+      '.a6-backup-actions{display:flex;gap:8px;align-items:center;}' +
+      '.a6-backup-status{font-size:11px;min-height:16px;line-height:16px;color:#6b7280;}' +
+      '.a6-backup-status.is-success{color:#16a34a;font-weight:500;}' +
+      '.a6-backup-status.is-error{color:#ef4444;font-weight:500;}' +
       /* 抽屉底部常驻设置栏 */
       '.a6-drawer-footer{flex-shrink:0;padding:10px 14px 12px;background:#fafafa;border-top:1px solid #f0f0f0;display:flex;flex-direction:column;gap:8px;box-sizing:border-box;}' +
       '.a6-footer-row1{display:flex;gap:8px;}' +
@@ -802,6 +1025,11 @@
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-backup-box{background:#27272a;border-color:#3f3f46;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-backup-tip{color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-backup-status{color:#a1a1aa;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-backup-status.is-success{color:#4ade80;}' +
+      ':root:not(.light):not([data-theme="light"]) .a6-backup-status.is-error{color:#f87171;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-drawer-footer{background:#27272a;border-color:#3f3f46;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-top{color:#a1a1aa;}' +
       ':root:not(.light):not([data-theme="light"]) .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
@@ -838,6 +1066,11 @@
       '.dark .a6-toolbar-btn,[data-theme="dark"] .a6-toolbar-btn{background:#18181b;border-color:#3f3f46;color:#d4d4d8;}' +
       '.dark .a6-toolbar-btn:hover,[data-theme="dark"] .a6-toolbar-btn:hover{background:#27272a;border-color:#60a5fa;color:#60a5fa;}' +
       '.dark .a6-toolbar-btn.is-active,[data-theme="dark"] .a6-toolbar-btn.is-active{background:rgba(96,165,250,.18);border-color:#60a5fa;color:#60a5fa;}' +
+      '.dark .a6-backup-box,[data-theme="dark"] .a6-backup-box{background:#27272a;border-color:#3f3f46;}' +
+      '.dark .a6-backup-tip,[data-theme="dark"] .a6-backup-tip{color:#a1a1aa;}' +
+      '.dark .a6-backup-status,[data-theme="dark"] .a6-backup-status{color:#a1a1aa;}' +
+      '.dark .a6-backup-status.is-success,[data-theme="dark"] .a6-backup-status.is-success{color:#4ade80;}' +
+      '.dark .a6-backup-status.is-error,[data-theme="dark"] .a6-backup-status.is-error{color:#f87171;}' +
       '.dark .a6-drawer-footer,[data-theme="dark"] .a6-drawer-footer{background:#27272a;border-color:#3f3f46;}' +
       '.dark .a6-width-top,[data-theme="dark"] .a6-width-top{color:#a1a1aa;}' +
       '.dark .a6-width-num-input,[data-theme="dark"] .a6-width-num-input{background:#18181b;border-color:#3f3f46;color:#f4f4f5;}' +
@@ -1576,7 +1809,88 @@
     toolbar.appendChild(clearBtn);
     toolbar.appendChild(resetBtn);
     toolbar.appendChild(syncBtn);
+    var backupBtn = document.createElement('button');
+    backupBtn.type = 'button';
+    backupBtn.className = 'a6-toolbar-btn a6-btn-backup';
+    backupBtn.title = '备份与恢复：导出或导入渠道及配置数据 (JSON)';
+    backupBtn.innerHTML = '<span>💾 备份</span>';
+    toolbar.appendChild(backupBtn);
     panel.appendChild(toolbar);
+
+    // 备份与恢复折叠面板
+    var backupBox = document.createElement('div');
+    backupBox.className = 'a6-backup-box';
+    backupBox.style.display = 'none';
+
+    var backupTip = document.createElement('div');
+    backupTip.className = 'a6-backup-tip';
+    backupTip.textContent = '数据备份与恢复 (JSON 格式，覆盖合并)';
+
+    var backupActions = document.createElement('div');
+    backupActions.className = 'a6-backup-actions';
+
+    var exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.className = 'a6-btn-sm a6-btn-primary a6-btn-export';
+    exportBtn.innerHTML = '<span>⬇️ 导出备份</span>';
+
+    var importBtn = document.createElement('button');
+    importBtn.type = 'button';
+    importBtn.className = 'a6-btn-sm a6-btn-default a6-btn-import';
+    importBtn.innerHTML = '<span>⬆️ 导入恢复</span>';
+
+    var closeBackupBtn = document.createElement('button');
+    closeBackupBtn.type = 'button';
+    closeBackupBtn.className = 'a6-btn-sm a6-btn-default a6-btn-backup-close';
+    closeBackupBtn.textContent = '收起';
+
+    var backupStatus = document.createElement('div');
+    backupStatus.className = 'a6-backup-status';
+
+    exportBtn.addEventListener('click', function () {
+      var ok = downloadA6Backup();
+      if (ok) {
+        backupStatus.textContent = '✓ 备份文件已生成并触发下载';
+        backupStatus.className = 'a6-backup-status is-success';
+      } else {
+        backupStatus.textContent = '⚠️ 导出失败，请重试';
+        backupStatus.className = 'a6-backup-status is-error';
+      }
+    });
+
+    importBtn.addEventListener('click', function () {
+      triggerImportFileDialog(function (res) {
+        if (res && res.ok) {
+          backupStatus.textContent = '✓ 导入成功：已合并 ' + res.customCount + ' 个自定义渠道，' + res.remarksCount + ' 条备注';
+          backupStatus.className = 'a6-backup-status is-success';
+          renderMarketDrawer(true);
+        } else {
+          var err = res && res.error ? res.error : '未知错误';
+          backupStatus.textContent = '⚠️ 导入失败 (' + err + ')';
+          backupStatus.className = 'a6-backup-status is-error';
+        }
+      });
+    });
+
+    backupBtn.addEventListener('click', function () {
+      var isVisible = backupBox.style.display !== 'none';
+      backupBox.style.display = isVisible ? 'none' : 'flex';
+      backupBtn.classList.toggle('is-active', !isVisible);
+    });
+
+    closeBackupBtn.addEventListener('click', function () {
+      backupBox.style.display = 'none';
+      backupBtn.classList.remove('is-active');
+    });
+
+    backupActions.appendChild(exportBtn);
+    backupActions.appendChild(importBtn);
+    backupActions.appendChild(closeBackupBtn);
+
+    backupBox.appendChild(backupTip);
+    backupBox.appendChild(backupActions);
+    backupBox.appendChild(backupStatus);
+    panel.appendChild(backupBox);
 
     // 内容区
     var content = document.createElement('div');
@@ -2235,6 +2549,25 @@
       storageSet(STORAGE_KEY_AUTO_LOAD, next);
       renderMarketDrawer(true);
       syncAutoLoadObserver();
+    });
+    GM_registerMenuCommand('导出数据备份 (JSON)', function () {
+      var ok = downloadA6Backup();
+      if (ok) {
+        if (typeof alert === 'function') alert('A6API 渠道与备注数据已成功导出为 JSON 文件！');
+      } else {
+        if (typeof alert === 'function') alert('导出失败，请重试');
+      }
+    });
+    GM_registerMenuCommand('导入数据恢复 (JSON)', function () {
+      triggerImportFileDialog(function (res) {
+        if (res && res.ok) {
+          renderMarketDrawer(true);
+          if (typeof alert === 'function') alert('导入恢复成功！\n已合并自定义渠道: ' + res.customCount + ' 个\n已合并渠道备注: ' + res.remarksCount + ' 条');
+        } else {
+          var err = res && res.error ? res.error : '未知错误';
+          if (typeof alert === 'function') alert('导入失败：' + err);
+        }
+      });
     });
   }
   syncAutoLoadObserver();
