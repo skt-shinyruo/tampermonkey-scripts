@@ -78,20 +78,24 @@ _Avoid_: 列宽压缩, 紧凑表格
 
 
 **渠道信息同步 (Channel Info Sync)**:
-An operation that queries the marketplace search API to retrieve the latest channel name and channel description for owned and custom channels, updating local storage while preserving channel remarks.
+An operation that refreshes channel metadata using dual sources: querying the merchant supplier API (`/api/supplier/me/channels`) for owned channels to preserve authoritative names and in-service status, and the public marketplace search API for custom channels with anonymized placeholder protection, updating local storage while preserving channel remarks.
 _Avoid_: 渠道全量克隆, 渠道覆盖, 列表重建
 
 **被动同步 (Passive Channel Refresh)**:
-A throttled background update triggered upon selecting a channel in the drawer, refreshing stale metadata against the public API without disrupting the search interaction.
+A throttled background update triggered upon selecting a channel in the drawer, refreshing stale metadata against upstream APIs without disrupting the search interaction.
 _Avoid_: 实时轮询, 动态拉取, 页面拦截
 
 **同步渠道按钮 (Sync Channels Toolbar Action)**:
-A manual drawer toolbar action that initiates an on-demand batch refresh of all owned and custom channels with concurrent throttling and transient status feedback.
+A manual drawer toolbar action that initiates an on-demand batch refresh across owned and custom channels with concurrent throttling, merchant auth feedback, and transient status reporting.
 _Avoid_: 强制同步, 刷新所有
 
 **下架渠道标识 (Delisted Channel Badge)**:
-A visual indicator (`[已下架]`) displayed on a quick channel card when upstream data confirms the channel is inactive or unlisted, preserving the card and user remarks while clearly signaling its offline state.
+A visual indicator (`[已下架]`) displayed on a quick channel card when upstream data confirms the channel is inactive (strictly by merchant status for owned channels, or empty marketplace items for custom channels), preserving the card and user remarks while clearly signaling its offline state.
 _Avoid_: 渠道删除, 报错提示, 异常卡片
+
+**脱敏占位符保护 (Anonymized Placeholder Guard)**:
+A filtering rule that detects upstream anonymized channel placeholders (`Channel ID {id}`, `Supplier ID {id}`) to prevent overwriting existing authoritative or user-defined channel names, permitting placeholders only as fallback display for nameless custom channels.
+_Avoid_: 占位符静默覆盖, 强制清空名称
 ## Sub2API Helper
 
 **站点排除 (Site Exclusion)**:

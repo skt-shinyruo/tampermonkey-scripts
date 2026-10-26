@@ -91,6 +91,98 @@
     storageSet(STORAGE_KEY_REMARKS, remarks);
   }
 
+  function isAnonymizedPlaceholder(name) {
+    if (!name || typeof name !== 'string') return false;
+    var trimmed = name.trim();
+    return /^(?:Channel|Supplier)\s*(?:ID|#)?\s*\d+$/i.test(trimmed) || /^#?\d+$/.test(trimmed);
+  }
+
+  function fetchOwnedChannelsFromApi(callback) {
+    var fetchFn = typeof fetch === 'function' ? fetch : (typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch : null);
+    if (!fetchFn) return callback(null, 'no_fetch');
+    try {
+      var p = fetchFn('/api/supplier/me/channels', { credentials: 'include' });
+      if (!p || typeof p.then !== 'function') return callback(null, 'no_promise');
+      p.then(function (res) {
+        if (!res) throw new Error('No response');
+        if (res.status === 401 || res.status === 403) {
+          return callback(null, 'unauthorized');
+        }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json().then(function (json) {
+          if (json && (json.code === 'dashboard_auth_required' || json.success === false)) {
+            return callback(null, 'unauthorized');
+          }
+          var raw = json;
+          if (raw && raw.data !== undefined) raw = raw.data;
+          var list = [];
+          if (Array.isArray(raw)) {
+            list = raw;
+          } else if (raw && Array.isArray(raw.items)) {
+            list = raw.items;
+          }
+          var channels = [];
+          for (var i = 0; i < list.length; i++) {
+            var item = list[i] || {};
+            var ch = item.channel || item;
+            var cid = String(ch.id !== undefined && ch.id !== null ? ch.id : (ch.channel_id !== undefined ? ch.channel_id : '')).trim();
+            if (!cid) continue;
+            var cname = (ch.name || '').trim();
+            var cdesc = (ch.description || ch.desc || '').trim();
+            var isDelisted = Number(ch.status) !== 1;
+            channels.push({
+              id: cid,
+              name: cname,
+              desc: cdesc,
+              delisted: isDelisted,
+            });
+          }
+          callback(channels, null);
+        });
+      }).catch(function (err) {
+        callback(null, err || 'error');
+      });
+    } catch (e) {
+      callback(null, e);
+    }
+  }
+
+  function syncOwnedChannelsFromApi(callback) {
+    fetchOwnedChannelsFromApi(function (channels, err) {
+      if (err || !channels) {
+        return callback({ ok: false, error: err, count: 0, total: 0 });
+      }
+      var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
+      var changed = false;
+      var updated = 0;
+      for (var i = 0; i < channels.length; i++) {
+        var ch = channels[i];
+        var existing = ownedMap[ch.id];
+        var name = ch.name || (existing ? existing.name : '') || ch.id;
+        if (ch.name && (!existing || existing.name !== ch.name || isAnonymizedPlaceholder(existing.name))) {
+          name = ch.name;
+        }
+        var desc = ch.desc !== undefined ? ch.desc : (existing ? existing.desc : '');
+        var delisted = !!ch.delisted;
+        if (!existing || existing.name !== name || existing.desc !== desc || existing.delisted !== delisted) {
+          ownedMap[ch.id] = {
+            id: ch.id,
+            name: name,
+            desc: desc,
+            delisted: delisted,
+            updatedAt: Date.now(),
+          };
+          changed = true;
+          updated++;
+        }
+      }
+      if (changed) {
+        storageSet(STORAGE_KEY_OWNED, ownedMap);
+      }
+      callback({ ok: true, count: updated, total: channels.length });
+    });
+  }
+
   function fetchChannelInfoFromApi(cid, callback) {
     var fetchFn = typeof fetch === 'function' ? fetch : (typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch : null);
     if (!fetchFn) {
@@ -117,6 +209,7 @@
             name: '',
             desc: '',
             delisted: true,
+            isAnonymized: false,
             remark: getChannelRemark(cid),
           });
         }
@@ -124,12 +217,16 @@
         var items = (json && json.data && Array.isArray(json.data.items)) ? json.data.items : [];
         if (items.length > 0) {
           var it = items[0];
-          var name = it.channel_name || it.supplier_nickname || it.supplier_name || (it.model_name ? it.model_name + ' 渠道' : '') || '';
+          var rawName = (it.channel_name || it.supplier_nickname || it.supplier_name || '').trim();
+          var isAnon = isAnonymizedPlaceholder(rawName);
+          var modelFallback = it.model_name ? (it.model_name + ' 渠道') : '';
+          var name = isAnon ? (modelFallback || rawName) : rawName;
           var desc = it.description || it.supplier_name || '';
           return callback({
             name: (name || '').trim(),
             desc: (desc || '').trim(),
             delisted: false,
+            isAnonymized: isAnon,
             remark: getChannelRemark(cid),
           });
         } else {
@@ -137,6 +234,7 @@
             name: '',
             desc: '',
             delisted: true,
+            isAnonymized: false,
             remark: getChannelRemark(cid),
           });
         }
@@ -182,35 +280,35 @@
     var targetId = String(cid).trim();
     if (!targetId) return cb(null);
 
-    // 1) 优先通过官方市场公开检索接口精准获取
-    fetchChannelInfoFromApi(targetId, function (apiInfo) {
-      if (apiInfo && (apiInfo.name || apiInfo.desc)) {
-        return cb(apiInfo);
-      }
+    // 1) 检查已同步的商户自有渠道缓存匹配（拥有权威真实名称）
+    var owned = storageGet(STORAGE_KEY_OWNED, {});
+    if (owned[targetId] && !isAnonymizedPlaceholder(owned[targetId].name)) {
+      var item = owned[targetId];
+      return cb({
+        name: item.name || '',
+        desc: item.desc || '',
+        delisted: !!item.delisted,
+        remark: getChannelRemark(targetId),
+      });
+    }
 
-      // 2) 检查已同步的商户自有渠道缓存匹配
-      var owned = storageGet(STORAGE_KEY_OWNED, {});
-      if (owned[targetId]) {
-        var item = owned[targetId];
+    // 2) 检查已有的自定义渠道与备注
+    var custom = storageGet(STORAGE_KEY_CUSTOM, []);
+    for (var i = 0; i < custom.length; i++) {
+      if (String(custom[i].id) === targetId && !isAnonymizedPlaceholder(custom[i].name)) {
         return cb({
-          name: item.name || '',
-          desc: item.desc || '',
-          delisted: !!item.delisted,
+          name: custom[i].name || '',
+          desc: custom[i].desc || '',
+          delisted: !!custom[i].delisted,
           remark: getChannelRemark(targetId),
         });
       }
+    }
 
-      // 3) 检查已有的自定义渠道与备注
-      var custom = storageGet(STORAGE_KEY_CUSTOM, []);
-      for (var i = 0; i < custom.length; i++) {
-        if (String(custom[i].id) === targetId) {
-          return cb({
-            name: custom[i].name || '',
-            desc: custom[i].desc || '',
-            delisted: !!custom[i].delisted,
-            remark: getChannelRemark(targetId),
-          });
-        }
+    // 3) 优先通过官方市场公开检索接口精准获取
+    fetchChannelInfoFromApi(targetId, function (apiInfo) {
+      if (apiInfo && (apiInfo.name || apiInfo.desc)) {
+        return cb(apiInfo);
       }
 
       // 4) 若 API 未命中或无网络环境，按行精准解析当前市场 DOM（杜绝卡片容器贪婪匹配）
@@ -235,22 +333,18 @@
     var targetId = String(id).trim();
     var changed = false;
 
+    // 注意：我的渠道状态与真实名称严格由商户后台支配，公开市场检索绝不可标记下架或用占位符覆盖名称
     var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
     if (ownedMap[targetId]) {
       var ownedItem = ownedMap[targetId];
-      if (remoteInfo.delisted) {
-        if (!ownedItem.delisted) {
-          ownedItem.delisted = true;
-          ownedItem.updatedAt = Date.now();
-          changed = true;
-        }
-      } else {
-        var newName = remoteInfo.name || ownedItem.name || targetId;
-        var newDesc = remoteInfo.desc !== undefined ? remoteInfo.desc : ownedItem.desc;
-        if (ownedItem.name !== newName || ownedItem.desc !== newDesc || ownedItem.delisted) {
+      if (!remoteInfo.delisted) {
+        var isAnon = isAnonymizedPlaceholder(remoteInfo.name);
+        var existingIsAnon = isAnonymizedPlaceholder(ownedItem.name);
+        var newName = (!isAnon && remoteInfo.name) ? remoteInfo.name : ((existingIsAnon && remoteInfo.name) ? remoteInfo.name : ownedItem.name);
+        var newDesc = remoteInfo.desc !== undefined && remoteInfo.desc !== '' ? remoteInfo.desc : ownedItem.desc;
+        if (ownedItem.name !== newName || ownedItem.desc !== newDesc) {
           ownedItem.name = newName;
           ownedItem.desc = newDesc;
-          ownedItem.delisted = false;
           ownedItem.updatedAt = Date.now();
           changed = true;
         }
@@ -272,8 +366,15 @@
             customChanged = true;
           }
         } else {
-          var cNewName = remoteInfo.name || custItem.name || targetId;
-          var cNewDesc = remoteInfo.desc !== undefined ? remoteInfo.desc : custItem.desc;
+          var cIsAnon = isAnonymizedPlaceholder(remoteInfo.name);
+          var cExistingIsAnon = isAnonymizedPlaceholder(custItem.name);
+          var cNewName = custItem.name;
+          if (!cIsAnon && remoteInfo.name) {
+            cNewName = remoteInfo.name;
+          } else if (cExistingIsAnon || !cNewName || cNewName === targetId) {
+            cNewName = remoteInfo.name || targetId;
+          }
+          var cNewDesc = remoteInfo.desc !== undefined && remoteInfo.desc !== '' ? remoteInfo.desc : custItem.desc;
           if (custItem.name !== cNewName || custItem.desc !== cNewDesc || custItem.delisted) {
             custItem.name = cNewName;
             custItem.desc = cNewDesc;
@@ -293,49 +394,65 @@
   }
 
   function syncAllChannels(callback) {
-    var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
     var customList = storageGet(STORAGE_KEY_CUSTOM, []);
-    var ids = [];
-    Object.keys(ownedMap).forEach(function (k) {
-      if (ids.indexOf(k) === -1) ids.push(k);
-    });
+    var customIds = [];
     customList.forEach(function (c) {
-      if (c && c.id && ids.indexOf(String(c.id)) === -1) ids.push(String(c.id));
+      if (c && c.id && customIds.indexOf(String(c.id)) === -1) customIds.push(String(c.id));
     });
 
-    if (ids.length === 0) {
-      if (callback) callback({ total: 0, updated: 0 });
-      return;
-    }
+    // 双源同步：优先拉取商户中心接口修复与更新「我的渠道」
+    syncOwnedChannelsFromApi(function (ownedResult) {
+      var ownedUpdated = (ownedResult && ownedResult.ok) ? (ownedResult.count || 0) : 0;
+      var authError = !!(ownedResult && ownedResult.error === 'unauthorized');
 
-    var idx = 0;
-    var active = 0;
-    var updatedCount = 0;
-    var completed = 0;
-    var concurrency = 3;
-
-    function next() {
-      while (active < concurrency && idx < ids.length) {
-        var cid = ids[idx++];
-        active++;
-        (function (id) {
-          fetchChannelInfoFromApi(id, function (remoteInfo) {
-            active--;
-            completed++;
-            if (remoteInfo) {
-              var changed = updateChannelMetadata(id, remoteInfo);
-              if (changed) updatedCount++;
-            }
-            if (completed === ids.length) {
-              if (callback) callback({ total: ids.length, updated: updatedCount });
-            } else {
-              next();
-            }
+      if (customIds.length === 0) {
+        if (callback) {
+          callback({
+            total: (ownedResult && ownedResult.total ? ownedResult.total : 0),
+            updated: ownedUpdated,
+            merchantOk: !!(ownedResult && ownedResult.ok),
+            merchantAuthError: authError,
           });
-        })(cid);
+        }
+        return;
       }
-    }
-    next();
+
+      var idx = 0;
+      var active = 0;
+      var customUpdated = 0;
+      var completed = 0;
+      var concurrency = 3;
+
+      function nextCustom() {
+        while (active < concurrency && idx < customIds.length) {
+          var cid = customIds[idx++];
+          active++;
+          (function (id) {
+            fetchChannelInfoFromApi(id, function (remoteInfo) {
+              active--;
+              completed++;
+              if (remoteInfo) {
+                var changed = updateChannelMetadata(id, remoteInfo);
+                if (changed) customUpdated++;
+              }
+              if (completed === customIds.length) {
+                if (callback) {
+                  callback({
+                    total: (ownedResult && ownedResult.total ? ownedResult.total : 0) + customIds.length,
+                    updated: ownedUpdated + customUpdated,
+                    merchantOk: !!(ownedResult && ownedResult.ok),
+                    merchantAuthError: authError,
+                  });
+                }
+              } else {
+                nextCustom();
+              }
+            });
+          })(cid);
+        }
+      }
+      nextCustom();
+    });
   }
 
   function triggerPassiveSync(cid) {
@@ -344,13 +461,26 @@
     var ownedMap = storageGet(STORAGE_KEY_OWNED, {});
     var customList = storageGet(STORAGE_KEY_CUSTOM, []);
 
-    var targetItem = ownedMap[targetId];
-    if (!targetItem) {
-      for (var i = 0; i < customList.length; i++) {
-        if (String(customList[i].id) === targetId) {
-          targetItem = customList[i];
-          break;
+    if (ownedMap[targetId]) {
+      var ownedItem = ownedMap[targetId];
+      var needsRepair = isAnonymizedPlaceholder(ownedItem.name);
+      var lastUpdated = ownedItem.updatedAt || 0;
+      if (!needsRepair && (Date.now() - lastUpdated < CHANNEL_SYNC_TTL)) {
+        return;
+      }
+      syncOwnedChannelsFromApi(function (res) {
+        if (res && res.ok && res.count > 0) {
+          renderMarketDrawer(true);
         }
+      });
+      return;
+    }
+
+    var targetItem = null;
+    for (var i = 0; i < customList.length; i++) {
+      if (String(customList[i].id) === targetId) {
+        targetItem = customList[i];
+        break;
       }
     }
     if (!targetItem) return;
@@ -1321,11 +1451,16 @@
       if (syncBtn.disabled) return;
       syncBtn.disabled = true;
       syncBtn.innerHTML = '<span>⏳ 同步中...</span>';
-      syncAllChannels(function () {
+      syncAllChannels(function (res) {
         renderMarketDrawer(true);
         var curSyncBtn = document.querySelector('.a6-btn-sync');
         if (curSyncBtn) {
-          curSyncBtn.innerHTML = '<span>✓ 已同步</span>';
+          if (res && res.merchantAuthError) {
+            curSyncBtn.innerHTML = '<span>⚠️ 商户未登录</span>';
+          } else {
+            var countStr = res && typeof res.updated === 'number' && res.updated > 0 ? (' (+' + res.updated + ')') : '';
+            curSyncBtn.innerHTML = '<span>✓ 已同步' + countStr + '</span>';
+          }
           setTimeout(function () {
             if (curSyncBtn) {
               curSyncBtn.innerHTML = '<span>⟳ 同步渠道</span>';

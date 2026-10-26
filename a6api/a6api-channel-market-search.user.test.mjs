@@ -322,7 +322,7 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     addEventListener: (evt, fn) => {
       if (evt === 'hashchange') hashListeners.push(fn);
     },
-    setTimeout: (fn) => fn(),
+    setTimeout: options.setTimeout || ((fn) => fn()),
     location,
     fetch: options.fetch,
     HTMLInputElement: {
@@ -348,7 +348,7 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
       }
       observe() {}
     },
-    setTimeout: (fn) => fn(),
+    setTimeout: options.setTimeout || ((fn) => fn()),
     setInterval: (fn) => {
       fn();
       return 1;
@@ -1364,26 +1364,8 @@ test('a6api custom channel fetch avoids substring channel ID collision', async (
   assert.equal(inputs[2].value, '');
 });
 
-test('a6api toolbar sync button updates channels, detects delisted status, and preserves remarks', async () => {
-  const fakeApiDb = {
-    '101': {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: {
-          items: [
-            { channel_id: 101, channel_name: '新能能CC-2', description: '最新强力高缓' },
-          ],
-        },
-      }),
-    },
-    '102': {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: { items: [] }, // 0 items -> delisted
-      }),
-    },
+test('a6api toolbar sync button updates channels via dual-source sync, detects delisted status, and preserves remarks', async () => {
+  const fakeCustomApiDb = {
     '201': {
       ok: true,
       status: 200,
@@ -1395,13 +1377,30 @@ test('a6api toolbar sync button updates channels, detects delisted status, and p
         },
       }),
     },
+    '202': {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: { items: [] }, // 0 items -> delisted
+      }),
+    },
   };
 
   const mockFetch = async (url) => {
+    if (url.includes('/api/supplier/me/channels')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: 101, name: '新能能CC-2', description: '最新强力高缓', status: 1 },
+          { id: 102, name: '下架渠道', description: '下架前说明', status: 0 },
+        ],
+      };
+    }
     const match = url.match(/channel_id=(\d+)/);
     const cid = match ? match[1] : '';
-    if (fakeApiDb[cid]) {
-      return fakeApiDb[cid];
+    if (fakeCustomApiDb[cid]) {
+      return fakeCustomApiDb[cid];
     }
     return { ok: false, status: 404 };
   };
@@ -1415,11 +1414,13 @@ test('a6api toolbar sync button updates channels, detects delisted status, and p
       }),
       a6_custom_channels: JSON.stringify([
         { id: '201', name: '自定义旧名', desc: '自定义旧说明', updatedAt: 1000 },
+        { id: '202', name: '下架自定义', desc: '下架自定义说明', updatedAt: 1000 },
       ]),
       a6_channel_remarks: JSON.stringify({
         '101': '重要的个人备注',
         '102': '下架渠道备注',
         '201': '自选重要备注',
+        '202': '下架自选备注',
       }),
       a6_drawer_open: JSON.stringify(true),
     },
@@ -1438,11 +1439,11 @@ test('a6api toolbar sync button updates channels, detects delisted status, and p
   await new Promise((resolve) => setTimeout(resolve, 30));
 
   const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
-  assert.equal(owned['101'].name, '新能能CC-2', 'Owned channel name should be updated');
+  assert.equal(owned['101'].name, '新能能CC-2', 'Owned channel name should be updated from supplier API');
   assert.equal(owned['101'].desc, '最新强力高缓', 'Owned channel desc should be updated');
   assert.equal(owned['101'].delisted, false);
 
-  assert.equal(owned['102'].delisted, true, 'Channel with empty items should be marked delisted');
+  assert.equal(owned['102'].delisted, true, 'Channel with status !== 1 should be marked delisted');
   assert.equal(owned['102'].name, '下架渠道', 'Delisted channel should preserve its original name');
 
   const custom = JSON.parse(env.gmStore.get('a6_custom_channels'));
@@ -1452,11 +1453,16 @@ test('a6api toolbar sync button updates channels, detects delisted status, and p
   assert.equal(c201.desc, '官方新说明');
   assert.equal(c201.delisted, false);
 
+  const c202 = custom.find((c) => String(c.id) === '202');
+  assert.ok(c202);
+  assert.equal(c202.delisted, true, 'Custom channel with 0 items should be marked delisted');
+
   // Channel remarks preserved
   const remarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
   assert.equal(remarks['101'], '重要的个人备注');
   assert.equal(remarks['102'], '下架渠道备注');
   assert.equal(remarks['201'], '自选重要备注');
+  assert.equal(remarks['202'], '下架自选备注');
 
   // Check DOM rendering of delisted badge
   const cards = env.document.querySelectorAll('.a6-card');
@@ -1496,10 +1502,10 @@ test('a6api passive channel sync respects 2-hour TTL and updates stale channel o
   const env = createEnvironment(
     '#/market',
     {
-      a6_owned_channels: JSON.stringify({
-        '101': { id: '101', name: 'Fresh', desc: 'Fresh', updatedAt: now - 30 * 60 * 1000 }, // 30m ago (< 2h)
-        '102': { id: '102', name: 'Stale', desc: 'Stale', updatedAt: now - 3 * 3600 * 1000 }, // 3h ago (> 2h)
-      }),
+      a6_custom_channels: JSON.stringify([
+        { id: '201', name: 'Fresh', desc: 'Fresh', updatedAt: now - 30 * 60 * 1000 }, // 30m ago (< 2h)
+        { id: '202', name: 'Stale', desc: 'Stale', updatedAt: now - 3 * 3600 * 1000 }, // 3h ago (> 2h)
+      ]),
       a6_drawer_open: JSON.stringify(true),
     },
     { fetch: mockFetch },
@@ -1508,23 +1514,152 @@ test('a6api passive channel sync respects 2-hour TTL and updates stale channel o
   env.runScript();
 
   const cards = env.document.querySelectorAll('.a6-card');
-  // Click fresh card (101)
-  const card101 = cards.find((c) => c.getAttribute('data-cid') === '101');
-  assert.ok(card101);
-  card101.click();
+  // Click fresh card (201)
+  const card201 = cards.find((c) => c.getAttribute('data-cid') === '201');
+  assert.ok(card201);
+  card201.click();
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.ok(!fetched.includes('101'), 'Passive sync should skip channel updated < 2 hours ago');
+  assert.ok(!fetched.includes('201'), 'Passive sync should skip custom channel updated < 2 hours ago');
 
-  // Click stale card (102)
-  const card102 = cards.find((c) => c.getAttribute('data-cid') === '102');
-  assert.ok(card102);
-  card102.click();
+  // Click stale card (202)
+  const card202 = cards.find((c) => c.getAttribute('data-cid') === '202');
+  assert.ok(card202);
+  card202.click();
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.ok(fetched.includes('102'), 'Passive sync should trigger for channel updated > 2 hours ago');
+  assert.ok(fetched.includes('202'), 'Passive sync should trigger for custom channel updated > 2 hours ago');
+
+  const custom = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  const c202 = custom.find((c) => String(c.id) === '202');
+  assert.equal(c202.name, 'Name 202');
+  assert.equal(c202.desc, 'Desc 202');
+});
+
+test('a6api toolbar sync heals polluted "Channel ID 101" names using supplier me channels', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/supplier/me/channels')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: 101, name: '能能CC-2', description: '高智商高缓存', status: 1 },
+        ],
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: 'Channel ID 101', desc: '', updatedAt: 1000 },
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    { fetch: mockFetch },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
 
   const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
-  assert.equal(owned['102'].name, 'Name 102');
-  assert.equal(owned['102'].desc, 'Desc 102');
+  assert.equal(owned['101'].name, '能能CC-2', 'Polluted "Channel ID 101" should be healed to real name');
+  assert.equal(owned['101'].desc, '高智商高缓存');
+});
+
+test('a6api sync preserves user custom channel name when public search returns anonymized placeholder', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/supplier/me/channels')) {
+      return { ok: true, status: 200, json: async () => [] };
+    }
+    if (url.includes('channel_id=301')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            items: [
+              { channel_id: 301, channel_name: 'Channel ID 301', description: '最新描述' },
+            ],
+          },
+        }),
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_custom_channels: JSON.stringify([
+        { id: '301', name: '生产主力', desc: '旧描述', updatedAt: 1000 },
+      ]),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    { fetch: mockFetch },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const custom = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  const ch301 = custom.find((c) => String(c.id) === '301');
+  assert.equal(ch301.name, '生产主力', 'Existing custom channel name must not be overwritten by "Channel ID 301" placeholder');
+  assert.equal(ch301.desc, '最新描述', 'Description should be updated');
+});
+
+test('a6api toolbar sync gracefully indicates unauthorized merchant status when not logged in', async () => {
+  const mockFetch = async (url) => {
+    if (url.includes('/api/supplier/me/channels')) {
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({
+          code: 'dashboard_auth_required',
+          message: 'Unauthorized',
+        }),
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: '保密主力', desc: '保持不变', updatedAt: 1000 },
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    {
+      fetch: mockFetch,
+      setTimeout: (fn, delay) => {
+        if (delay && delay >= 1000) return 0;
+        return fn();
+      },
+    },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const curBtn = env.document.querySelector('.a6-btn-sync');
+  assert.ok(curBtn);
+  assert.match(curBtn.innerHTML, /商户未登录/);
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['101'].name, '保密主力', 'Owned channel name must remain intact when merchant unauthorized');
 });
 
 test('a6api sync preserves channel state on API network errors or server exceptions', async () => {
