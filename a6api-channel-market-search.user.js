@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         A6API 渠道名称 → 市场自动搜索
 // @namespace    https://a6api.com/
-// @version      1.4.17
+// @version      1.4.18
 // @description  在渠道管理页提供查市场/后台查快捷按钮并自动同步渠道；在市场页提供快捷渠道抽屉面板，支持一键切换搜索渠道与自定义渠道管理
 // @match        https://a6api.com/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/a6api-channel-market-search.user.js
@@ -99,54 +99,154 @@
     return /^(?:Channel|Supplier)\s*(?:ID|#)?\s*\d+$/i.test(trimmed) || /^#?\d+$/.test(trimmed);
   }
 
+  function getApiUserId() {
+    var storages = [];
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage) storages.push(localStorage);
+    } catch (e) {}
+    try {
+      if (typeof sessionStorage !== 'undefined' && sessionStorage) storages.push(sessionStorage);
+    } catch (e) {}
+    try {
+      if (typeof unsafeWindow !== 'undefined' && unsafeWindow) {
+        if (unsafeWindow.localStorage && storages.indexOf(unsafeWindow.localStorage) === -1) storages.push(unsafeWindow.localStorage);
+        if (unsafeWindow.sessionStorage && storages.indexOf(unsafeWindow.sessionStorage) === -1) storages.push(unsafeWindow.sessionStorage);
+      }
+    } catch (e) {}
+    try {
+      if (typeof window !== 'undefined' && window) {
+        if (window.localStorage && storages.indexOf(window.localStorage) === -1) storages.push(window.localStorage);
+        if (window.sessionStorage && storages.indexOf(window.sessionStorage) === -1) storages.push(window.sessionStorage);
+      }
+    } catch (e) {}
+
+    for (var i = 0; i < storages.length; i++) {
+      var st = storages[i];
+      try {
+        var raw = st.getItem('a6api_session_user_id');
+        if (raw && /^\d+$/.test(String(raw).trim())) {
+          return String(raw).trim();
+        }
+        var userRaw = st.getItem('user');
+        if (userRaw) {
+          var parsed = typeof userRaw === 'string' ? JSON.parse(userRaw) : userRaw;
+          if (parsed && (parsed.id || parsed.user_id)) {
+            var uid = String(parsed.id || parsed.user_id).trim();
+            if (/^\d+$/.test(uid)) return uid;
+          }
+        }
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function resolveApiUserId(fetchFn, callback) {
+    var uid = getApiUserId();
+    if (uid) return callback(uid);
+
+    try {
+      var p = fetchFn('/api/user/session', {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!p || typeof p.then !== 'function') return callback('');
+      p.then(function (res) {
+        if (!res || !res.ok) return callback('');
+        return res.json().then(function (json) {
+          var raw = json && json.data !== undefined ? json.data : json;
+          var foundId = raw && (raw.id || raw.user_id) ? String(raw.id || raw.user_id).trim() : '';
+          if (foundId && /^\d+$/.test(foundId)) {
+            try {
+              if (typeof localStorage !== 'undefined' && localStorage) {
+                localStorage.setItem('a6api_session_user_id', foundId);
+              }
+            } catch (e) {}
+            return callback(foundId);
+          }
+          callback('');
+        });
+      }).catch(function () {
+        callback('');
+      });
+    } catch (e) {
+      callback('');
+    }
+  }
+
   function fetchOwnedChannelsFromApi(callback) {
     var fetchFn = typeof fetch === 'function' ? fetch : (typeof window !== 'undefined' && typeof window.fetch === 'function' ? window.fetch : null);
     if (!fetchFn) return callback(null, 'no_fetch');
-    try {
-      var p = fetchFn('/api/supplier/me/channels', { credentials: 'include' });
-      if (!p || typeof p.then !== 'function') return callback(null, 'no_promise');
-      p.then(function (res) {
-        if (!res) throw new Error('No response');
-        if (res.status === 401 || res.status === 403) {
-          return callback(null, 'unauthorized');
-        }
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json().then(function (json) {
-          if (json && (json.code === 'dashboard_auth_required' || json.success === false)) {
-            return callback(null, 'unauthorized');
-          }
-          var raw = json;
-          if (raw && raw.data !== undefined) raw = raw.data;
-          var list = [];
-          if (Array.isArray(raw)) {
-            list = raw;
-          } else if (raw && Array.isArray(raw.items)) {
-            list = raw.items;
-          }
-          var channels = [];
-          for (var i = 0; i < list.length; i++) {
-            var item = list[i] || {};
-            var ch = item.channel || item;
-            var cid = String(ch.id !== undefined && ch.id !== null ? ch.id : (ch.channel_id !== undefined ? ch.channel_id : '')).trim();
-            if (!cid) continue;
-            var cname = (ch.name || '').trim();
-            var cdesc = (ch.description || ch.desc || '').trim();
-            var isDelisted = Number(ch.status) !== 1;
-            channels.push({
-              id: cid,
-              name: cname,
-              desc: cdesc,
-              delisted: isDelisted,
+
+    resolveApiUserId(fetchFn, function (userId) {
+      var headers = {
+        Accept: 'application/json',
+      };
+      if (userId) {
+        headers['New-Api-User'] = String(userId);
+      }
+
+      function doRequest(endpoint, onDone) {
+        try {
+          var p = fetchFn(endpoint, {
+            credentials: 'include',
+            headers: headers,
+          });
+          if (!p || typeof p.then !== 'function') return onDone(null, 'no_promise');
+          p.then(function (res) {
+            if (!res) throw new Error('No response');
+            if (res.status === 401 || res.status === 403) {
+              return onDone(null, 'unauthorized');
+            }
+            if (res.status === 404) {
+              return onDone(null, 'not_found');
+            }
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().then(function (json) {
+              if (json && (json.code === 'dashboard_auth_required' || json.success === false)) {
+                return onDone(null, 'unauthorized');
+              }
+              var raw = json;
+              if (raw && raw.data !== undefined) raw = raw.data;
+              var list = [];
+              if (Array.isArray(raw)) {
+                list = raw;
+              } else if (raw && Array.isArray(raw.items)) {
+                list = raw.items;
+              }
+              var channels = [];
+              for (var i = 0; i < list.length; i++) {
+                var item = list[i] || {};
+                var ch = item.channel || item;
+                var cid = String(ch.id !== undefined && ch.id !== null ? ch.id : (ch.channel_id !== undefined ? ch.channel_id : '')).trim();
+                if (!cid) continue;
+                var cname = (ch.name || '').trim();
+                var cdesc = (ch.description || ch.desc || '').trim();
+                var isDelisted = Number(ch.status) !== 1;
+                channels.push({
+                  id: cid,
+                  name: cname,
+                  desc: cdesc,
+                  delisted: isDelisted,
+                });
+              }
+              onDone(channels, null);
             });
-          }
-          callback(channels, null);
-        });
-      }).catch(function (err) {
-        callback(null, err || 'error');
+          }).catch(function (err) {
+            onDone(null, err || 'error');
+          });
+        } catch (e) {
+          onDone(null, e);
+        }
+      }
+
+      doRequest('/api/supplier/me/channels', function (channels, err) {
+        if (err === 'not_found') {
+          doRequest('/api/supplier/me/channels/page?page=1&size=100', callback);
+        } else {
+          callback(channels, err);
+        }
       });
-    } catch (e) {
-      callback(null, e);
-    }
+    });
   }
 
   function syncOwnedChannelsFromApi(callback) {
