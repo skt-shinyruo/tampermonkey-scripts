@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      2.0.6
+// @version      2.0.7
 // @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名完整换行展示，并显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
@@ -184,11 +184,9 @@
       border-color: #cf8f1b;
     }
 
-    /* ===== 分组格：名称完整换行，徽标单独占名称下方一行 ===== */
+    /* ===== 分组格：名称完整换行，徽标移到倍率格 ===== */
     .decision-row.ledger-row .group-cell.s012-scored {
-      display: grid;
       min-width: 0;
-      gap: 5px;
     }
     .decision-row.ledger-row .group-cell.s012-scored > strong {
       min-width: 0;
@@ -205,66 +203,66 @@
       min-width: 0;
     }
 
-    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，独占名称下方一行 ===== */
-    .group-cell .s012-score {
+    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，放在倍率数值下方 ===== */
+    .s012-score {
       display: inline-flex;
       justify-self: start;
       align-items: baseline;
       gap: 2px;
       box-sizing: border-box;
-      margin-left: 0;
-      padding: 0 3px;
+      margin: 1px 0 0;
+      padding: 0 2px;
       border: 1px solid transparent;
       border-radius: 4px;
       font-size: 11.5px;
       font-weight: 700;
       line-height: 1.2;
-      letter-spacing: 0;
+      letter-spacing: -.1px;
       font-variant-numeric: tabular-nums;
       cursor: help;
       white-space: nowrap;
     }
-    .group-cell .s012-score-rank {
+    .s012-score-rank {
       font-weight: 800;
     }
-    .group-cell .s012-score-rank[hidden],
-    .group-cell .s012-score-sep[hidden] {
+    .s012-score-rank[hidden],
+    .s012-score-sep[hidden] {
       display: none;
     }
-    .group-cell .s012-score-sep {
+    .s012-score-sep {
       opacity: .45;
     }
-    .group-cell .s012-score-num::after {
+    .s012-score-num::after {
       content: "▾";
       margin-left: 2px;
       font-size: .66em;
       line-height: 1;
       opacity: .5;
     }
-    .group-cell .s012-score[data-band="a"] {
+    .s012-score[data-band="a"] {
       color: #15803d;
       background: rgba(34, 197, 94, .12);
       border-color: rgba(34, 197, 94, .45);
     }
-    .group-cell .s012-score[data-band="b"] {
+    .s012-score[data-band="b"] {
       color: #0369a1;
       background: rgba(56, 189, 248, .14);
       border-color: rgba(56, 189, 248, .45);
     }
-    .group-cell .s012-score[data-band="c"] {
+    .s012-score[data-band="c"] {
       color: #b45309;
       background: rgba(245, 158, 11, .14);
       border-color: rgba(245, 158, 11, .45);
     }
-    .group-cell .s012-score[data-band="d"] {
+    .s012-score[data-band="d"] {
       color: #b91c1c;
       background: rgba(239, 68, 68, .12);
       border-color: rgba(239, 68, 68, .45);
     }
-    html.dark .group-cell .s012-score[data-band="a"] { color: #4ade80; }
-    html.dark .group-cell .s012-score[data-band="b"] { color: #7dd3fc; }
-    html.dark .group-cell .s012-score[data-band="c"] { color: #fbbf24; }
-    html.dark .group-cell .s012-score[data-band="d"] { color: #fca5a5; }
+    html.dark .s012-score[data-band="a"] { color: #4ade80; }
+    html.dark .s012-score[data-band="b"] { color: #7dd3fc; }
+    html.dark .s012-score[data-band="c"] { color: #fbbf24; }
+    html.dark .s012-score[data-band="d"] { color: #fca5a5; }
 
     /* ===== 行内简版指标条（放在分组名/描述下方的空白处） ===== */
     .decision-row.ledger-row .group-cell .s012-mini {
@@ -1233,7 +1231,12 @@
       const name = strongName(strong);
       const info = name ? scoreByCode.get(name) : null;
       const groupCell = strong.parentElement;
-      let badge = groupCell.querySelector('.s012-score');
+      const row = strong.closest('.decision-row.ledger-row');
+      const multiplierCell = row ? row.querySelector('.multiplier-cell') : null;
+      const multiplierStrong = multiplierCell ? multiplierCell.querySelector('strong') : null;
+      const badgeHost = multiplierStrong ? multiplierCell : groupCell;
+      const badgeAnchor = multiplierStrong || strong;
+      let badge = row ? row.querySelector('.s012-score') : groupCell.querySelector('.s012-score');
 
       if (!info) {
         if (badge) badge.remove();
@@ -1242,13 +1245,13 @@
         continue;
       }
 
-      /* 徽标作为名称的兄弟节点，单独占名称下方一行，不影响名称宽度 */
+      /* 徽标放在倍率数值下方，避免撑高分组的名称/描述格 */
       if (badge && !badge.querySelector('.s012-score-sep')) {
         badge.remove();
         badge = null;
       }
-      if (badge && (badge.parentElement !== groupCell || badge.previousElementSibling !== strong)) {
-        strong.insertAdjacentElement('afterend', badge);
+      if (badge && (badge.parentElement !== badgeHost || badge.previousElementSibling !== badgeAnchor)) {
+        badgeAnchor.insertAdjacentElement('afterend', badge);
       }
 
       const text = info.score.toFixed(1);
@@ -1278,7 +1281,7 @@
         badge.appendChild(sepEl);
         badge.appendChild(numEl);
 
-        strong.insertAdjacentElement('afterend', badge);
+        badgeAnchor.insertAdjacentElement('afterend', badge);
       }
       groupCell.classList.add('s012-scored');
 
