@@ -83,6 +83,7 @@ class MockElement {
     this.style = {};
     this.id = '';
     this._value = '';
+    this.files = [];
   }
   get value() {
     return this._value;
@@ -121,6 +122,16 @@ class MockElement {
       remove: (c) => {
         this.className = this.className.split(/\s+/).filter((x) => x !== c).join(' ');
       },
+      toggle: (c, force) => {
+        const has = this.className.split(/\s+/).filter(Boolean).includes(c);
+        const shouldAdd = force !== undefined ? !!force : !has;
+        if (shouldAdd) {
+          if (!has) this.className = (this.className + ' ' + c).trim();
+        } else {
+          this.className = this.className.split(/\s+/).filter((x) => x !== c).join(' ');
+        }
+        return shouldAdd;
+      },
     };
   }
   setAttribute(k, v) {
@@ -149,6 +160,14 @@ class MockElement {
   appendChild(child) {
     child.parentNode = this;
     this.children.push(child);
+    return child;
+  }
+  removeChild(child) {
+    const idx = this.children.indexOf(child);
+    if (idx !== -1) {
+      this.children.splice(idx, 1);
+      child.parentNode = null;
+    }
     return child;
   }
   remove() {
@@ -407,6 +426,10 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
       menuCommands.set(name, fn);
     },
     console,
+    Blob: globalThis.Blob,
+    URL: globalThis.URL,
+    FileReader: options.FileReader,
+    alert: options.alert || (() => {}),
   });
 
   return {
@@ -426,6 +449,8 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
       const source = readFileSync(sourcePath, 'utf8');
       vm.runInContext(source, context);
     },
+    window: windowObj,
+    context,
   };
 }
 
@@ -1747,4 +1772,192 @@ test('a6api toolbar sync sends New-Api-User header resolved from storage or sess
 
   const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
   assert.equal(owned['5973'].name, '能能GPT-1', 'Channel name should be updated successfully');
+});
+
+test('a6api data backup exports custom channels, remarks, owned channels, and settings to JSON', () => {
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_custom_channels: JSON.stringify([
+        { id: '201', name: '自定义201', desc: '说明201', delisted: false, updatedAt: 1000 },
+      ]),
+      a6_channel_remarks: JSON.stringify({ '201': '备注201' }),
+      a6_owned_channels: JSON.stringify({
+        '101': { id: '101', name: '自有101', desc: '说明101', delisted: false, updatedAt: 2000 },
+      }),
+      a6_market_width: '1.5',
+      a6_drawer_side: 'right',
+      a6_auto_load_more: true,
+    },
+  );
+
+  env.runScript();
+
+  const backupData = env.window.a6Backup.exportData();
+  assert.equal(backupData.app, 'a6api-channel-market-search');
+  assert.equal(backupData.version, 1);
+  assert.ok(typeof backupData.exported_at === 'number');
+
+  assert.equal(backupData.data.custom_channels.length, 1);
+  assert.equal(backupData.data.custom_channels[0].id, '201');
+  assert.equal(backupData.data.custom_channels[0].name, '自定义201');
+
+  assert.equal(backupData.data.channel_remarks['201'], '备注201');
+  assert.equal(backupData.data.owned_channels['101'].name, '自有101');
+  assert.equal(String(backupData.data.settings.market_width), '1.5');
+  assert.equal(backupData.data.settings.drawer_side, 'right');
+  assert.equal(backupData.data.settings.auto_load_more, true);
+});
+
+test('a6api data backup imports and merges with overwrite strategy, preserving non-conflicting items', () => {
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_custom_channels: JSON.stringify([
+        { id: '101', name: '本地旧101', desc: '本地旧说明', delisted: false, updatedAt: 100 },
+        { id: '102', name: '本地独有102', desc: '独有说明', delisted: false, updatedAt: 200 },
+      ]),
+      a6_channel_remarks: JSON.stringify({ '101': '本地旧备注', '102': '独有备注' }),
+      a6_owned_channels: JSON.stringify({
+        '501': { id: '501', name: '旧商户渠道', desc: '旧说明', delisted: false, updatedAt: 300 },
+      }),
+      a6_market_width: 'default',
+      a6_drawer_side: 'left',
+      a6_auto_load_more: false,
+    },
+  );
+
+  env.runScript();
+
+  const payloadToImport = JSON.stringify({
+    app: 'a6api-channel-market-search',
+    version: 1,
+    exported_at: Date.now(),
+    data: {
+      custom_channels: [
+        { id: '101', name: '导入新101', desc: '导入新说明', delisted: true },
+        { id: '103', name: '导入全新103', desc: '全新说明' },
+      ],
+      channel_remarks: {
+        '101': '导入新备注',
+        '103': '新备注103',
+      },
+      owned_channels: {
+        '501': { id: '501', name: '更新商户渠道', desc: '新说明', delisted: true },
+        '502': { id: '502', name: '新增商户渠道' },
+      },
+      settings: {
+        market_width: 'full',
+        drawer_side: 'right',
+        auto_load_more: true,
+      },
+    },
+  });
+
+  const res = env.window.a6Backup.importData(payloadToImport);
+  assert.equal(res.ok, true);
+  assert.equal(res.customCount, 2);
+  assert.equal(res.remarksCount, 2);
+  assert.equal(res.ownedCount, 2);
+
+  // Verify storage merge & overwrite
+  const custom = JSON.parse(env.gmStore.get('a6_custom_channels'));
+  assert.equal(custom.length, 3);
+  const c101 = custom.find((c) => c.id === '101');
+  assert.equal(c101.name, '导入新101', 'Conflicting custom channel should be overwritten with imported name');
+  assert.equal(c101.desc, '导入新说明');
+  assert.equal(c101.delisted, true);
+
+  const c102 = custom.find((c) => c.id === '102');
+  assert.equal(c102.name, '本地独有102', 'Non-conflicting local channel must be preserved');
+
+  const c103 = custom.find((c) => c.id === '103');
+  assert.equal(c103.name, '导入全新103', 'New channel must be added');
+
+  const remarks = JSON.parse(env.gmStore.get('a6_channel_remarks'));
+  assert.equal(remarks['101'], '导入新备注', 'Conflicting remark should be overwritten');
+  assert.equal(remarks['102'], '独有备注', 'Non-conflicting local remark must be preserved');
+  assert.equal(remarks['103'], '新备注103', 'New remark must be added');
+
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['501'].name, '更新商户渠道');
+  assert.equal(owned['501'].delisted, true);
+  assert.equal(owned['502'].name, '新增商户渠道');
+
+  assert.equal(JSON.parse(env.gmStore.get('a6_market_width')), 'full');
+  assert.equal(JSON.parse(env.gmStore.get('a6_drawer_side')), 'right');
+  assert.equal(JSON.parse(env.gmStore.get('a6_auto_load_more')), true);
+});
+
+test('a6api data import gracefully rejects invalid JSON or empty input', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+
+  const r1 = env.window.a6Backup.importData('');
+  assert.equal(r1.ok, false);
+  assert.equal(r1.error, 'empty_input');
+
+  const r2 = env.window.a6Backup.importData(null);
+  assert.equal(r2.ok, false);
+  assert.equal(r2.error, 'empty_input');
+
+  const r3 = env.window.a6Backup.importData('   ');
+  assert.equal(r3.ok, false);
+  assert.equal(r3.error, 'empty_input');
+
+  const r4 = env.window.a6Backup.importData('{invalid json');
+  assert.equal(r4.ok, false);
+  assert.equal(r4.error, 'invalid_json');
+
+  const r5 = env.window.a6Backup.importData('"just a string"');
+  assert.equal(r5.ok, false);
+  assert.equal(r5.error, 'invalid_format');
+
+  const r6 = env.window.a6Backup.importData('{}');
+  assert.equal(r6.ok, false);
+  assert.equal(r6.error, 'no_valid_data');
+});
+
+test('a6api drawer toolbar backup button toggles backup box and handles export/import interactions', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  assert.ok(panel);
+
+  const backupBtn = panel.querySelector('.a6-btn-backup');
+  assert.ok(backupBtn, 'Backup button should exist in toolbar');
+
+  const backupBox = panel.querySelector('.a6-backup-box');
+  assert.ok(backupBox, 'Backup box element should be created');
+  assert.equal(backupBox.style.display, 'none', 'Backup box should be collapsed by default');
+
+  // 1. Toggle open
+  backupBtn.click();
+  assert.equal(backupBox.style.display, 'flex', 'Clicking backup button should expand backup box');
+  assert.ok(backupBtn.classList.contains('is-active'));
+
+  // 2. Export button triggers download
+  const exportBtn = backupBox.querySelector('.a6-btn-export');
+  assert.ok(exportBtn);
+  exportBtn.click();
+
+  const statusEl = backupBox.querySelector('.a6-backup-status');
+  assert.match(statusEl.textContent, /备份文件已生成/);
+
+  // 3. Close button collapses box
+  const closeBtn = backupBox.querySelector('.a6-btn-backup-close');
+  assert.ok(closeBtn);
+  closeBtn.click();
+  assert.equal(backupBox.style.display, 'none');
+  assert.equal(backupBtn.classList.contains('is-active'), false);
+});
+
+test('a6api registers GM menu commands for export and import backup', () => {
+  const env = createEnvironment('#/market', {});
+  env.runScript();
+
+  assert.ok(env.menuCommands.has('导出数据备份 (JSON)'));
+  assert.ok(env.menuCommands.has('导入数据恢复 (JSON)'));
+  assert.ok(env.menuCommands.has('切换市场触底自动加载'));
 });

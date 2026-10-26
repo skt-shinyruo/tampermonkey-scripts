@@ -96,6 +96,14 @@ _Avoid_: 渠道删除, 报错提示, 异常卡片
 **脱敏占位符保护 (Anonymized Placeholder Guard)**:
 A filtering rule that detects upstream anonymized channel placeholders (`Channel ID {id}`, `Supplier ID {id}`) to prevent overwriting existing authoritative or user-defined channel names, permitting placeholders only as fallback display for nameless custom channels.
 _Avoid_: 占位符静默覆盖, 强制清空名称
+
+**数据备份与恢复 (Data Backup & Restore)**:
+An operational mechanism that exports user-defined assets (custom channels, channel remarks, preferences, owned channel cache) into a portable, versioned JSON file and allows re-importing it to prevent data loss across uninstalls, cache wipes, or browser migrations.
+_Avoid_: 配置文件导出, 数据同步, 数据复制
+
+**覆盖合并 (Merge & Overwrite)**:
+The conflict resolution strategy applied during data import where incoming records overwrite matching IDs in the local store while retaining non-conflicting existing records, preserving new entries while restoring backed-up data.
+_Avoid_: 完全覆盖, 盲目清空, 仅跳过
 ## Sub2API Helper
 
 **站点排除 (Site Exclusion)**:
