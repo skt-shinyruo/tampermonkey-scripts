@@ -317,6 +317,13 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     search: parsedSearch,
     pathname: '/',
   };
+  const localStoreMap = new Map(Object.entries(options.localStorage || {}));
+  const mockLocalStorage = {
+    getItem: (k) => (localStoreMap.has(k) ? String(localStoreMap.get(k)) : null),
+    setItem: (k, v) => localStoreMap.set(k, String(v)),
+    removeItem: (k) => localStoreMap.delete(k),
+    clear: () => localStoreMap.clear(),
+  };
 
   const windowObj = {
     addEventListener: (evt, fn) => {
@@ -325,6 +332,8 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
     setTimeout: options.setTimeout || ((fn) => fn()),
     location,
     fetch: options.fetch,
+    localStorage: mockLocalStorage,
+    sessionStorage: mockLocalStorage,
     HTMLInputElement: {
       prototype: {
         get value() {
@@ -340,6 +349,9 @@ function createEnvironment(initialHash = '#/merchant/channels', initialStorage =
   const context = vm.createContext({
     document,
     window: windowObj,
+    unsafeWindow: windowObj,
+    localStorage: mockLocalStorage,
+    sessionStorage: mockLocalStorage,
     location,
     fetch: options.fetch,
     MutationObserver: class {
@@ -1689,4 +1701,50 @@ test('a6api sync preserves channel state on API network errors or server excepti
   assert.equal(owned['101'].name, '能能CC', 'Name should be preserved on network error');
   assert.equal(owned['101'].desc, '稳定', 'Desc should be preserved on network error');
   assert.equal(owned['101'].delisted, false, 'Channel should NOT be marked delisted on network error');
+});
+
+test('a6api toolbar sync sends New-Api-User header resolved from storage or session', async () => {
+  let capturedHeaders = null;
+  const mockFetch = async (url, opts) => {
+    if (url.includes('/api/supplier/me/channels')) {
+      capturedHeaders = opts && opts.headers ? opts.headers : {};
+      return {
+        ok: true,
+        status: 200,
+        json: async () => [
+          { id: 5973, name: '能能GPT-1', description: '稳定不降智 高并发', status: 1 },
+        ],
+      };
+    }
+    return { ok: false, status: 404 };
+  };
+
+  const env = createEnvironment(
+    '#/market',
+    {
+      a6_owned_channels: JSON.stringify({
+        '5973': { id: '5973', name: '旧名称', desc: '旧说明', updatedAt: 1000 },
+      }),
+      a6_drawer_open: JSON.stringify(true),
+    },
+    {
+      fetch: mockFetch,
+      localStorage: {
+        a6api_session_user_id: '12345',
+      },
+    },
+  );
+
+  env.runScript();
+
+  const panel = env.document.getElementById('a6-drawer-panel');
+  const syncBtn = panel.querySelector('.a6-btn-sync');
+  syncBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  assert.ok(capturedHeaders, 'Request to /api/supplier/me/channels should be made');
+  assert.equal(capturedHeaders['New-Api-User'], '12345', 'New-Api-User header must be passed from localStorage');
+
+  const owned = JSON.parse(env.gmStore.get('a6_owned_channels'));
+  assert.equal(owned['5973'].name, '能能GPT-1', 'Channel name should be updated successfully');
 });
