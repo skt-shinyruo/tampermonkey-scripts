@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      2.0.5
+// @version      2.0.6
 // @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名完整换行展示，并显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
@@ -184,17 +184,13 @@
       border-color: #cf8f1b;
     }
 
-    /* ===== 分组格：名称完整换行，徽标固定在名称同一行右侧 ===== */
+    /* ===== 分组格：名称完整换行，徽标单独占名称下方一行 ===== */
     .decision-row.ledger-row .group-cell.s012-scored {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
+      display: grid;
       min-width: 0;
-      column-gap: 3px;
-      row-gap: 5px;
+      gap: 5px;
     }
     .decision-row.ledger-row .group-cell.s012-scored > strong {
-      flex: 1 1 0;
       min-width: 0;
       /* 覆盖站点对分组名的单行省略样式，改为完整换行显示 */
       white-space: normal;
@@ -204,19 +200,15 @@
       word-break: break-word;
       line-height: 1.35;
     }
-    .decision-row.ledger-row .group-cell.s012-scored > .group-description {
-      flex: 0 0 100%;
+    .decision-row.ledger-row .group-cell.s012-scored > .group-description,
+    .decision-row.ledger-row .group-cell.s012-scored > .s012-mini {
       min-width: 0;
     }
-    .decision-row.ledger-row .group-cell.s012-scored > .s012-mini {
-      flex: 0 0 100%;
-    }
 
-    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，固定在名称同一行右侧 ===== */
+    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，独占名称下方一行 ===== */
     .group-cell .s012-score {
       display: inline-flex;
-      flex: 0 0 auto;
-      align-self: baseline;
+      justify-self: start;
       align-items: baseline;
       gap: 2px;
       box-sizing: border-box;
@@ -1250,7 +1242,7 @@
         continue;
       }
 
-      /* 徽标作为名称的兄弟节点，名称列可收缩换行，徽标固定在同一行右侧 */
+      /* 徽标作为名称的兄弟节点，单独占名称下方一行，不影响名称宽度 */
       if (badge && !badge.querySelector('.s012-score-sep')) {
         badge.remove();
         badge = null;
