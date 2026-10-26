@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      2.0.2
-// @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名后显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
+// @version      2.0.3
+// @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名完整换行展示，并显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/aihub-supplier-hall.user.js
@@ -184,11 +184,11 @@
       border-color: #cf8f1b;
     }
 
-    /* ===== 分组格：名称与综合分徽标同一行，名称过长时省略，徽标始终可见 ===== */
+    /* ===== 分组格：名称完整换行展示，徽标在空间不足时自动换到下一行 ===== */
     .decision-row.ledger-row .group-cell.s012-scored {
       display: flex;
       flex-wrap: wrap;
-      align-items: center;
+      align-items: flex-start;
       min-width: 0;
       column-gap: 6px;
       row-gap: 5px;
@@ -196,8 +196,13 @@
     .decision-row.ledger-row .group-cell.s012-scored > strong {
       flex: 0 1 auto;
       min-width: 0;
-      /* 预留出徽标的宽度，长名称优先收缩，保证分数与排名不被裁掉 */
-      max-width: calc(100% - 7em);
+      /* 覆盖站点对分组名的单行省略样式，改为完整换行显示 */
+      white-space: normal;
+      overflow: visible;
+      text-overflow: clip;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      line-height: 1.35;
     }
     .decision-row.ledger-row .group-cell.s012-scored > .group-description {
       flex: 0 0 100%;
@@ -207,66 +212,87 @@
       flex: 0 0 100%;
     }
 
-    /* ===== 综合分徽标：分数 + 平台排名 ===== */
+    /* ===== 综合分徽标：排名与分数为两个等大的并排徽标 ===== */
     .group-cell .s012-score {
       display: inline-flex;
       flex: 0 0 auto;
+      align-self: flex-start;
       align-items: center;
-      justify-content: center;
+      gap: 5px;
       box-sizing: border-box;
-      height: 1.667em;
       margin-left: 0;
-      padding: 0 5px;
-      border: 1px solid transparent;
-      border-radius: 5px;
-      font-size: 12px;
+      padding: 0;
+      border: 0;
+      background: none;
+      font-size: 13px;
       font-weight: 700;
       line-height: 1;
       letter-spacing: 0;
-      vertical-align: 0.13em;
       font-variant-numeric: tabular-nums;
-      opacity: .95;
       cursor: help;
       white-space: nowrap;
     }
-    .group-cell .s012-score::before {
-      content: attr(data-rank);
-      margin-right: 3px;
-      font-size: 10px;
-      font-weight: 700;
-      opacity: .68;
+    .group-cell .s012-score-rank,
+    .group-cell .s012-score-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      min-width: 64px;
+      min-height: 24px;
+      padding: 2px 6px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0;
+      white-space: nowrap;
     }
-    .group-cell .s012-score::after {
+    .group-cell .s012-score-rank {
+      background: #b45309;
+      border-color: #b45309;
+      color: #fff;
+    }
+    .group-cell .s012-score-rank[hidden] {
+      display: none;
+    }
+    .group-cell .s012-score-num::after {
       content: "▾";
-      margin-left: 2px;
+      margin-left: 4px;
       font-size: 8px;
       line-height: 1;
       opacity: .5;
     }
-    .group-cell .s012-score[data-band="a"] {
+    html.dark .group-cell .s012-score-rank {
+      background: #f0c76a;
+      border-color: #f0c76a;
+      color: #3b2a10;
+    }
+    .group-cell .s012-score[data-band="a"] .s012-score-num {
       color: #15803d;
       background: rgba(34, 197, 94, .12);
       border-color: rgba(34, 197, 94, .45);
     }
-    .group-cell .s012-score[data-band="b"] {
+    .group-cell .s012-score[data-band="b"] .s012-score-num {
       color: #0369a1;
       background: rgba(56, 189, 248, .14);
       border-color: rgba(56, 189, 248, .45);
     }
-    .group-cell .s012-score[data-band="c"] {
+    .group-cell .s012-score[data-band="c"] .s012-score-num {
       color: #b45309;
       background: rgba(245, 158, 11, .14);
       border-color: rgba(245, 158, 11, .45);
     }
-    .group-cell .s012-score[data-band="d"] {
+    .group-cell .s012-score[data-band="d"] .s012-score-num {
       color: #b91c1c;
       background: rgba(239, 68, 68, .12);
       border-color: rgba(239, 68, 68, .45);
     }
-    html.dark .group-cell .s012-score[data-band="a"] { color: #4ade80; }
-    html.dark .group-cell .s012-score[data-band="b"] { color: #7dd3fc; }
-    html.dark .group-cell .s012-score[data-band="c"] { color: #fbbf24; }
-    html.dark .group-cell .s012-score[data-band="d"] { color: #fca5a5; }
+    html.dark .group-cell .s012-score[data-band="a"] .s012-score-num { color: #4ade80; }
+    html.dark .group-cell .s012-score[data-band="b"] .s012-score-num { color: #7dd3fc; }
+    html.dark .group-cell .s012-score[data-band="c"] .s012-score-num { color: #fbbf24; }
+    html.dark .group-cell .s012-score[data-band="d"] .s012-score-num { color: #fca5a5; }
 
     /* ===== 行内简版指标条（放在分组名/描述下方的空白处） ===== */
     .decision-row.ledger-row .group-cell .s012-mini {
@@ -1244,8 +1270,11 @@
         continue;
       }
 
-      /* 徽标必须放在 strong 外面：strong 自带 overflow:hidden + ellipsis，
-         名称过长时会把放在里面的徽标一起裁掉 */
+      /* 徽标必须放在 strong 外面：strong 自带 overflow/ellipsis 约束 */
+      if (badge && !badge.querySelector('.s012-score-num')) {
+        badge.remove();
+        badge = null;
+      }
       if (badge && badge.parentElement !== groupCell) {
         strong.insertAdjacentElement('afterend', badge);
       }
@@ -1265,13 +1294,27 @@
         badge.addEventListener('mouseleave', scheduleScoreHide);
         badge.addEventListener('click', onBadgeClick);
         badge.addEventListener('keydown', onBadgeKey);
+
+        const rankEl = document.createElement('span');
+        rankEl.className = 's012-score-rank';
+        const numEl = document.createElement('span');
+        numEl.className = 's012-score-num';
+        badge.appendChild(rankEl);
+        badge.appendChild(numEl);
+
         strong.insertAdjacentElement('afterend', badge);
       }
       groupCell.classList.add('s012-scored');
 
+      const rankEl = badge.querySelector('.s012-score-rank');
+      const numEl = badge.querySelector('.s012-score-num');
+
       if (badge.dataset.code !== name) badge.dataset.code = name;
-      if (badge.dataset.rank !== rankText) badge.dataset.rank = rankText;
-      if (badge.textContent !== text) badge.textContent = text;
+      if (rankEl) {
+        if (rankEl.textContent !== rankText) rankEl.textContent = rankText;
+        if (rankEl.hidden !== !rankText) rankEl.hidden = !rankText;
+      }
+      if (numEl && numEl.textContent !== text) numEl.textContent = text;
       if (badge.getAttribute('data-band') !== band) badge.setAttribute('data-band', band);
       if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
 
