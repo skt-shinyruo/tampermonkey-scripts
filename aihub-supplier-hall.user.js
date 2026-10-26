@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      2.0.1
-// @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名后显示综合分，卡片内直接展示关键指标，点击可看完整排序拆解
+// @version      2.0.2
+// @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名后显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/aihub-supplier-hall.user.js
@@ -184,14 +184,38 @@
       border-color: #cf8f1b;
     }
 
-    /* ===== 综合分徽标：与前面的分组名同高、基线平齐 ===== */
-    .group-cell strong .s012-score {
+    /* ===== 分组格：名称与综合分徽标同一行，名称过长时省略，徽标始终可见 ===== */
+    .decision-row.ledger-row .group-cell.s012-scored {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      min-width: 0;
+      column-gap: 6px;
+      row-gap: 5px;
+    }
+    .decision-row.ledger-row .group-cell.s012-scored > strong {
+      flex: 0 1 auto;
+      min-width: 0;
+      /* 预留出徽标的宽度，长名称优先收缩，保证分数与排名不被裁掉 */
+      max-width: calc(100% - 7em);
+    }
+    .decision-row.ledger-row .group-cell.s012-scored > .group-description {
+      flex: 0 0 100%;
+      min-width: 0;
+    }
+    .decision-row.ledger-row .group-cell.s012-scored > .s012-mini {
+      flex: 0 0 100%;
+    }
+
+    /* ===== 综合分徽标：分数 + 平台排名 ===== */
+    .group-cell .s012-score {
       display: inline-flex;
+      flex: 0 0 auto;
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
       height: 1.667em;
-      margin-left: 5px;
+      margin-left: 0;
       padding: 0 5px;
       border: 1px solid transparent;
       border-radius: 5px;
@@ -203,38 +227,46 @@
       font-variant-numeric: tabular-nums;
       opacity: .95;
       cursor: help;
+      white-space: nowrap;
     }
-    .group-cell strong .s012-score::after {
+    .group-cell .s012-score::before {
+      content: attr(data-rank);
+      margin-right: 3px;
+      font-size: 10px;
+      font-weight: 700;
+      opacity: .68;
+    }
+    .group-cell .s012-score::after {
       content: "▾";
       margin-left: 2px;
       font-size: 8px;
       line-height: 1;
       opacity: .5;
     }
-    .group-cell strong .s012-score[data-band="a"] {
+    .group-cell .s012-score[data-band="a"] {
       color: #15803d;
       background: rgba(34, 197, 94, .12);
       border-color: rgba(34, 197, 94, .45);
     }
-    .group-cell strong .s012-score[data-band="b"] {
+    .group-cell .s012-score[data-band="b"] {
       color: #0369a1;
       background: rgba(56, 189, 248, .14);
       border-color: rgba(56, 189, 248, .45);
     }
-    .group-cell strong .s012-score[data-band="c"] {
+    .group-cell .s012-score[data-band="c"] {
       color: #b45309;
       background: rgba(245, 158, 11, .14);
       border-color: rgba(245, 158, 11, .45);
     }
-    .group-cell strong .s012-score[data-band="d"] {
+    .group-cell .s012-score[data-band="d"] {
       color: #b91c1c;
       background: rgba(239, 68, 68, .12);
       border-color: rgba(239, 68, 68, .45);
     }
-    html.dark .group-cell strong .s012-score[data-band="a"] { color: #4ade80; }
-    html.dark .group-cell strong .s012-score[data-band="b"] { color: #7dd3fc; }
-    html.dark .group-cell strong .s012-score[data-band="c"] { color: #fbbf24; }
-    html.dark .group-cell strong .s012-score[data-band="d"] { color: #fca5a5; }
+    html.dark .group-cell .s012-score[data-band="a"] { color: #4ade80; }
+    html.dark .group-cell .s012-score[data-band="b"] { color: #7dd3fc; }
+    html.dark .group-cell .s012-score[data-band="c"] { color: #fbbf24; }
+    html.dark .group-cell .s012-score[data-band="d"] { color: #fca5a5; }
 
     /* ===== 行内简版指标条（放在分组名/描述下方的空白处） ===== */
     .decision-row.ledger-row .group-cell .s012-mini {
@@ -348,6 +380,22 @@
     html.dark .s012-sp-band[data-band="b"] { color: #7dd3fc; }
     html.dark .s012-sp-band[data-band="c"] { color: #fcd34d; }
     html.dark .s012-sp-band[data-band="d"] { color: #fca5a5; }
+
+    .s012-sp-rank {
+      padding: 2px 7px;
+      border: 1px solid rgba(224, 166, 58, .4);
+      border-radius: 999px;
+      background: rgba(224, 166, 58, .16);
+      color: #92400e;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    html.dark .s012-sp-rank {
+      border-color: rgba(246, 193, 76, .35);
+      background: rgba(246, 193, 76, .13);
+      color: #f0c76a;
+    }
 
     .s012-sp-src {
       margin-left: auto;
@@ -569,6 +617,7 @@
      权重优先级：本地自定义 > 服务端 display_ranking > 内置默认 */
   const RANKING_KEY = 'provider-hall-display-ranking-v1';
   const RANK_METRICS = ['multiplier', 'effective_price', 'user_speed', 'cache_hit_rate', 'success_rate', 'tps'];
+  const AVAILABILITY_ORDER = { healthy: 2, insufficient: 1, failed: 0 };
   const DEFAULT_RANKING = {
     weights: {
       multiplier: 0,
@@ -820,6 +869,43 @@
     return 'd';
   }
 
+  /* 站点排序链：故障转移 → 可用性 → 综合分 → group_id。
+     排名按同一平台内“大厅可见”的分组计算，优先级与站点一致 */
+  function rankCompare(a, b) {
+    if (a.failover !== b.failover) return a.failover ? -1 : 1;
+
+    const ar = AVAILABILITY_ORDER[a.availability] === undefined ? 1 : AVAILABILITY_ORDER[a.availability];
+    const br = AVAILABILITY_ORDER[b.availability] === undefined ? 1 : AVAILABILITY_ORDER[b.availability];
+    if (ar !== br) return br - ar;
+
+    if (a.score !== b.score) return b.score - a.score;
+
+    const ag = a.groupId === null ? Number.MAX_SAFE_INTEGER : a.groupId;
+    const bg = b.groupId === null ? Number.MAX_SAFE_INTEGER : b.groupId;
+    return ag - bg;
+  }
+
+  function assignRanks(infos) {
+    const byPlatform = new Map();
+
+    for (let i = 0; i < infos.length; i++) {
+      const info = infos[i];
+      if (!info.visible) continue;
+      const platform = info.platform || '';
+      if (!byPlatform.has(platform)) byPlatform.set(platform, []);
+      byPlatform.get(platform).push(info);
+    }
+
+    byPlatform.forEach(function (list, platform) {
+      list.sort(rankCompare);
+      for (let i = 0; i < list.length; i++) {
+        list[i].rank = i + 1;
+        list[i].rankTotal = list.length;
+        list[i].rankPlatform = platform;
+      }
+    });
+  }
+
   function computeScores() {
     scoreByCode = new Map();
     if (!providerPayload) return;
@@ -827,6 +913,7 @@
     const ranking = activeRanking();
     scoreSignature = JSON.stringify(ranking.cfg) + '|' + providerPayload.range;
 
+    const scored = [];
     const items = providerPayload.items || [];
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
@@ -837,8 +924,13 @@
       if (!info) continue;
       info.custom = ranking.custom;
       info.range = providerPayload.range;
+      info.platform = item.platform || '';
+      info.visible = item.visible_in_hall !== false;
       scoreByCode.set(String(code), info);
+      scored.push(info);
     }
+
+    assignRanks(scored);
   }
 
   /* 只取 strong 里的直接文本节点，避免把徽标自身也算进名称 */
@@ -862,6 +954,12 @@
   ];
   const HEALTH_TEXT = { healthy: '可用', failed: '异常', insufficient: '待监测' };
   const BAND_TEXT = { a: '优秀', b: '良好', c: '一般', d: '偏弱' };
+  const PLATFORM_TEXT = { openai: 'OpenAI', deepseek: 'DeepSeek', zhipu: '智谱', kimi: 'Kimi', grok: 'Grok' };
+
+  function platformName(platform) {
+    if (!platform) return '当前';
+    return PLATFORM_TEXT[platform] || platform;
+  }
 
   let scorePanel = null;
   let scorePanelCode = null;
@@ -903,6 +1001,10 @@
         '</div>';
     }
 
+    const scope = platformName(info.rankPlatform);
+    const rankText = info.rank ? info.rank + ' / ' + info.rankTotal : '—';
+    const rankTitle = scope + ' 平台内按「故障转移 → 可用性 → 综合分 → group_id」排序';
+
     const facts = '<div class="s012-sp-facts">' +
       '<span class="s012-sp-tag"><i>故障转移</i><b>' + (info.failover ? '开' : '关') + '</b></span>' +
       '<span class="s012-sp-tag"><i>可用性</i><b>' + (HEALTH_TEXT[info.availability] || '待监测') + '</b></span>' +
@@ -913,10 +1015,11 @@
     return '<div class="s012-sp-head">' +
         '<span class="s012-sp-score" data-band="' + band + '">' + info.score.toFixed(1) + '</span>' +
         '<span class="s012-sp-band" data-band="' + band + '">' + BAND_TEXT[band] + '</span>' +
+        '<span class="s012-sp-rank" title="' + rankTitle + '">第 ' + rankText + '</span>' +
         '<span class="s012-sp-src">' + (info.custom ? '自定义权重' : '站点权重') + ' · ' +
           (info.range || '1h') + '</span>' +
       '</div>' +
-      '<div class="s012-sp-sub">排序链　故障转移 → 可用性 → 综合分 → group_id</div>' +
+      '<div class="s012-sp-sub">' + scope + ' 平台综合分排名　·　排序链　故障转移 → 可用性 → 综合分 → group_id</div>' +
       facts +
       '<div class="s012-sp-cols"><span>指标</span><span>原始值</span><span>归一化</span><span>贡献</span></div>' +
       rows +
@@ -1131,17 +1234,27 @@
       const strong = strongs[i];
       const name = strongName(strong);
       const info = name ? scoreByCode.get(name) : null;
-      let badge = strong.querySelector('.s012-score');
       const groupCell = strong.parentElement;
+      let badge = groupCell.querySelector('.s012-score');
 
       if (!info) {
         if (badge) badge.remove();
+        groupCell.classList.remove('s012-scored');
         paintMini(groupCell, null, null);
         continue;
       }
 
+      /* 徽标必须放在 strong 外面：strong 自带 overflow:hidden + ellipsis，
+         名称过长时会把放在里面的徽标一起裁掉 */
+      if (badge && badge.parentElement !== groupCell) {
+        strong.insertAdjacentElement('afterend', badge);
+      }
+
       const text = info.score.toFixed(1);
       const band = scoreBand(info.score);
+      const rankText = info.rank ? '#' + info.rank : '';
+      const label = '综合分 ' + text +
+        (info.rank ? '，' + platformName(info.rankPlatform) + ' 平台排名第 ' + info.rank + '（共 ' + info.rankTotal + '）' : '');
 
       if (!badge) {
         badge = document.createElement('span');
@@ -1152,12 +1265,15 @@
         badge.addEventListener('mouseleave', scheduleScoreHide);
         badge.addEventListener('click', onBadgeClick);
         badge.addEventListener('keydown', onBadgeKey);
-        strong.appendChild(badge);
+        strong.insertAdjacentElement('afterend', badge);
       }
+      groupCell.classList.add('s012-scored');
+
       if (badge.dataset.code !== name) badge.dataset.code = name;
+      if (badge.dataset.rank !== rankText) badge.dataset.rank = rankText;
       if (badge.textContent !== text) badge.textContent = text;
       if (badge.getAttribute('data-band') !== band) badge.setAttribute('data-band', band);
-      if (badge.getAttribute('aria-label') !== '综合分 ' + text) badge.setAttribute('aria-label', '综合分 ' + text);
+      if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
 
       paintMini(groupCell, name, info);
     }
@@ -1197,6 +1313,8 @@
     return {
       code: item.code,
       group_id: item.group_id,
+      platform: item.platform,
+      visible_in_hall: item.visible_in_hall,
       rate_multiplier: item.rate_multiplier,
       summary_range: item.summary_range,
       effective_input_price_per_million: item.effective_input_price_per_million,
