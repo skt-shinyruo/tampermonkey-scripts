@@ -14,6 +14,7 @@ test('a6api source matches expected userscript metadata', () => {
   const source = readFileSync(sourcePath, 'utf8');
   assert.match(source, /\/\/ @name\s+A6API 渠道名称 → 市场自动搜索/);
   assert.match(source, /\/\/ @match\s+https:\/\/a6api\.com\/\*/);
+  assert.match(source, /\/\/ @match\s+https:\/\/a6api\.vip\/\*/);
   assert.match(source, /\/\/ @grant\s+GM_openInTab/);
   assert.match(source, /\/\/ @grant\s+GM\.openInTab/);
   assert.match(source, /\/\/ @grant\s+GM_setValue/);
