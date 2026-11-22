@@ -11,9 +11,11 @@
     ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
     ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
     ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
+    ADMIN_USERS_PAGE_SIZE: 'admin-users-page-size',
     AUTO_REFRESH: 'auto-refresh-ms',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
@@ -77,7 +79,9 @@
   const SETTINGS_GROUPS = {
     ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
+    ADMIN_GROUPS: 'admin-groups',
     ADMIN_USAGE: 'admin-usage',
+    ADMIN_USERS: 'admin-users',
     DASHBOARD: 'dashboard',
     USAGE: 'usage',
   };
@@ -86,9 +90,11 @@
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
     ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
     ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
+    ADMIN_USERS_PAGE_SIZE: 'admin-users-page-size',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     SIDEBAR_STATE: 'sidebar-state',
@@ -157,6 +163,18 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
       label: '账号管理 tab (/admin/accounts) - 每页数量',
+    },
+    {
+      description: '记住 /admin/groups tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_GROUPS,
+      id: FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE,
+      label: '分组管理 tab (/admin/groups) - 每页数量',
+    },
+    {
+      description: '记住 /admin/users tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_USERS,
+      id: FEATURE_IDS.ADMIN_USERS_PAGE_SIZE,
+      label: '用户管理 tab (/admin/users) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -516,6 +534,14 @@
     return location.pathname === '/admin/accounts' || location.pathname.startsWith('/admin/accounts/');
   }
 
+  function isAdminGroupsPage() {
+    return location.pathname === '/admin/groups' || location.pathname.startsWith('/admin/groups/');
+  }
+
+  function isAdminUsersPage() {
+    return location.pathname === '/admin/users' || location.pathname.startsWith('/admin/users/');
+  }
+
   function isAdminDashboardPage() {
     return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
   }
@@ -547,6 +573,12 @@
   function getActivePageSizeStorageName() {
     if (isAdminAccountsPage()) {
       return STORAGE_NAMES.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
+    if (isAdminGroupsPage()) {
+      return STORAGE_NAMES.ADMIN_GROUPS_PAGE_SIZE;
+    }
+    if (isAdminUsersPage()) {
+      return STORAGE_NAMES.ADMIN_USERS_PAGE_SIZE;
     }
     if (isAdminUsagePage()) {
       return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;

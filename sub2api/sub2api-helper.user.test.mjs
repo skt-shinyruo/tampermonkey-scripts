@@ -2406,6 +2406,428 @@ test('page size selection state does not cross from admin accounts to admin usag
   assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '50');
 });
 
+test('admin groups restores and stores its own page size', async () => {
+  const origin = 'https://groups-page-size.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '20',
+      [getScopedStorageKey(origin, 'admin-usage-page-size')]: '20',
+      [getScopedStorageKey(origin, 'usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/groups',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  const pageSize50Option = pageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-groups-page-size')), '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-page-size')), '50');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const groupsGroup = environment
+    .findSettingsRoot()
+    .querySelector('section[data-sub2api-settings-group="admin-groups"]');
+  assert.ok(groupsGroup);
+  assert.ok(groupsGroup.querySelector('input[data-sub2api-feature-global-switch="admin-groups-page-size"]'));
+  assert.ok(groupsGroup.querySelector('input[data-sub2api-feature-page-switch="admin-groups-page-size"]'));
+});
+
+test('admin groups restores page size after its pagination remounts', async () => {
+  const origin = 'https://groups-page-size-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/groups',
+  });
+  const initialPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(initialPageSize.button.textContent, '100');
+
+  initialPageSize.button.parentElement.remove();
+  const sameRoutePageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sameRoutePageSize.button.textContent, '100');
+
+  sameRoutePageSize.button.parentElement.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/groups');
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '100');
+});
+
+test('page size selection state does not cross from admin groups to admin accounts', async () => {
+  const origin = 'https://groups-page-size-isolation.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/groups',
+  });
+  const groupsPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(groupsPageSize.button.textContent, '100');
+  environment.sendDocumentClick(groupsPageSize.button);
+  groupsPageSize.button.click();
+  groupsPageSize.button.click();
+
+  groupsPageSize.button.parentElement.remove();
+  environment.setLocation('/admin/accounts');
+  createAdminAccountsFilters(environment);
+  const accountsPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(accountsPageSize.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-groups-page-size')), '100');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '50');
+});
+
+test('admin groups page size memory respects its feature switches', async () => {
+  const origin = 'https://groups-page-size-toggle.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/groups',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const globalSwitch = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-feature-global-switch="admin-groups-page-size"]');
+  assert.ok(globalSwitch);
+  globalSwitch.checked = false;
+  globalSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getGlobalFeatureStorageKey('admin-groups-page-size')), false);
+
+  pageSize.button.parentElement.remove();
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '20');
+
+  environment.sendDocumentClick(remountedPageSize.button);
+  remountedPageSize.button.click();
+  const pageSize50Option = remountedPageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-groups-page-size')), '100');
+});
+
+test('admin users restores and stores its own page size', async () => {
+  const origin = 'https://users-page-size.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-users-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '20',
+      [getScopedStorageKey(origin, 'admin-accounts-page-size')]: '20',
+      [getScopedStorageKey(origin, 'admin-usage-page-size')]: '20',
+      [getScopedStorageKey(origin, 'usage-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/users',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  const pageSize50Option = pageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-users-page-size')), '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-groups-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-accounts-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-usage-page-size')), '20');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'usage-page-size')), '50');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const usersGroup = environment
+    .findSettingsRoot()
+    .querySelector('section[data-sub2api-settings-group="admin-users"]');
+  assert.ok(usersGroup);
+  assert.ok(usersGroup.querySelector('input[data-sub2api-feature-global-switch="admin-users-page-size"]'));
+  assert.ok(usersGroup.querySelector('input[data-sub2api-feature-page-switch="admin-users-page-size"]'));
+});
+
+test('admin users restores page size after its pagination remounts', async () => {
+  const origin = 'https://users-page-size-spa.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-users-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/users',
+  });
+  const initialPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(initialPageSize.button.textContent, '100');
+
+  initialPageSize.button.parentElement.remove();
+  const sameRoutePageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(sameRoutePageSize.button.textContent, '100');
+
+  sameRoutePageSize.button.parentElement.remove();
+  environment.setLocation('/admin/promo-codes');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  environment.setLocation('/admin/users');
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '100');
+});
+
+test('page size selection state does not cross from admin users to admin groups', async () => {
+  const origin = 'https://users-page-size-isolation.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-users-page-size')]: '100',
+      [getScopedStorageKey(origin, 'admin-groups-page-size')]: '50',
+    },
+    origin,
+    pathname: '/admin/users',
+  });
+  const usersPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(usersPageSize.button.textContent, '100');
+  environment.sendDocumentClick(usersPageSize.button);
+  usersPageSize.button.click();
+  usersPageSize.button.click();
+
+  usersPageSize.button.parentElement.remove();
+  environment.setLocation('/admin/groups');
+  const groupsPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(groupsPageSize.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-users-page-size')), '100');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-groups-page-size')), '50');
+});
+
+test('admin users page size memory respects its feature switches', async () => {
+  const origin = 'https://users-page-size-toggle.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-users-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/users',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const globalSwitch = environment
+    .findSettingsRoot()
+    .querySelector('input[data-sub2api-feature-global-switch="admin-users-page-size"]');
+  assert.ok(globalSwitch);
+  globalSwitch.checked = false;
+  globalSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks();
+
+  assert.equal(environment.getStoredValue(getGlobalFeatureStorageKey('admin-users-page-size')), false);
+
+  pageSize.button.parentElement.remove();
+  const remountedPageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '20');
+
+  environment.sendDocumentClick(remountedPageSize.button);
+  remountedPageSize.button.click();
+  const pageSize50Option = remountedPageSize.findOption('50');
+  environment.sendDocumentClick(pageSize50Option);
+  pageSize50Option.click();
+  await flushMicrotasks();
+
+  assert.equal(remountedPageSize.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-users-page-size')), '100');
+});
+
+test('admin users ignores numeric filter options after the page size menu closes', async () => {
+  const origin = 'https://users-page-size-numeric-filter.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-users-page-size')]: '100',
+    },
+    origin,
+    pathname: '/admin/users',
+  });
+  const pageSize = environment.createSelectControl({
+    labelText: '每页:',
+    options: ['20', '50', '100'],
+    value: '20',
+  });
+  const groupFilter = environment.createSelectControl({
+    labelText: '全部分组',
+    options: ['全部', '50'],
+    value: '全部',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  assert.equal(pageSize.button.textContent, '100');
+
+  environment.sendDocumentClick(pageSize.button);
+  pageSize.button.click();
+  assert.equal(pageSize.button.getAttribute('aria-expanded'), 'true');
+  pageSize.button.click();
+  assert.equal(pageSize.button.getAttribute('aria-expanded'), 'false');
+
+  environment.sendDocumentClick(groupFilter.button);
+  groupFilter.button.click();
+  const numericGroupOption = groupFilter.findOption('50');
+  environment.sendDocumentClick(numericGroupOption);
+  numericGroupOption.click();
+  await flushMicrotasks();
+
+  assert.equal(groupFilter.button.textContent, '50');
+  assert.equal(environment.getStoredValue(getScopedStorageKey(origin, 'admin-users-page-size')), '100');
+});
+
 test('admin accounts keeps group filter changes after the group button loses its tag', async () => {
   const origin = 'https://accounts-untagged-group.sub2api.example.test';
   const environment = createTestEnvironment({

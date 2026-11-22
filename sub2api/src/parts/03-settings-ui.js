@@ -45,7 +45,9 @@
         href === '/keys' ||
         href === '/admin/dashboard' ||
         href === '/admin/accounts' ||
+        href === '/admin/groups' ||
         href === '/admin/usage' ||
+        href === '/admin/users' ||
         href === '/admin/settings'
       );
     });
@@ -117,6 +119,10 @@
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
       case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
+      case FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE:
+        return isAdminGroupsPage();
+      case FEATURE_IDS.ADMIN_USERS_PAGE_SIZE:
+        return isAdminUsersPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
         return isUserDashboardPage();
@@ -173,6 +179,12 @@
   function getActivePageSizeFeatureId() {
     if (isAdminAccountsPage()) {
       return FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
+    if (isAdminGroupsPage()) {
+      return FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE;
+    }
+    if (isAdminUsersPage()) {
+      return FEATURE_IDS.ADMIN_USERS_PAGE_SIZE;
     }
     if (isAdminUsagePage()) {
       return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
@@ -955,6 +967,16 @@
         return {
           description: '账号管理 tab (/admin/accounts)',
           title: '账号管理',
+        };
+      case SETTINGS_GROUPS.ADMIN_GROUPS:
+        return {
+          description: '分组管理 tab (/admin/groups)',
+          title: '分组管理',
+        };
+      case SETTINGS_GROUPS.ADMIN_USERS:
+        return {
+          description: '用户管理 tab (/admin/users)',
+          title: '用户管理',
         };
       case SETTINGS_GROUPS.DASHBOARD:
         return {

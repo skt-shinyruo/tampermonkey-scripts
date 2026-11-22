@@ -22,6 +22,20 @@
       return;
     }
 
+    if (isAdminGroupsPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedPageSize();
+      return;
+    }
+
+    if (isAdminUsersPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedPageSize();
+      return;
+    }
+
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
@@ -116,9 +130,11 @@
         }
 
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
+        const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
           isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
+          pageSizeButtonExpanded &&
           isPageSizeSelectionActive()
         ) {
           setSavedPageSizeValue(pageSizeValue);
@@ -320,7 +336,7 @@
         await restoreSavedAdminAccountsFilters();
       }
       handlePageSizeValueChange();
-      if (isAdminAccountsPage()) {
+      if (isAdminAccountsPage() || isAdminGroupsPage() || isAdminUsersPage()) {
         restoreSavedPageSize();
       }
       handleGranularityValueChange();

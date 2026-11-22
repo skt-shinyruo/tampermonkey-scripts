@@ -13,6 +13,8 @@ Sub2API Helper 是一个 Tampermonkey userscript，用来增强 Sub2API 管理�
 - 使用记录粒度记忆：记住使用记录页的粒度选择。
 - 使用记录每页数量记忆：记住使用记录页每页显示数量。
 - 账号管理每页数量记忆：记住账号管理页每页显示数量，并与使用记录页独立保存。
+- 分组管理每页数量记忆：记住分组管理页每页显示数量，并与使用记录页、账号管理页独立保存。
+- 用户管理每页数量记忆：记住用户管理页每页显示数量，并与使用记录页、账号管理页、分组管理页独立保存。
 - 使用记录自动刷新：在使用记录页的刷新按钮旁添加自动刷新控制和倒计时。
 - 仪表盘日期范围记忆：记住仪表盘日期范围，并在仪表盘趋势请求中同步改写日期参数。
 - 仪表盘粒度记忆：记住仪表盘粒度选择。
@@ -140,11 +142,12 @@ node --check sub2api/build-userscript.mjs
 - 不要用“上一次尝试恢复时的按钮文字”来跳过后续恢复。SPA 重新挂载后，旧 DOM 已经失效，新的 trigger 可能又回到默认值，例如 `/admin/promo-codes` 切回 `/admin/usage` 后重新显示 `近24小时`。
 - 请求改写不能只依赖页面控件已经就绪。管理端使用记录页会在 UI 指纹完整前发请求，必须根据当前 pathname 和已保存状态改写 URL 参数。
 - `/admin/usage` 需要覆盖真实管理端接口：`/api/v1/admin/usage*`，并同步覆盖页面会触发的管理端 summary/trend 类接口。新增管理端日期接口时，要检查 `ADMIN_DASHBOARD_DATE_RANGE_API_PATHS` 和使用记录改写范围。
-- 普通 `/usage` 与 `/admin/usage` 的日期范围、粒度，以及 `/usage`、`/admin/usage` 与 `/admin/accounts` 的每页数量必须独立存储和恢复；不要让一个页面的开关或保存值影响其他页面。
+- 普通 `/usage` 与 `/admin/usage` 的日期范围、粒度，以及 `/usage`、`/admin/usage`、`/admin/accounts`、`/admin/groups` 与 `/admin/users` 的每页数量必须独立存储和恢复；不要让一个页面的开关或保存值影响其他页面。
+- 每页数量的保存必须先确认每页下拉仍处于展开状态；用户管理页的分组、API Key 分组和动态属性筛选项可能是数字，不能仅凭选择窗口内的数字选项就写入每页数量。
 - 自动恢复使用 `element.click()` 时，这些非用户点击不能被当成用户正在选择日期，否则第一次打开 picker 被 SPA 切页/挂载吞掉后，后续恢复会被保护窗口挡住。date picker 打开失败也要短间隔重试，不能只点一次后长时间等待。
 - 不能只用接口请求参数正确来判断日期范围恢复成功。请求可能已经被改写成保存值，但 UI trigger 仍停在页面默认值；恢复完成必须以最终 trigger 文本匹配保存范围为准，不匹配要继续重试。
 - 真实浏览器复测前必须确认当前页面实际运行的 helper 脚本版本。设置面板会显示脚本版本，页面根节点也有 `data-sub2api-helper-version` 便于 DevTools 检查。
-- 修改相关逻辑时，至少保留/补充这些回归场景：从优惠码页切回管理端使用记录、date picker 延迟挂载、第一次 apply 后 UI 文本仍是默认值、粒度和每页数量切回后恢复、请求在页面指纹完整前发出、用户手动选择后不被旧保存值覆盖。
+- 修改相关逻辑时，至少保留/补充这些回归场景：从优惠码页切回管理端使用记录、date picker 延迟挂载、第一次 apply 后 UI 文本仍是默认值、粒度和每页数量切回后恢复、分组管理页和用户管理页分页条重新挂载后恢复、请求在页面指纹完整前发出、用户手动选择后不被旧保存值覆盖。
 - 侧边栏刷新后自动收起问题的根因可能不是 Sub2API 页面默认状态，而是 helper 的 `restoreSavedSidebarState()` 读到旧的 `sidebar-collapsed: true` 后主动调用原生 toggle 的 `element.click()`。DevTools 曾在 `0.22.21` 安装版中捕获到 `HTMLElement.click() -> restoreSavedSidebarState() -> MutationObserver` 调用栈。
 - 修复侧边栏状态记忆时，状态识别应优先读取真实底部 toggle 的 `title`：`展开` 表示已收起，`收起` 表示已展开；`sidebar-link-collapsed` class 次之，按钮可见文本只能作为兜底，因为收起态可能仍显示 `收起`。
 - `getSidebarToggleButton()` 不能宽泛匹配所有 sidebar 按钮，必须锁定真实收起/展开 toggle，避免把 `渠道管理`、主题按钮或其他导航按钮当成状态来源。用户点击后要延迟读取更新后的 DOM 并保存最新值，展开后必须写入 `sidebar-collapsed: false`。

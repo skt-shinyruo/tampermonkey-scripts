@@ -122,6 +122,10 @@ _Avoid_: 快捷键唤醒, 隐蔽触点, 右键菜单
 A globally persisted set of origin URLs where Sub2API Helper is deactivated, manageable across all sites via the settings panel.
 _Avoid_: 域名黑名单, 屏蔽网站列表
 
+**每页数量记忆 (Page Size Memory)**:
+Sub2API Helper 按页面独立保存并恢复表格每页行数选择的功能。
+_Avoid_: 页面大小记忆, 分页大小, 每页条数记忆
+
 ## AIHub Supplier Hall
 
 **供应商大厅 (Supplier Hall)**:
