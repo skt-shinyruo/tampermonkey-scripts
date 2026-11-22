@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AIHub
 // @namespace    https://aihub.top/
-// @version      1.10.0
+// @version      1.10.1
 // @description  高亮 AIHub 供应商大厅中所有以 S012 开头的分组；每页数量可自定义档位与默认值；自动拆分超长监测请求；分组名完整换行展示，并显示综合分与平台排名，卡片内直接展示关键指标，点击可看完整排序拆解
 // @match        https://aihub.top/*
 // @run-at       document-idle
@@ -201,66 +201,51 @@
       min-width: 0;
     }
 
-    /* ===== 综合分徽标：排名与分数合并为一个紧凑徽标，放在倍率数值下方 ===== */
+    /* ===== 排名与综合分：分开展示，放在倍率数值上方，字号跟随倍率 ===== */
     .s012-score {
-      display: inline-flex;
+      display: grid;
       justify-self: start;
-      align-items: baseline;
-      gap: 2px;
+      align-items: start;
+      gap: 0;
       box-sizing: border-box;
-      margin: 1px 0 0;
-      padding: 0 2px;
-      border: 1px solid transparent;
-      border-radius: 4px;
-      font-size: 11.5px;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      background: none;
+      font-size: 20px;
       font-weight: 700;
-      line-height: 1.2;
-      letter-spacing: -.1px;
+      line-height: 1.12;
+      letter-spacing: -.2px;
       font-variant-numeric: tabular-nums;
       cursor: help;
       white-space: nowrap;
     }
     .s012-score-rank {
-      font-weight: 800;
+      font-weight: 700;
+      color: var(--muted, #6b7280);
     }
-    .s012-score-rank[hidden],
-    .s012-score-sep[hidden] {
+    .s012-score-rank[hidden] {
       display: none;
     }
-    .s012-score-sep {
-      opacity: .45;
+    .s012-score-num {
+      font-weight: 700;
     }
     .s012-score-num::after {
       content: "▾";
       margin-left: 2px;
-      font-size: .66em;
+      font-size: .5em;
       line-height: 1;
-      opacity: .5;
+      opacity: .4;
     }
-    .s012-score[data-band="a"] {
-      color: #15803d;
-      background: rgba(34, 197, 94, .12);
-      border-color: rgba(34, 197, 94, .45);
-    }
-    .s012-score[data-band="b"] {
-      color: #0369a1;
-      background: rgba(56, 189, 248, .14);
-      border-color: rgba(56, 189, 248, .45);
-    }
-    .s012-score[data-band="c"] {
-      color: #b45309;
-      background: rgba(245, 158, 11, .14);
-      border-color: rgba(245, 158, 11, .45);
-    }
-    .s012-score[data-band="d"] {
-      color: #b91c1c;
-      background: rgba(239, 68, 68, .12);
-      border-color: rgba(239, 68, 68, .45);
-    }
+    .s012-score[data-band="a"] { color: #15803d; }
+    .s012-score[data-band="b"] { color: #0369a1; }
+    .s012-score[data-band="c"] { color: #b45309; }
+    .s012-score[data-band="d"] { color: #b91c1c; }
     html.dark .s012-score[data-band="a"] { color: #4ade80; }
     html.dark .s012-score[data-band="b"] { color: #7dd3fc; }
     html.dark .s012-score[data-band="c"] { color: #fbbf24; }
     html.dark .s012-score[data-band="d"] { color: #fca5a5; }
+    html.dark .s012-score-rank { color: #94a3b8; }
 
     /* ===== 行内简版指标条（放在分组名/描述下方的空白处） ===== */
     .decision-row.ledger-row .group-cell .s012-mini {
@@ -1243,13 +1228,17 @@
         continue;
       }
 
-      /* 徽标放在倍率数值下方，避免撑高分组的名称/描述格 */
-      if (badge && !badge.querySelector('.s012-score-sep')) {
+      /* 排名和分数放在倍率上方，避免撑高分组的名称/描述格 */
+      if (badge && !badge.querySelector('.s012-score-num')) {
         badge.remove();
         badge = null;
       }
-      if (badge && (badge.parentElement !== badgeHost || badge.previousElementSibling !== badgeAnchor)) {
-        badgeAnchor.insertAdjacentElement('afterend', badge);
+      if (badge) {
+        const oldSep = badge.querySelector('.s012-score-sep');
+        if (oldSep) oldSep.remove();
+      }
+      if (badge && (badge.parentElement !== badgeHost || badge.nextElementSibling !== badgeAnchor)) {
+        badgeAnchor.insertAdjacentElement('beforebegin', badge);
       }
 
       const text = info.score.toFixed(1);
@@ -1270,21 +1259,20 @@
 
         const rankEl = document.createElement('span');
         rankEl.className = 's012-score-rank';
-        const sepEl = document.createElement('span');
-        sepEl.className = 's012-score-sep';
-        sepEl.textContent = '·';
         const numEl = document.createElement('span');
         numEl.className = 's012-score-num';
         badge.appendChild(rankEl);
-        badge.appendChild(sepEl);
         badge.appendChild(numEl);
 
-        badgeAnchor.insertAdjacentElement('afterend', badge);
+        badgeAnchor.insertAdjacentElement('beforebegin', badge);
       }
       groupCell.classList.add('s012-scored');
 
+      const fontSource = multiplierStrong || strong;
+      const fontSize = getComputedStyle(fontSource).fontSize;
+      if (badge.style.fontSize !== fontSize) badge.style.fontSize = fontSize;
+
       const rankEl = badge.querySelector('.s012-score-rank');
-      const sepEl = badge.querySelector('.s012-score-sep');
       const numEl = badge.querySelector('.s012-score-num');
 
       if (badge.dataset.code !== name) badge.dataset.code = name;
@@ -1292,7 +1280,6 @@
         if (rankEl.textContent !== rankText) rankEl.textContent = rankText;
         if (rankEl.hidden !== !rankText) rankEl.hidden = !rankText;
       }
-      if (sepEl && sepEl.hidden !== !rankText) sepEl.hidden = !rankText;
       if (numEl && numEl.textContent !== text) numEl.textContent = text;
       if (badge.getAttribute('data-band') !== band) badge.setAttribute('data-band', band);
       if (badge.getAttribute('aria-label') !== label) badge.setAttribute('aria-label', label);
