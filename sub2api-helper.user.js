@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.49
-// @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
+// @version      0.22.50
+// @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
 // @downloadURL  https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.49';
+  const SCRIPT_VERSION = '0.22.50';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
@@ -29,9 +29,11 @@
     ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
     ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
     ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
+    ADMIN_USERS_PAGE_SIZE: 'admin-users-page-size',
     AUTO_REFRESH: 'auto-refresh-ms',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
@@ -95,7 +97,9 @@
   const SETTINGS_GROUPS = {
     ADMIN_ACCOUNTS: 'admin-accounts',
     ADMIN_DASHBOARD: 'admin-dashboard',
+    ADMIN_GROUPS: 'admin-groups',
     ADMIN_USAGE: 'admin-usage',
+    ADMIN_USERS: 'admin-users',
     DASHBOARD: 'dashboard',
     USAGE: 'usage',
   };
@@ -104,9 +108,11 @@
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
+    ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
     ADMIN_USAGE_DATE_RANGE: 'admin-usage-date-range',
     ADMIN_USAGE_GRANULARITY: 'admin-usage-granularity',
     ADMIN_USAGE_PAGE_SIZE: 'admin-usage-page-size',
+    ADMIN_USERS_PAGE_SIZE: 'admin-users-page-size',
     DASHBOARD_DATE_RANGE: 'dashboard-date-range',
     DASHBOARD_GRANULARITY: 'dashboard-granularity',
     SIDEBAR_STATE: 'sidebar-state',
@@ -175,6 +181,18 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
       label: '账号管理 tab (/admin/accounts) - 每页数量',
+    },
+    {
+      description: '记住 /admin/groups tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_GROUPS,
+      id: FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE,
+      label: '分组管理 tab (/admin/groups) - 每页数量',
+    },
+    {
+      description: '记住 /admin/users tab 每页显示数量。',
+      groupId: SETTINGS_GROUPS.ADMIN_USERS,
+      id: FEATURE_IDS.ADMIN_USERS_PAGE_SIZE,
+      label: '用户管理 tab (/admin/users) - 每页数量',
     },
     {
       description: '记住 /dashboard tab 的日期范围，并同步改写仪表盘趋势请求。',
@@ -534,6 +552,14 @@
     return location.pathname === '/admin/accounts' || location.pathname.startsWith('/admin/accounts/');
   }
 
+  function isAdminGroupsPage() {
+    return location.pathname === '/admin/groups' || location.pathname.startsWith('/admin/groups/');
+  }
+
+  function isAdminUsersPage() {
+    return location.pathname === '/admin/users' || location.pathname.startsWith('/admin/users/');
+  }
+
   function isAdminDashboardPage() {
     return location.pathname === '/admin/dashboard' || location.pathname.startsWith('/admin/dashboard/');
   }
@@ -565,6 +591,12 @@
   function getActivePageSizeStorageName() {
     if (isAdminAccountsPage()) {
       return STORAGE_NAMES.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
+    if (isAdminGroupsPage()) {
+      return STORAGE_NAMES.ADMIN_GROUPS_PAGE_SIZE;
+    }
+    if (isAdminUsersPage()) {
+      return STORAGE_NAMES.ADMIN_USERS_PAGE_SIZE;
     }
     if (isAdminUsagePage()) {
       return STORAGE_NAMES.ADMIN_USAGE_PAGE_SIZE;
@@ -1477,7 +1509,9 @@
         href === '/keys' ||
         href === '/admin/dashboard' ||
         href === '/admin/accounts' ||
+        href === '/admin/groups' ||
         href === '/admin/usage' ||
+        href === '/admin/users' ||
         href === '/admin/settings'
       );
     });
@@ -1549,6 +1583,10 @@
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
       case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
+      case FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE:
+        return isAdminGroupsPage();
+      case FEATURE_IDS.ADMIN_USERS_PAGE_SIZE:
+        return isAdminUsersPage();
       case FEATURE_IDS.DASHBOARD_DATE_RANGE:
       case FEATURE_IDS.DASHBOARD_GRANULARITY:
         return isUserDashboardPage();
@@ -1605,6 +1643,12 @@
   function getActivePageSizeFeatureId() {
     if (isAdminAccountsPage()) {
       return FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE;
+    }
+    if (isAdminGroupsPage()) {
+      return FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE;
+    }
+    if (isAdminUsersPage()) {
+      return FEATURE_IDS.ADMIN_USERS_PAGE_SIZE;
     }
     if (isAdminUsagePage()) {
       return FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE;
@@ -2387,6 +2431,16 @@
         return {
           description: '账号管理 tab (/admin/accounts)',
           title: '账号管理',
+        };
+      case SETTINGS_GROUPS.ADMIN_GROUPS:
+        return {
+          description: '分组管理 tab (/admin/groups)',
+          title: '分组管理',
+        };
+      case SETTINGS_GROUPS.ADMIN_USERS:
+        return {
+          description: '用户管理 tab (/admin/users)',
+          title: '用户管理',
         };
       case SETTINGS_GROUPS.DASHBOARD:
         return {
@@ -4765,6 +4819,20 @@
       return;
     }
 
+    if (isAdminGroupsPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedPageSize();
+      return;
+    }
+
+    if (isAdminUsersPage()) {
+      stopAutoRefresh();
+      closeAutoRefreshMenu();
+      await restoreSavedPageSize();
+      return;
+    }
+
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
@@ -4859,9 +4927,11 @@
         }
 
         const pageSizeValue = normalizePageSizeValue(option?.textContent.trim());
+        const pageSizeButtonExpanded = getPageSizeButton()?.getAttribute('aria-expanded') === 'true';
         if (
           isActivePageSizeFeatureEnabled() &&
           pageSizeValue &&
+          pageSizeButtonExpanded &&
           isPageSizeSelectionActive()
         ) {
           setSavedPageSizeValue(pageSizeValue);
@@ -5063,7 +5133,7 @@
         await restoreSavedAdminAccountsFilters();
       }
       handlePageSizeValueChange();
-      if (isAdminAccountsPage()) {
+      if (isAdminAccountsPage() || isAdminGroupsPage() || isAdminUsersPage()) {
         restoreSavedPageSize();
       }
       handleGranularityValueChange();
