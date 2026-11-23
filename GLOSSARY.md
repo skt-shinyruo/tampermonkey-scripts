@@ -155,8 +155,8 @@ The upstream-rendered accounts page column showing one 账号's today-only reque
 _Avoid_: 当日统计, 今日用量, 今日数据
 
 **统计区间 (Stats Window)**:
-The `今天` / `昨天` calendar-day span that scopes cache hit rate retrieval on the accounts page, independent of the 日期范围 selected on usage pages.
-_Avoid_: 查询范围, 时间窗口, 日期范围
+The `今天` and `昨天` calendar-day spans shown side by side for cache hit rate on the accounts page, independent of the 日期范围 selected on usage pages.
+_Avoid_: 查询范围, 时间窗口, 日期范围, 命中率区间
 
 **缓存命中率 (Cache Hit Rate)**:
 The ratio of cache read tokens to all prompt-side tokens (`缓存读取 / (输入 + 缓存创建 + 缓存读取)`) for one 账号 over a 统计区间.
