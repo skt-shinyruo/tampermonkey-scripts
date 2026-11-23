@@ -1,5 +1,6 @@
   const ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE = 'data-sub2api-account-hit-rate';
   const ACCOUNT_HIT_RATE_ROW_ATTRIBUTE = 'data-sub2api-account-hit-rate-row';
+  const ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE = 'data-sub2api-account-hit-rate-render-key';
   const ACCOUNT_HIT_RATE_GRID_ATTRIBUTE = 'data-sub2api-account-hit-rate-grid';
   const ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE = 'data-sub2api-account-hit-rate-original-label';
   const ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE = 'data-sub2api-account-hit-rate-track';
@@ -31,13 +32,21 @@
   let accountHitRateNextRunAt = null;
   let accountHitRateVisibilityInstalled = false;
   let accountHitRateObserver = null;
+  let accountHitRateResolvedTimeZone = null;
 
   function isAccountHitRateEnabled() {
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
   }
 
+  function getAccountHitRateTimeZone() {
+    if (accountHitRateResolvedTimeZone === null) {
+      accountHitRateResolvedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    }
+    return accountHitRateResolvedTimeZone;
+  }
+
   function resolveAccountHitRateDates() {
-    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    const timeZone = getAccountHitRateTimeZone();
     const today = getTodayIsoDate(timeZone);
     if (!today) {
       return null;
@@ -384,8 +393,7 @@
     return hours < 24 ? `${hours} 小时前` : `${Math.floor(hours / 24)} 天前`;
   }
 
-  function getAccountHitRateDayEntry(accountId, day) {
-    const dates = resolveAccountHitRateDates();
+  function getAccountHitRateDayEntry(accountId, day, dates) {
     if (!dates) {
       return null;
     }
@@ -394,15 +402,14 @@
       : getAccountHitRateYesterday(accountId, dates.yesterday);
   }
 
-  function buildAccountHitRateDayTitle(accountId, day) {
-    const dates = resolveAccountHitRateDates();
+  function buildAccountHitRateDayTitle(accountId, day, dates) {
     if (!dates) {
       return '缓存命中率：无法确定当前日期';
     }
 
     const dayLabel = day === 'today' ? '今天' : '昨天';
     const dateText = day === 'today' ? dates.today : dates.yesterday;
-    const entry = getAccountHitRateDayEntry(accountId, day);
+    const entry = getAccountHitRateDayEntry(accountId, day, dates);
 
     if (accountHitRateInFlight.has(Number(accountId)) && !entry) {
       return `正在查询${dayLabel}（${dateText}）的缓存命中率…`;
@@ -429,9 +436,9 @@
     return USAGE_CACHE_HIT_RATE_TEXT_CLASSES[getUsageCacheHitRateSeverity(hitRate)];
   }
 
-  function getAccountHitRateDayState(accountId, day) {
+  function getAccountHitRateDayState(accountId, day, dates) {
     const pending = accountHitRateInFlight.has(Number(accountId));
-    const entry = getAccountHitRateDayEntry(accountId, day);
+    const entry = getAccountHitRateDayEntry(accountId, day, dates);
     const prefix = ACCOUNT_HIT_RATE_DAY_LABELS[day];
 
     if (pending && !entry) {
@@ -444,6 +451,23 @@
       };
     }
     return { label: `${prefix} –`, textClass: 'text-gray-400 dark:text-gray-500' };
+  }
+
+  function getAccountHitRateRenderModel(accountId, dates) {
+    const days = ['today', 'yesterday'].map((day) => ({
+      day,
+      state: getAccountHitRateDayState(accountId, day, dates),
+      title: buildAccountHitRateDayTitle(accountId, day, dates),
+    }));
+
+    return { days, tracked: isAccountHitRateTracked(accountId) };
+  }
+
+  function getAccountHitRateRenderKey(model) {
+    return [
+      model.tracked ? '1' : '0',
+      ...model.days.map((entry) => `${entry.state.label}|${entry.state.textClass}|${entry.title}`),
+    ].join('~');
   }
 
   function createAccountHitRateBadge(accountId, day) {
@@ -672,7 +696,9 @@
       if (child.getAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE) === 'true') {
         continue;
       }
-      setStyles(child, { marginTop: '0' });
+      if (child.style.marginTop !== '0') {
+        child.style.marginTop = '0';
+      }
     }
 
     applyAccountHitRateShortLabels(container);
@@ -728,47 +754,53 @@
     return line;
   }
 
-  function renderAccountHitRateDayBadge(line, accountId, day) {
-    const badge = line.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="${day}"]`);
+  function renderAccountHitRateDayBadge(line, entry) {
+    const badge = line.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="${entry.day}"]`);
     if (!badge) {
       return;
     }
 
-    const state = getAccountHitRateDayState(accountId, day);
-    badge.className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${state.textClass}`;
-    if (badge.textContent !== state.label) {
-      badge.textContent = state.label;
+    const className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${entry.state.textClass}`;
+    if (badge.className !== className) {
+      badge.className = className;
     }
-    const title = buildAccountHitRateDayTitle(accountId, day);
-    if (badge.getAttribute('title') !== title) {
-      badge.setAttribute('title', title);
-      badge.setAttribute('aria-label', title);
+    if (badge.textContent !== entry.state.label) {
+      badge.textContent = entry.state.label;
+    }
+    if (badge.getAttribute('title') !== entry.title) {
+      badge.setAttribute('title', entry.title);
+      badge.setAttribute('aria-label', entry.title);
     }
   }
 
-  function renderAccountHitRateLine(line, accountId) {
-    const tracked = isAccountHitRateTracked(accountId);
+  const ACCOUNT_HIT_RATE_TOGGLE_CLASS_TRACKED = 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400';
+  const ACCOUNT_HIT_RATE_TOGGLE_CLASS_IDLE = 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
 
-    renderAccountHitRateDayBadge(line, accountId, 'today');
-    renderAccountHitRateDayBadge(line, accountId, 'yesterday');
+  function renderAccountHitRateLine(line, model) {
+    for (const entry of model.days) {
+      renderAccountHitRateDayBadge(line, entry);
+    }
 
     const toggle = line.querySelector(`[${ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE}="true"]`);
     if (!toggle) {
       return;
     }
 
-    const trackClass = tracked
-      ? 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400'
-      : 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
+    const trackClass = model.tracked
+      ? ACCOUNT_HIT_RATE_TOGGLE_CLASS_TRACKED
+      : ACCOUNT_HIT_RATE_TOGGLE_CLASS_IDLE;
     if (toggle.className !== trackClass) {
       toggle.className = trackClass;
     }
-    const toggleTitle = tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
+    const toggleTitle = model.tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
     if (toggle.getAttribute('title') !== toggleTitle) {
       toggle.setAttribute('title', toggleTitle);
       toggle.setAttribute('aria-label', toggleTitle);
     }
-    toggle.setAttribute('aria-pressed', tracked ? 'true' : 'false');
+    const pressed = model.tracked ? 'true' : 'false';
+    if (toggle.getAttribute('aria-pressed') !== pressed) {
+      toggle.setAttribute('aria-pressed', pressed);
+    }
   }
 
   function renderAccountHitRateRow(accountId) {
@@ -777,15 +809,24 @@
       return;
     }
 
+    const dates = resolveAccountHitRateDates();
     for (const row of document.querySelectorAll('tr')) {
       if (Number(row.getAttribute('data-row-id')) !== Number(accountId)) {
         continue;
       }
-      renderAccountHitRateRowElement(row, index);
+      renderAccountHitRateRowElement(row, index, dates);
     }
   }
 
-  function renderAccountHitRateRowElement(row, columnIndex) {
+  function setAccountHitRateLineStyle(line, styles) {
+    for (const [property, value] of Object.entries(styles)) {
+      if (line.style[property] !== value) {
+        line.style[property] = value;
+      }
+    }
+  }
+
+  function renderAccountHitRateRowElement(row, columnIndex, dates) {
     const accountId = Number(row.getAttribute('data-row-id'));
     if (!Number.isSafeInteger(accountId) || accountId <= 0) {
       return;
@@ -796,30 +837,58 @@
       return;
     }
 
+    const model = getAccountHitRateRenderModel(accountId, dates);
+    const renderKey = getAccountHitRateRenderKey(model);
+    let line = cell.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
+
+    if (line) {
+      // Reading the parent's attribute is enough for the common case: the line
+      // already sits inside the grid, so an unchanged row costs nothing.
+      const parentIsGrid = line.parentElement
+        && line.parentElement.getAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE) === 'true';
+
+      if (!parentIsGrid) {
+        // The today stats cell swaps between `-` and the stats stack, so the
+        // line may need to follow the stack when it appears later.
+        const lateContainer = getAccountHitRateStatsContainer(cell);
+        if (lateContainer) {
+          if (line.parentElement !== lateContainer) {
+            lateContainer.appendChild(line);
+          }
+          applyAccountHitRateGrid(lateContainer);
+          setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
+        } else {
+          const mount = cell.querySelector('div') || cell;
+          if (line.parentElement !== mount) {
+            mount.appendChild(line);
+          }
+          setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
+        }
+      }
+
+      if (line.getAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE) === renderKey) {
+        return;
+      }
+      renderAccountHitRateLine(line, model);
+      line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, renderKey);
+      return;
+    }
+
     const statsContainer = getAccountHitRateStatsContainer(cell);
     const mount = statsContainer || cell.querySelector('div') || cell;
-    const dates = resolveAccountHitRateDates();
-    if (dates) {
-      pruneAccountHitRateTodayEntries(dates.today);
-    }
 
-    let line = cell.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
-    if (!line) {
-      line = createAccountHitRateLine(accountId);
-    }
-
-    if (line.parentElement !== mount) {
-      mount.appendChild(line);
-    }
+    line = createAccountHitRateLine(accountId);
+    mount.appendChild(line);
 
     if (statsContainer) {
       applyAccountHitRateGrid(statsContainer);
-      setStyles(line, { gridColumn: '1 / -1', marginTop: '0' });
+      setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
     } else {
-      setStyles(line, { gridColumn: '', marginTop: '4px' });
+      setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
     }
 
-    renderAccountHitRateLine(line, accountId);
+    renderAccountHitRateLine(line, model);
+    line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, renderKey);
   }
 
   function clearAccountHitRateRows() {
@@ -848,10 +917,15 @@
       return;
     }
 
+    const dates = resolveAccountHitRateDates();
+    if (dates) {
+      pruneAccountHitRateTodayEntries(dates.today);
+    }
+
     for (const row of document.querySelectorAll('tr')) {
       const accountId = Number(row.getAttribute('data-row-id'));
       if (Number.isSafeInteger(accountId) && accountId > 0) {
-        renderAccountHitRateRowElement(row, index);
+        renderAccountHitRateRowElement(row, index, dates);
       }
     }
 

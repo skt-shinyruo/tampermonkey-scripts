@@ -166,4 +166,7 @@ node --check sub2api/build-userscript.mjs
 - 该列在列设置里默认隐藏（`DEFAULT_HIDDEN_COLUMNS` 含 `today_stats`）。列不存在时必须移除注入并停止轮询，打开列后由 MutationObserver 自动恢复。
 - 命中率轮询只在 `/admin/accounts` 且页面可见时生效；切到其他管理页、后台标签页或非 Sub2API 站点必须停表。`installAccountHitRateLinks()` 会被 `applyPageEnhancements()` 与 MutationObserver 反复调用，必须幂等，不能每调用一次就启动新一轮查询。
 - 缓存命中率复用 `calculateUsageCacheHitRatePercent()`，分母为 0 时必须返回 `null`（渲染成 `–`），不能渲染成 `0%`。
-- 命中率回归测试至少覆盖：一次请求同时渲染今天与昨天、昨天缓存后只查今天、昨天缓存跨日失效、某天无记录、失败保留旧值、区间选择器已移除、跨午夜作废今天、监控账户持久化与上限、连续 3 次失败熔断与恢复、隐藏页不轮询、列隐藏时不注入也不轮询、重复注入不重复请求、四档配色分级、网格排布与第三行独占。
+- 命中率的渲染必须廉价：`resolveAccountHitRateDates()` 每轮注入只解析一次并向下传递，不要退回到「每个徽标各自解析」。`Intl.DateTimeFormat` 构造一次约 35µs，而缓存复用约 1.7µs，`01-date-utils.js` 按 `timeZone` 缓存了格式化器，`06-account-hit-rate.js` 另外缓存了解析出的时区。
+- 每行带一个 `data-sub2api-account-hit-rate-render-key`，内容未变时整行跳过、不写任何 DOM。不要在跳过路径之前无条件赋 `className` / `style` / `aria-pressed`——一次多余的样式写入就会让整张表重新计算样式，滚动时表现为掉帧。测试会用元素级写入计数断言「未变化的行零写入」。
+- 单元格会在「`-` 占位」与「stats 堆栈」之间切换。行要跟着容器走：判断依据必须是容器类名（`space-y-0.5 text-xs`），不能用 `data-sub2api-account-hit-rate-grid` 属性——那个属性正是我们之后才加上的，用它探测会永远落空。
+- 命中率回归测试至少覆盖：一次请求同时渲染今天与昨天、昨天缓存后只查今天、昨天缓存跨日失效、某天无记录、失败保留旧值、跨午夜作废今天、监控账户持久化与上限、连续 3 次失败熔断与恢复、隐藏页不轮询、列隐藏时不注入也不轮询、重复注入不重复请求、未变行零写入、格式化器只构造一次、无数据转有数据时行迁入网格、四档配色分级。

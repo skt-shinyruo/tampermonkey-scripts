@@ -1,12 +1,23 @@
+  const isoDateFormatterCache = new Map();
+
+  function getIsoDateFormatter(timeZone) {
+    const key = String(timeZone || 'UTC');
+    let formatter = isoDateFormatterCache.get(key);
+    if (!formatter) {
+      formatter = new Intl.DateTimeFormat('en-CA', {
+        day: '2-digit',
+        month: '2-digit',
+        timeZone: key,
+        year: 'numeric',
+      });
+      isoDateFormatterCache.set(key, formatter);
+    }
+    return formatter;
+  }
+
   function getDatePartsInTimeZone(date, timeZone) {
-    const formatter = new Intl.DateTimeFormat('en-CA', {
-      day: '2-digit',
-      month: '2-digit',
-      timeZone,
-      year: 'numeric',
-    });
     const parts = Object.fromEntries(
-      formatter
+      getIsoDateFormatter(timeZone)
         .formatToParts(date)
         .filter((part) => part.type !== 'literal')
         .map((part) => [part.type, Number(part.value)]),

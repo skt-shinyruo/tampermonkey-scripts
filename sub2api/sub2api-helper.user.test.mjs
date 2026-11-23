@@ -22,8 +22,8 @@ function splitClassNames(value) {
     .filter(Boolean);
 }
 
-function createTestStyleDeclaration() {
-  return {
+function createTestStyleDeclaration(owner = null) {
+  const declarations = {
     getPropertyValue(name) {
       return this[name] || '';
     },
@@ -36,6 +36,22 @@ function createTestStyleDeclaration() {
       this[name] = String(value);
     },
   };
+
+  if (!owner) {
+    return declarations;
+  }
+
+  return new Proxy(declarations, {
+    set(target, property, value) {
+      owner.__writes += 1;
+      target[property] = value;
+      return true;
+    },
+    deleteProperty(target, property) {
+      owner.__writes += 1;
+      return delete target[property];
+    },
+  });
 }
 
 function formatCustomLabel(dateText) {
@@ -132,17 +148,27 @@ function matchesSelector(element, selector) {
 class TestElement {
   constructor(tagName = 'div', textContent = '') {
     this.tagName = tagName.toUpperCase();
+    this.__writes = 0;
+    this._className = '';
     this._textContent = textContent;
     this.attributes = {};
     this.children = [];
-    this.className = '';
     this.dataset = {};
     this.disabled = false;
     this.isConnected = true;
     this.listeners = new Map();
     this.ownerDocument = null;
     this.parentElement = null;
-    this.style = createTestStyleDeclaration();
+    this.style = createTestStyleDeclaration(this);
+  }
+
+  get className() {
+    return this._className;
+  }
+
+  set className(value) {
+    this.__writes += 1;
+    this._className = String(value);
   }
 
   get classList() {
@@ -188,6 +214,7 @@ class TestElement {
   }
 
   appendChild(child) {
+    child.__writes += 1;
     child.parentElement = this;
     child.ownerDocument = this.ownerDocument;
     this.children.push(child);
@@ -195,6 +222,7 @@ class TestElement {
   }
 
   insertBefore(child, reference) {
+    child.__writes += 1;
     child.parentElement = this;
     child.ownerDocument = this.ownerDocument;
     const referenceIndex = reference ? this.children.indexOf(reference) : -1;
@@ -250,6 +278,7 @@ class TestElement {
     if (position !== 'afterend' || !this.parentElement) {
       return null;
     }
+    element.__writes += 1;
     const siblings = this.parentElement.children;
     const index = siblings.indexOf(this);
     element.parentElement = this.parentElement;
@@ -303,6 +332,7 @@ class TestElement {
   }
 
   setAttribute(name, value) {
+    this.__writes += 1;
     this.attributes[name] = String(value);
     if (name.startsWith('data-')) {
       const camelKey = name.slice(5).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -315,6 +345,7 @@ class TestElement {
   }
 
   removeAttribute(name) {
+    this.__writes += 1;
     delete this.attributes[name];
     if (name.startsWith('data-')) {
       const camelKey = name.slice(5).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -390,6 +421,13 @@ function createTestEnvironment({
   const fetchCalls = [];
   const fetchResponses = new Map();
   const fetchStatuses = new Map();
+  const intlConstructions = [];
+  const realIntl = Intl;
+  const intlSpy = Object.create(realIntl);
+  intlSpy.DateTimeFormat = function DateTimeFormat(...args) {
+    intlConstructions.push(args);
+    return new realIntl.DateTimeFormat(...args);
+  };
   const mediaQueryListeners = new Set();
   const menuCommands = new Map();
   const windowListeners = new Map();
@@ -497,6 +535,7 @@ function createTestEnvironment({
     },
     Element: TestElement,
     Event: TestEvent,
+    Intl: intlSpy,
     GM_deleteValue(key) {
       gmState.delete(key);
     },
@@ -1075,6 +1114,9 @@ function createTestEnvironment({
     },
     advanceTime(ms) {
       currentTime += ms;
+    },
+    getIntlConstructionCount() {
+      return intlConstructions.length;
     },
     getMenuCommand(label) {
       return menuCommands.get(label) || null;
@@ -6411,4 +6453,131 @@ test('admin accounts hit rate keeps breaker progress across a manual success', a
   const notice = pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]');
   assert.ok(notice, 'a manual success must not reset the polling breaker');
   assert.match(notice.textContent, /已暂停/);
+});
+
+function sumElementWrites(node) {
+  if (!node) {
+    return 0;
+  }
+  let total = Number(node.__writes || 0);
+  for (const child of node.children || []) {
+    total += sumElementWrites(child);
+  }
+  return total;
+}
+
+test('admin accounts hit rate does not rewrite unchanged rows on repeated injections', async () => {
+  const origin = 'https://account-hit-rate-no-rewrite.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const today = getTestIsoDate(now);
+  const environment = createTestEnvironment({ now, origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 201, accountName: 'Stable Row' });
+  environment.setFetchResponse(
+    '/api/v1/admin/dashboard/trend',
+    buildAccountHitRateTrendResponse({
+      [today]: { input: 20, read: 80 },
+      [shiftIsoDateText(today, -1)]: { input: 40, read: 60 },
+    }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  getHitRateBadge(account, 'today').dispatchEvent({ type: 'click' });
+  await flushMicrotasks(300);
+  assert.equal(getHitRateBadge(account, 'today').textContent, '今 80%');
+
+  const before = sumElementWrites(account.todayStatsCell);
+  for (let round = 0; round < 4; round += 1) {
+    environment.runMutationObservers();
+    await flushMicrotasks(200);
+  }
+  const after = sumElementWrites(account.todayStatsCell);
+
+  assert.equal(after, before, 'an unchanged row must not produce DOM writes');
+});
+
+test('admin accounts hit rate reuses the date formatter instead of rebuilding it', async () => {
+  const origin = 'https://account-hit-rate-formatter-cache.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const today = getTestIsoDate(now);
+  const environment = createTestEnvironment({ now, origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 202, accountName: 'Formatter Row' });
+  environment.setFetchResponse(
+    '/api/v1/admin/dashboard/trend',
+    buildAccountHitRateTrendResponse({ [today]: { input: 20, read: 80 } }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const warmed = environment.getIntlConstructionCount();
+  assert.ok(warmed <= 2, `expected the formatter to be built at most twice, got ${warmed}`);
+
+  for (let round = 0; round < 6; round += 1) {
+    environment.runMutationObservers();
+    await flushMicrotasks(150);
+  }
+
+  assert.equal(
+    environment.getIntlConstructionCount(),
+    warmed,
+    'repeated passes must not rebuild Intl.DateTimeFormat',
+  );
+});
+
+test('admin accounts hit rate follows the grid when today stats arrive later', async () => {
+  const origin = 'https://account-hit-rate-late-stats.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const environment = createTestEnvironment({ now, origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, {
+    accountId: 203,
+    accountName: 'Late Stats',
+    todayStatsState: 'empty',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const line = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
+  assert.ok(line);
+  const root = account.todayStatsCell.children[0];
+  assert.equal(line.parentElement, root);
+
+  // Vue swaps the "-" placeholder for the stats stack while our line stays put.
+  root.children[0].remove();
+  const container = environment.document.createElement('div');
+  container.className = 'space-y-0.5 text-xs';
+  for (const labelText of ['请求:', 'Token:', '账号计费:', '用户扣费:']) {
+    const row = environment.document.createElement('div');
+    row.className = 'flex items-center gap-1';
+    const label = environment.document.createElement('span');
+    label.textContent = labelText;
+    row.appendChild(label);
+    container.appendChild(row);
+  }
+  root.appendChild(container);
+
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.ok(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]').parentElement === container,
+    'the line must move into the grid once the stats container appears',
+  );
+  assert.equal(container.style.display, 'grid');
+  assert.equal(container.style.gridTemplateColumns, 'auto auto');
+  assert.equal(container.children[2].children[0].textContent, '账号:');
 });
