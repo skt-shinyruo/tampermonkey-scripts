@@ -5998,7 +5998,8 @@ test('admin accounts no longer renders a hit rate range selector', async () => {
 
 test('admin accounts hit rate resets today when the date rolls over', async () => {
   const origin = 'https://account-hit-rate-rollover.sub2api.example.test';
-  const now = RealDate.parse('2026-05-09T23:50:00+08:00');
+  const localBase = new RealDate(2026, 4, 9, 23, 50, 0);
+  const now = localBase.getTime();
   const today = getTestIsoDate(now);
   const environment = createTestEnvironment({ now, origin, pathname: '/admin/accounts' });
   environment.createSidebarToggle({ collapsed: false });
