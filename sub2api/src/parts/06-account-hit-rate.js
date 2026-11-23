@@ -24,7 +24,6 @@
   let accountHitRateInjectionPending = false;
   let accountHitRateNotice = null;
   let accountHitRateCycleTimer = null;
-  let accountHitRateCycleToken = 0;
   let accountHitRateCycleInFlight = false;
   let accountHitRateConsecutiveFailures = 0;
   let accountHitRatePaused = false;
@@ -351,7 +350,6 @@
             setAccountHitRateYesterday(normalizedId, dates.yesterday, yesterdayRate);
           }
           accountHitRateLastError = null;
-          accountHitRateConsecutiveFailures = 0;
         } else {
           accountHitRateLastError = result.status === 'auth' ? '无权限或登录态失效' : '查询失败';
         }
@@ -984,6 +982,7 @@
     const shouldRun = isAdminAccountsPage()
       && isAccountHitRateEnabled()
       && isAccountHitRateColumnAvailable()
+      && isPageVisible()
       && !accountHitRatePaused
       && getTrackedAccountIds().length > 0;
 
@@ -1012,7 +1011,6 @@
   }
 
   function stopAccountHitRateSchedule() {
-    accountHitRateCycleToken += 1;
     if (accountHitRateCycleTimer) {
       window.clearInterval(accountHitRateCycleTimer);
       accountHitRateCycleTimer = null;
@@ -1059,6 +1057,8 @@
             );
             break;
           }
+        } else {
+          accountHitRateConsecutiveFailures = 0;
         }
         if (result?.retryAfterMs) {
           await sleep(result.retryAfterMs);

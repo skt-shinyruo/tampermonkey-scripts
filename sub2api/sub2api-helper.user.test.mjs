@@ -6290,3 +6290,125 @@ test('admin accounts hit rate settings row normalizes the interval input', async
     120,
   );
 });
+
+test('admin accounts hit rate leaves no schedule behind when hidden mid-cycle', async () => {
+  const origin = 'https://account-hit-rate-hidden-cycle.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [95],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 95, accountName: 'Tracked Hidden Cycle' });
+  environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+  assert.equal(getHitRateCalls(environment).length, 1);
+
+  environment.setVisibilityState('hidden');
+  await flushMicrotasks(300);
+
+  // A DOM mutation while hidden must not re-arm the polling timer.
+  environment.runMutationObservers();
+  await flushMicrotasks(300);
+
+  const hitRateIntervals = environment
+    .getIntervalDurations()
+    .filter((ms) => ms >= 30 * 60 * 1000);
+  assert.deepEqual(hitRateIntervals, [], 'no polling interval may survive a hidden page');
+
+  const callsWhileHidden = getHitRateCalls(environment).length;
+  for (const { handler } of environment.intervals.values()) {
+    handler();
+  }
+  await flushMicrotasks(300);
+  assert.equal(getHitRateCalls(environment).length, callsWhileHidden);
+});
+
+test('admin accounts hit rate resumes immediately after the page becomes visible again', async () => {
+  const origin = 'https://account-hit-rate-resume.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [96],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 96, accountName: 'Tracked Resume' });
+  environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+  assert.equal(getHitRateCalls(environment).length, 1);
+
+  environment.setVisibilityState('hidden');
+  await flushMicrotasks(300);
+  environment.runMutationObservers();
+  await flushMicrotasks(300);
+  environment.setVisibilityState('visible');
+  await flushMicrotasks(400);
+
+  assert.equal(
+    getHitRateCalls(environment).length,
+    2,
+    'returning to the foreground must trigger a fresh cycle',
+  );
+});
+
+test('admin accounts hit rate keeps breaker progress across a manual success', async () => {
+  const origin = 'https://account-hit-rate-breaker-manual.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const today = getTestIsoDate(now);
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [97],
+    },
+    now,
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 97, accountName: 'Tracked Breaker' });
+  environment.setFetchStatus('/api/v1/admin/dashboard/trend', 500);
+
+  const pageRoot = environment.document.createElement('div');
+  pageRoot.className = 'space-y-6';
+  environment.document.body.appendChild(pageRoot);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+
+  assert.equal(getHitRateCalls(environment).length, 1);
+  assert.equal(
+    pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]'),
+    null,
+    'one failure must not trip the breaker',
+  );
+
+  environment.setFetchResponse(
+    '/api/v1/admin/dashboard/trend',
+    buildAccountHitRateTrendResponse({ [today]: { input: 50, read: 50 } }),
+  );
+  environment.setFetchStatus('/api/v1/admin/dashboard/trend', 200);
+  getHitRateBadge(account, 'today').dispatchEvent({ type: 'click' });
+  await flushMicrotasks(300);
+
+  environment.setFetchStatus('/api/v1/admin/dashboard/trend', 500);
+  for (let round = 0; round < 2; round += 1) {
+    for (const { handler } of environment.intervals.values()) {
+      handler();
+    }
+    await flushMicrotasks(500);
+  }
+
+  const notice = pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]');
+  assert.ok(notice, 'a manual success must not reset the polling breaker');
+  assert.match(notice.textContent, /已暂停/);
+});
