@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.58
+// @version      0.22.60
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.58';
+  const SCRIPT_VERSION = '0.22.60';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
@@ -28,8 +28,8 @@
     ADMIN_ACCOUNTS_FILTER_STATUS: 'admin-accounts-filter-status',
     ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
     ADMIN_ACCOUNTS_HIT_RATE_INTERVAL: 'admin-accounts-hit-rate-interval',
-    ADMIN_ACCOUNTS_HIT_RATE_RANGE: 'admin-accounts-hit-rate-range',
     ADMIN_ACCOUNTS_HIT_RATE_TRACKED: 'admin-accounts-hit-rate-tracked',
+    ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY: 'admin-accounts-hit-rate-yesterday',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
@@ -5578,13 +5578,7 @@
   const ACCOUNT_HIT_RATE_GRID_ATTRIBUTE = 'data-sub2api-account-hit-rate-grid';
   const ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE = 'data-sub2api-account-hit-rate-original-label';
   const ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE = 'data-sub2api-account-hit-rate-track';
-  const ACCOUNT_HIT_RATE_RANGE_ATTRIBUTE = 'data-sub2api-account-hit-rate-range';
   const ACCOUNT_HIT_RATE_NOTICE_ATTRIBUTE = 'data-sub2api-account-hit-rate-notice';
-  const ACCOUNT_HIT_RATE_MENU_ATTRIBUTE = 'data-sub2api-account-hit-rate-menu';
-  const ACCOUNT_HIT_RATE_RANGE_OPTIONS = [
-    { label: '今天', value: 'today' },
-    { label: '昨天', value: 'yesterday' },
-  ];
   const ACCOUNT_HIT_RATE_MAX_TRACKED = 10;
   const ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES = 30;
   const ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES = 1440;
@@ -5596,15 +5590,14 @@
   const ACCOUNT_HIT_RATE_INJECTION_DELAY_MS = 50;
   const ACCOUNT_HIT_RATE_FAILURE_THRESHOLD = 3;
   const ACCOUNT_HIT_RATE_QUERY_CACHE_LIMIT = 200;
+  const ACCOUNT_HIT_RATE_DAY_LABELS = { yesterday: '昨', today: '今' };
 
-  const accountHitRateQueries = new Map();
+  const accountHitRateTodayEntries = new Map();
   const accountHitRateInFlight = new Map();
 
   let accountHitRateInjectionTimer = null;
   let accountHitRateInjectionPending = false;
-  let accountHitRateRangeControl = null;
   let accountHitRateNotice = null;
-  let accountHitRateMenu = null;
   let accountHitRateCycleTimer = null;
   let accountHitRateCycleToken = 0;
   let accountHitRateCycleInFlight = false;
@@ -5619,35 +5612,13 @@
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
   }
 
-  function getAccountHitRateRange() {
-    const saved = String(
-      getStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_RANGE, '') || '',
-    );
-    return ACCOUNT_HIT_RATE_RANGE_OPTIONS.some((option) => option.value === saved)
-      ? saved
-      : 'today';
-  }
-
-  function setAccountHitRateRange(value) {
-    setStorageValue(
-      STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_RANGE,
-      ACCOUNT_HIT_RATE_RANGE_OPTIONS.some((option) => option.value === value) ? value : 'today',
-    );
-  }
-
-  function getAccountHitRateRangeLabel(value = getAccountHitRateRange()) {
-    return ACCOUNT_HIT_RATE_RANGE_OPTIONS.find((option) => option.value === value)?.label || '今天';
-  }
-
-  function resolveAccountHitRateDateRange(rangeValue = getAccountHitRateRange()) {
+  function resolveAccountHitRateDates() {
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const today = getTodayIsoDate(timeZone);
     if (!today) {
       return null;
     }
-
-    const day = rangeValue === 'yesterday' ? shiftIsoDate(today, -1) : today;
-    return { end: day, start: day, timeZone };
+    return { timeZone, today, yesterday: shiftIsoDate(today, -1) };
   }
 
   function normalizeAccountHitRateInterval(value) {
@@ -5722,29 +5693,68 @@
 
     if (!tracked && exists) {
       setTrackedAccountIds(ids.filter((id) => id !== normalizedId));
-      for (const [key] of [...accountHitRateQueries.entries()]) {
-        if (key.startsWith(`${normalizedId}:`)) {
-          accountHitRateQueries.delete(key);
-        }
-      }
+      accountHitRateTodayEntries.delete(normalizedId);
+      accountHitRateInFlight.delete(normalizedId);
+      deleteAccountHitRateYesterday(normalizedId);
       return 'removed';
     }
 
     return 'unchanged';
   }
 
-  function getAccountHitRateQueryKey(accountId, rangeValue) {
-    return `${accountId}:${rangeValue}`;
+  function getAccountHitRateYesterdayStore() {
+    const raw = getStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, {});
+    return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
   }
 
-  function getAccountHitRateQuery(accountId, rangeValue = getAccountHitRateRange()) {
-    return accountHitRateQueries.get(getAccountHitRateQueryKey(accountId, rangeValue)) || null;
+  function getAccountHitRateYesterday(accountId, yesterdayDate) {
+    const entry = getAccountHitRateYesterdayStore()[String(accountId)];
+    if (!entry || entry.date !== yesterdayDate) {
+      return null;
+    }
+    return entry;
   }
 
-  function setAccountHitRateQuery(accountId, rangeValue, entry) {
-    accountHitRateQueries.set(getAccountHitRateQueryKey(accountId, rangeValue), entry);
-    while (accountHitRateQueries.size > ACCOUNT_HIT_RATE_QUERY_CACHE_LIMIT) {
-      accountHitRateQueries.delete(accountHitRateQueries.keys().next().value);
+  function setAccountHitRateYesterday(accountId, yesterdayDate, hitRate) {
+    const store = getAccountHitRateYesterdayStore();
+    for (const [key, entry] of Object.entries(store)) {
+      if (!entry || entry.date !== yesterdayDate) {
+        delete store[key];
+      }
+    }
+    store[String(accountId)] = { date: yesterdayDate, fetchedAt: Date.now(), hitRate };
+    setStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, store);
+  }
+
+  function deleteAccountHitRateYesterday(accountId) {
+    const store = getAccountHitRateYesterdayStore();
+    if (!(String(accountId) in store)) {
+      return;
+    }
+    delete store[String(accountId)];
+    setStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, store);
+  }
+
+  function getAccountHitRateTodayEntry(accountId, todayDate) {
+    const entry = accountHitRateTodayEntries.get(Number(accountId));
+    if (!entry || entry.date !== todayDate) {
+      return null;
+    }
+    return entry;
+  }
+
+  function setAccountHitRateTodayEntry(accountId, todayDate, payload) {
+    accountHitRateTodayEntries.set(Number(accountId), { date: todayDate, ...payload });
+    while (accountHitRateTodayEntries.size > ACCOUNT_HIT_RATE_QUERY_CACHE_LIMIT) {
+      accountHitRateTodayEntries.delete(accountHitRateTodayEntries.keys().next().value);
+    }
+  }
+
+  function pruneAccountHitRateTodayEntries(todayDate) {
+    for (const [accountId, entry] of [...accountHitRateTodayEntries.entries()]) {
+      if (!entry || entry.date !== todayDate) {
+        accountHitRateTodayEntries.delete(accountId);
+      }
     }
   }
 
@@ -5776,7 +5786,31 @@
     return 0;
   }
 
-  function fetchAccountHitRateStats(accountId, dateRange) {
+  function parseAccountHitRateTrendDays(payload) {
+    const data = payload?.data || payload;
+    const trend = Array.isArray(data?.trend)
+      ? data.trend
+      : (Array.isArray(data) ? data : null);
+    if (!trend) {
+      return null;
+    }
+
+    const days = {};
+    for (const point of trend) {
+      const date = String(point?.date || '').slice(0, 10);
+      if (!date) {
+        continue;
+      }
+      days[date] = calculateUsageCacheHitRatePercent({
+        cache_creation_tokens: point.cache_creation_tokens,
+        cache_read_tokens: point.cache_read_tokens,
+        input_tokens: point.input_tokens,
+      });
+    }
+    return days;
+  }
+
+  function fetchAccountHitRateTrend(accountId, request) {
     const fetchFunction = typeof window.fetch === 'function'
       ? window.fetch.bind(window)
       : (typeof fetch === 'function' ? fetch : null);
@@ -5784,11 +5818,12 @@
       return Promise.resolve({ status: 'error' });
     }
 
-    const requestUrl = new URL('/api/v1/admin/usage/stats', location.origin);
+    const requestUrl = new URL('/api/v1/admin/dashboard/trend', location.origin);
     requestUrl.searchParams.set('account_id', String(accountId));
-    requestUrl.searchParams.set('start_date', dateRange.start);
-    requestUrl.searchParams.set('end_date', dateRange.end);
-    requestUrl.searchParams.set('timezone', dateRange.timeZone);
+    requestUrl.searchParams.set('start_date', request.start);
+    requestUrl.searchParams.set('end_date', request.end);
+    requestUrl.searchParams.set('granularity', 'day');
+    requestUrl.searchParams.set('timezone', request.timeZone);
 
     const headers = {
       Accept: 'application/json',
@@ -5824,18 +5859,11 @@
 
         return Promise.resolve(response.json())
           .then((payload) => {
-            const stats = payload?.data || payload;
-            if (!stats || typeof stats !== 'object') {
+            const days = parseAccountHitRateTrendDays(payload);
+            if (!days) {
               return { status: 'error' };
             }
-            return {
-              hitRate: calculateUsageCacheHitRatePercent({
-                cache_creation_tokens: stats.total_cache_creation_tokens,
-                cache_read_tokens: stats.total_cache_read_tokens,
-                input_tokens: stats.total_input_tokens,
-              }),
-              status: 'ok',
-            };
+            return { days, status: 'ok' };
           })
           .catch(() => ({ status: 'error' }));
       })
@@ -5847,47 +5875,69 @@
       });
   }
 
-  function requestAccountHitRate(accountId) {
+  function isAccountHitRateRefreshNeeded(accountId, dates, forceToday) {
+    if (forceToday || !getAccountHitRateTodayEntry(accountId, dates.today)) {
+      return true;
+    }
+    return !getAccountHitRateYesterday(accountId, dates.yesterday);
+  }
+
+  function requestAccountHitRate(accountId, { forceToday = false } = {}) {
     const normalizedId = Number(accountId);
     if (!Number.isSafeInteger(normalizedId) || normalizedId <= 0) {
       return Promise.resolve(null);
     }
 
-    const rangeValue = getAccountHitRateRange();
-    const dateRange = resolveAccountHitRateDateRange(rangeValue);
-    if (!dateRange) {
+    const dates = resolveAccountHitRateDates();
+    if (!dates) {
       return Promise.resolve(null);
     }
 
-    const key = getAccountHitRateQueryKey(normalizedId, rangeValue);
-    const pending = accountHitRateInFlight.get(key);
+    pruneAccountHitRateTodayEntries(dates.today);
+    if (!isAccountHitRateRefreshNeeded(normalizedId, dates, forceToday)) {
+      return Promise.resolve(getAccountHitRateTodayEntry(normalizedId, dates.today));
+    }
+
+    const pending = accountHitRateInFlight.get(normalizedId);
     if (pending) {
       return pending;
     }
 
-    const promise = fetchAccountHitRateStats(normalizedId, dateRange)
+    const needYesterday = !getAccountHitRateYesterday(normalizedId, dates.yesterday);
+    const promise = fetchAccountHitRateTrend(normalizedId, {
+      end: dates.today,
+      start: needYesterday ? dates.yesterday : dates.today,
+      timeZone: dates.timeZone,
+    })
       .then((result) => {
-        const entry = {
-          accountId: normalizedId,
-          fetchedAt: Date.now(),
-          range: rangeValue,
-          ...result,
-        };
         if (result.status === 'ok') {
+          const todayRate = Object.prototype.hasOwnProperty.call(result.days, dates.today)
+            ? result.days[dates.today]
+            : null;
+          setAccountHitRateTodayEntry(normalizedId, dates.today, {
+            fetchedAt: Date.now(),
+            hitRate: todayRate,
+            status: 'ok',
+          });
+          if (needYesterday) {
+            const yesterdayRate = Object.prototype.hasOwnProperty.call(result.days, dates.yesterday)
+              ? result.days[dates.yesterday]
+              : null;
+            setAccountHitRateYesterday(normalizedId, dates.yesterday, yesterdayRate);
+          }
           accountHitRateLastError = null;
           accountHitRateConsecutiveFailures = 0;
         } else {
           accountHitRateLastError = result.status === 'auth' ? '无权限或登录态失效' : '查询失败';
         }
-        setAccountHitRateQuery(normalizedId, rangeValue, entry);
-        return entry;
+        return { ...result, accountId: normalizedId };
       })
       .finally(() => {
-        accountHitRateInFlight.delete(key);
+        accountHitRateInFlight.delete(normalizedId);
         renderAccountHitRateRow(normalizedId);
       });
 
-    accountHitRateInFlight.set(key, promise);
+    accountHitRateInFlight.set(normalizedId, promise);
     renderAccountHitRateRow(normalizedId);
     return promise;
   }
@@ -5911,30 +5961,42 @@
     return hours < 24 ? `${hours} 小时前` : `${Math.floor(hours / 24)} 天前`;
   }
 
-  function buildAccountHitRateTitle(accountId) {
-    const rangeValue = getAccountHitRateRange();
-    const rangeLabel = getAccountHitRateRangeLabel(rangeValue);
-    const entry = getAccountHitRateQuery(accountId, rangeValue);
+  function getAccountHitRateDayEntry(accountId, day) {
+    const dates = resolveAccountHitRateDates();
+    if (!dates) {
+      return null;
+    }
+    return day === 'today'
+      ? getAccountHitRateTodayEntry(accountId, dates.today)
+      : getAccountHitRateYesterday(accountId, dates.yesterday);
+  }
 
-    if (accountHitRateInFlight.has(getAccountHitRateQueryKey(accountId, rangeValue))) {
-      return `正在查询「${rangeLabel}」的缓存命中率…`;
+  function buildAccountHitRateDayTitle(accountId, day) {
+    const dates = resolveAccountHitRateDates();
+    if (!dates) {
+      return '缓存命中率：无法确定当前日期';
+    }
+
+    const dayLabel = day === 'today' ? '今天' : '昨天';
+    const dateText = day === 'today' ? dates.today : dates.yesterday;
+    const entry = getAccountHitRateDayEntry(accountId, day);
+
+    if (accountHitRateInFlight.has(Number(accountId)) && !entry) {
+      return `正在查询${dayLabel}（${dateText}）的缓存命中率…`;
     }
     if (!entry) {
-      return `缓存命中率（${rangeLabel}）：未查询，悬停或点击刷新`;
+      return `缓存命中率·${dayLabel}（${dateText}）：未查询，悬停或点击刷新`;
     }
-    if (entry.status === 'auth') {
-      return `缓存命中率（${rangeLabel}）：无权限或登录态失效`;
-    }
-    if (entry.status === 'error') {
-      return `缓存命中率（${rangeLabel}）：查询失败`;
+    if (entry.status === 'error' || entry.status === 'auth') {
+      return `缓存命中率·${dayLabel}（${dateText}）：查询失败`;
     }
     if (entry.hitRate === null) {
-      return `缓存命中率（${rangeLabel}）：该区间没有 Prompt Token`;
+      return `缓存命中率·${dayLabel}（${dateText}）：该日没有 Prompt Token`;
     }
 
     const fetchedAt = new Date(entry.fetchedAt);
     const clock = `${String(fetchedAt.getHours()).padStart(2, '0')}:${String(fetchedAt.getMinutes()).padStart(2, '0')}`;
-    return `缓存命中率（${rangeLabel}）：${formatAccountHitRateLabel(entry.hitRate)}，数据时间 ${clock}（${formatAccountHitRateAge(entry.fetchedAt)}）`;
+    return `缓存命中率·${dayLabel}（${dateText}）：${formatAccountHitRateLabel(entry.hitRate)}，数据时间 ${clock}（${formatAccountHitRateAge(entry.fetchedAt)}）`;
   }
 
   function getAccountHitRateTextClass(hitRate) {
@@ -5944,28 +6006,27 @@
     return USAGE_CACHE_HIT_RATE_TEXT_CLASSES[getUsageCacheHitRateSeverity(hitRate)];
   }
 
-  function getAccountHitRateRowState(accountId) {
-    const rangeValue = getAccountHitRateRange();
-    const entry = getAccountHitRateQuery(accountId, rangeValue);
-    const pending = accountHitRateInFlight.has(getAccountHitRateQueryKey(accountId, rangeValue));
+  function getAccountHitRateDayState(accountId, day) {
+    const pending = accountHitRateInFlight.has(Number(accountId));
+    const entry = getAccountHitRateDayEntry(accountId, day);
+    const prefix = ACCOUNT_HIT_RATE_DAY_LABELS[day];
 
-    if (pending) {
-      return { label: '…', pending: true, textClass: 'text-gray-400 dark:text-gray-500' };
+    if (pending && !entry) {
+      return { label: `${prefix} …`, textClass: 'text-gray-400 dark:text-gray-500' };
     }
-    if (entry && entry.status === 'ok') {
+    if (entry && entry.status !== 'error' && entry.status !== 'auth') {
       return {
-        label: formatAccountHitRateLabel(entry.hitRate),
-        pending: false,
+        label: `${prefix} ${formatAccountHitRateLabel(entry.hitRate)}`,
         textClass: getAccountHitRateTextClass(entry.hitRate),
       };
     }
-    return { label: '–', pending: false, textClass: 'text-gray-400 dark:text-gray-500' };
+    return { label: `${prefix} –`, textClass: 'text-gray-400 dark:text-gray-500' };
   }
 
-  function createAccountHitRateBadge(accountId) {
+  function createAccountHitRateBadge(accountId, day) {
     const badge = document.createElement('button');
     badge.setAttribute('type', 'button');
-    badge.setAttribute(ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE, 'true');
+    badge.setAttribute(ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE, day);
     badge.setAttribute('data-sub2api-account-hit-rate-id', String(accountId));
     setStyles(badge, {
       background: 'transparent',
@@ -5977,8 +6038,11 @@
 
     let hoverTimer = null;
     badge.addEventListener('mouseenter', () => {
-      const entry = getAccountHitRateQuery(accountId);
-      if (entry?.status === 'ok') {
+      const dates = resolveAccountHitRateDates();
+      if (!dates) {
+        return;
+      }
+      if (!isAccountHitRateRefreshNeeded(accountId, dates, false)) {
         return;
       }
       hoverTimer = window.setTimeout(() => {
@@ -5998,7 +6062,7 @@
     badge.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      requestAccountHitRate(accountId);
+      requestAccountHitRate(accountId, { forceToday: day === 'today' });
     });
 
     return badge;
@@ -6224,56 +6288,64 @@
     const label = document.createElement('span');
     label.setAttribute('data-sub2api-account-hit-rate-label', 'true');
     label.className = 'text-gray-500 dark:text-gray-400';
+    label.textContent = '命中率:';
     line.appendChild(label);
 
-    const badge = createAccountHitRateBadge(accountId);
-    line.appendChild(badge);
+    line.appendChild(createAccountHitRateBadge(accountId, 'today'));
 
-    const toggle = createAccountHitRateTrackToggle(accountId);
-    line.appendChild(toggle);
+    const separator = document.createElement('span');
+    separator.setAttribute('data-sub2api-account-hit-rate-separator', 'true');
+    separator.className = 'text-gray-400 dark:text-gray-500';
+    separator.textContent = '·';
+    line.appendChild(separator);
+
+    line.appendChild(createAccountHitRateBadge(accountId, 'yesterday'));
+    line.appendChild(createAccountHitRateTrackToggle(accountId));
 
     return line;
   }
 
+  function renderAccountHitRateDayBadge(line, accountId, day) {
+    const badge = line.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="${day}"]`);
+    if (!badge) {
+      return;
+    }
+
+    const state = getAccountHitRateDayState(accountId, day);
+    badge.className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${state.textClass}`;
+    if (badge.textContent !== state.label) {
+      badge.textContent = state.label;
+    }
+    const title = buildAccountHitRateDayTitle(accountId, day);
+    if (badge.getAttribute('title') !== title) {
+      badge.setAttribute('title', title);
+      badge.setAttribute('aria-label', title);
+    }
+  }
+
   function renderAccountHitRateLine(line, accountId) {
     const tracked = isAccountHitRateTracked(accountId);
-    const rangeLabel = getAccountHitRateRangeLabel();
-    const state = getAccountHitRateRowState(accountId);
 
-    const label = line.querySelector('[data-sub2api-account-hit-rate-label="true"]');
-    const labelText = `命中率(${rangeLabel}):`;
-    if (label && label.textContent !== labelText) {
-      label.textContent = labelText;
-    }
-
-    const badge = line.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="true"]`);
-    if (badge) {
-      badge.className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${state.textClass}`;
-      if (badge.textContent !== state.label) {
-        badge.textContent = state.label;
-      }
-      const title = buildAccountHitRateTitle(accountId);
-      if (badge.getAttribute('title') !== title) {
-        badge.setAttribute('title', title);
-        badge.setAttribute('aria-label', title);
-      }
-    }
+    renderAccountHitRateDayBadge(line, accountId, 'today');
+    renderAccountHitRateDayBadge(line, accountId, 'yesterday');
 
     const toggle = line.querySelector(`[${ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE}="true"]`);
-    if (toggle) {
-      const trackClass = tracked
-        ? 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400'
-        : 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
-      if (toggle.className !== trackClass) {
-        toggle.className = trackClass;
-      }
-      const toggleTitle = tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
-      if (toggle.getAttribute('title') !== toggleTitle) {
-        toggle.setAttribute('title', toggleTitle);
-        toggle.setAttribute('aria-label', toggleTitle);
-      }
-      toggle.setAttribute('aria-pressed', tracked ? 'true' : 'false');
+    if (!toggle) {
+      return;
     }
+
+    const trackClass = tracked
+      ? 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400'
+      : 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
+    if (toggle.className !== trackClass) {
+      toggle.className = trackClass;
+    }
+    const toggleTitle = tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
+    if (toggle.getAttribute('title') !== toggleTitle) {
+      toggle.setAttribute('title', toggleTitle);
+      toggle.setAttribute('aria-label', toggleTitle);
+    }
+    toggle.setAttribute('aria-pressed', tracked ? 'true' : 'false');
   }
 
   function renderAccountHitRateRow(accountId) {
@@ -6303,6 +6375,10 @@
 
     const statsContainer = getAccountHitRateStatsContainer(cell);
     const mount = statsContainer || cell.querySelector('div') || cell;
+    const dates = resolveAccountHitRateDates();
+    if (dates) {
+      pruneAccountHitRateTodayEntries(dates.today);
+    }
 
     let line = cell.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
     if (!line) {
@@ -6356,7 +6432,6 @@
       }
     }
 
-    installAccountHitRateRangeControl();
     ensureAccountHitRatePolling();
   }
 
@@ -6388,150 +6463,6 @@
       accountHitRateInjectionTimer = null;
       injectAccountHitRateRows();
     }, ACCOUNT_HIT_RATE_INJECTION_DELAY_MS);
-  }
-
-  function createAccountHitRateRangeControl() {
-    const wrap = document.createElement('div');
-    wrap.setAttribute(ACCOUNT_HIT_RATE_RANGE_ATTRIBUTE, 'true');
-    wrap.className = 'flex items-center gap-2';
-    setStyles(wrap, {
-      alignItems: 'center',
-      display: 'inline-flex',
-      gap: '6px',
-    });
-
-    const label = document.createElement('span');
-    label.className = 'text-xs font-medium text-gray-500 dark:text-gray-400';
-    label.textContent = '命中率区间';
-    setStyles(label, { fontSize: '12px', fontWeight: '600', whiteSpace: 'nowrap' });
-
-    const button = document.createElement('button');
-    button.setAttribute('type', 'button');
-    button.className = 'btn btn-secondary px-2 md:px-3';
-    button.setAttribute('data-sub2api-account-hit-rate-range-button', 'true');
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleAccountHitRateRangeMenu(button);
-    });
-
-    wrap.appendChild(label);
-    wrap.appendChild(button);
-    return wrap;
-  }
-
-  function updateAccountHitRateRangeControl() {
-    if (!accountHitRateRangeControl?.isConnected) {
-      return;
-    }
-    const button = accountHitRateRangeControl.querySelector(
-      '[data-sub2api-account-hit-rate-range-button="true"]',
-    );
-    if (button) {
-      button.textContent = getAccountHitRateRangeLabel();
-    }
-  }
-
-  function closeAccountHitRateRangeMenu() {
-    accountHitRateMenu?.remove();
-    accountHitRateMenu = null;
-  }
-
-  function toggleAccountHitRateRangeMenu(anchor) {
-    if (accountHitRateMenu) {
-      closeAccountHitRateRangeMenu();
-      return;
-    }
-
-    const menu = document.createElement('div');
-    menu.setAttribute(ACCOUNT_HIT_RATE_MENU_ATTRIBUTE, 'true');
-    setStyles(menu, {
-      background: '#fff',
-      border: '1px solid rgba(148, 163, 184, 0.45)',
-      borderRadius: '8px',
-      boxShadow: '0 8px 24px rgba(15, 23, 42, 0.18)',
-      minWidth: '96px',
-      padding: '4px',
-      position: 'absolute',
-      zIndex: '2147483000',
-    });
-
-    for (const option of ACCOUNT_HIT_RATE_RANGE_OPTIONS) {
-      const item = document.createElement('button');
-      item.setAttribute('type', 'button');
-      item.setAttribute('data-sub2api-account-hit-rate-range-option', option.value);
-      item.textContent = option.label;
-      setStyles(item, {
-        background: 'none',
-        border: '0',
-        borderRadius: '6px',
-        color: option.value === getAccountHitRateRange() ? '#2563eb' : '#0f172a',
-        cursor: 'pointer',
-        display: 'block',
-        fontSize: '13px',
-        fontWeight: option.value === getAccountHitRateRange() ? '700' : '500',
-        padding: '6px 10px',
-        textAlign: 'left',
-        width: '100%',
-      });
-      item.addEventListener('click', () => {
-        setAccountHitRateRange(option.value);
-        closeAccountHitRateRangeMenu();
-        updateAccountHitRateRangeControl();
-        injectAccountHitRateRows();
-      });
-      menu.appendChild(item);
-    }
-
-    const rect = typeof anchor.getBoundingClientRect === 'function'
-      ? anchor.getBoundingClientRect()
-      : null;
-    if (rect && Number.isFinite(rect.left)) {
-      setStyles(menu, {
-        left: `${rect.left + (Number(window.scrollX) || 0)}px`,
-        top: `${rect.bottom + (Number(window.scrollY) || 0) + 4}px`,
-      });
-    }
-
-    document.body.appendChild(menu);
-    accountHitRateMenu = menu;
-
-    window.setTimeout(() => {
-      document.addEventListener(
-        'click',
-        (event) => {
-          if (event?.target instanceof Element && menu.contains(event.target)) {
-            return;
-          }
-          closeAccountHitRateRangeMenu();
-        },
-        true,
-      );
-    }, 0);
-  }
-
-  function getAccountHitRateToolbarAnchor() {
-    const filterButton = getAdminAccountsFilterButton(ADMIN_ACCOUNTS_FILTERS[0]);
-    if (!filterButton) {
-      return null;
-    }
-    return filterButton.parentElement?.parentElement || filterButton.parentElement || null;
-  }
-
-  function installAccountHitRateRangeControl() {
-    if (accountHitRateRangeControl?.isConnected) {
-      updateAccountHitRateRangeControl();
-      return;
-    }
-
-    const anchor = getAccountHitRateToolbarAnchor();
-    if (!anchor) {
-      return;
-    }
-
-    accountHitRateRangeControl = createAccountHitRateRangeControl();
-    anchor.appendChild(accountHitRateRangeControl);
-    updateAccountHitRateRangeControl();
   }
 
   function createAccountHitRateNotice() {
@@ -6693,7 +6624,7 @@
           break;
         }
 
-        const result = await requestAccountHitRate(accountId);
+        const result = await requestAccountHitRate(accountId, { forceToday: true });
         if (result?.status !== 'ok') {
           accountHitRateConsecutiveFailures += 1;
           if (accountHitRateConsecutiveFailures >= ACCOUNT_HIT_RATE_FAILURE_THRESHOLD) {
@@ -6776,7 +6707,6 @@
 
   function cleanupAccountHitRate() {
     stopAccountHitRateSchedule();
-    closeAccountHitRateRangeMenu();
     hideAccountHitRateNotice();
 
     if (accountHitRateObserver) {
@@ -6788,9 +6718,6 @@
       accountHitRateInjectionTimer = null;
     }
     accountHitRateInjectionPending = false;
-
-    accountHitRateRangeControl?.remove();
-    accountHitRateRangeControl = null;
 
     clearAccountHitRateRows();
   }
