@@ -2,7 +2,7 @@
   const ACCOUNT_USAGE_LINK_ID_ATTRIBUTE = 'data-sub2api-account-usage-id';
   const ACCOUNT_USAGE_GUTTER_ATTRIBUTE = 'data-sub2api-account-usage-gutter';
   const ACCOUNT_USAGE_NOTICE_ATTRIBUTE = 'data-sub2api-account-usage-notice';
-  const ACCOUNT_USAGE_ACTION_GUTTER_PX = 92;
+  const ACCOUNT_USAGE_ACTION_GUTTER_EM = 1.6;
   const ACCOUNT_USAGE_LINK_INJECTION_DELAY_MS = 50;
   const ACCOUNT_USAGE_DEEP_LINK_TIMEOUT_MS = 8000;
   const ACCOUNT_USAGE_SELECTION_TIMEOUT_MS = 2500;
@@ -28,8 +28,8 @@
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '12');
-    svg.setAttribute('height', '12');
+    svg.setAttribute('width', '100%');
+    svg.setAttribute('height', '100%');
     svg.setAttribute('fill', 'none');
     svg.setAttribute('stroke', 'currentColor');
     svg.setAttribute('stroke-width', '1.8');
@@ -45,17 +45,15 @@
 
   function createAccountUsageLink(accountId) {
     const link = document.createElement('a');
-    link.className = 'inline-flex items-center justify-center gap-1 rounded-md border border-primary-200 bg-primary-50 text-xs font-medium text-primary-700 hover:bg-primary-100 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300 dark:hover:bg-primary-900/50';
+    link.className = 'inline-flex items-center justify-center text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300';
     setStyles(link, {
       boxSizing: 'border-box',
-      height: '24px',
+      height: '1em',
       left: '0',
       lineHeight: '1',
-      padding: '0 4px',
       position: 'absolute',
-      top: '0',
-      whiteSpace: 'nowrap',
-      width: '84px',
+      top: '0.15em',
+      width: '1em',
     });
     link.setAttribute('href', `/admin/usage?account_id=${encodeURIComponent(String(accountId))}`);
     link.setAttribute('target', '_blank');
@@ -70,9 +68,6 @@
       link.appendChild(icon);
     }
 
-    const label = document.createElement('span');
-    label.textContent = '使用记录';
-    link.appendChild(label);
     return link;
   }
 
@@ -93,7 +88,7 @@
 
     container.setAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE, 'true');
     setStyles(container, {
-      paddingLeft: `${ACCOUNT_USAGE_ACTION_GUTTER_PX}px`,
+      paddingLeft: `${ACCOUNT_USAGE_ACTION_GUTTER_EM}em`,
       position: 'relative',
     });
   }

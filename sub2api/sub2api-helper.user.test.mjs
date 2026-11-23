@@ -5405,10 +5405,10 @@ test('admin accounts adds an idempotent usage shortcut to each account row', asy
   assert.equal(firstLink.getAttribute('rel'), 'noopener noreferrer');
   assert.equal(firstLink.getAttribute('title'), '查看该账号的使用记录');
   assert.equal(firstLink.getAttribute('aria-label'), '查看该账号的使用记录');
-  assert.match(firstLink.textContent, /使用记录/);
   assert.equal(firstLink.style.position, 'absolute');
-  assert.equal(firstLink.style.width, '84px');
-  assert.equal(first.nameStack.style.paddingLeft, '92px');
+  assert.equal(firstLink.style.width, '1em');
+  assert.equal(firstLink.style.height, '1em');
+  assert.equal(first.nameStack.style.paddingLeft, '1.6em');
   assert.equal(first.nameStack.style.position, 'relative');
   assert.equal(first.name.querySelector('[data-sub2api-account-usage-link="true"]'), null);
 
