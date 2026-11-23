@@ -119,6 +119,8 @@
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
       case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
+      case FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK:
+        return isAdminAccountsPage() || isAdminUsagePage();
       case FEATURE_IDS.ADMIN_GROUPS_PAGE_SIZE:
         return isAdminGroupsPage();
       case FEATURE_IDS.ADMIN_USERS_PAGE_SIZE:
@@ -455,6 +457,14 @@
     if (!isFeatureEnabled(FEATURE_IDS.USAGE_AUTO_REFRESH) || !isUsageAutoRefreshPage()) {
       stopAutoRefresh();
       removeAutoRefreshControl();
+    }
+
+    if (!isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK) || !isAdminAccountsPage()) {
+      cleanupAccountUsageLinks();
+    }
+
+    if (!isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK) || !isAdminUsagePage()) {
+      cleanupAccountUsageDeepLink();
     }
   }
 

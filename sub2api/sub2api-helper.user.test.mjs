@@ -194,6 +194,15 @@ class TestElement {
     return child;
   }
 
+  insertBefore(child, reference) {
+    child.parentElement = this;
+    child.ownerDocument = this.ownerDocument;
+    const referenceIndex = reference ? this.children.indexOf(reference) : -1;
+    const insertIndex = referenceIndex >= 0 ? referenceIndex : this.children.length;
+    this.children.splice(insertIndex, 0, child);
+    return child;
+  }
+
   click() {
     this.dispatchEvent({ type: 'click' });
   }
@@ -520,7 +529,7 @@ function createTestEnvironment({
       const url = typeof input === 'string' ? input : input?.url;
       const method = init.method || input?.method || 'GET';
       const urlText = String(url);
-      fetchCalls.push({ method, url: urlText });
+      fetchCalls.push({ headers: { ...(init.headers || {}) }, method, url: urlText });
       const requestPath = new URL(urlText, origin).pathname;
       const responseBody = fetchResponses.get(urlText) || fetchResponses.get(requestPath);
       const response = {
@@ -5266,4 +5275,281 @@ test('settings panel displays site exclusion switch and manages excluded origins
     JSON.parse(JSON.stringify(environment.getStoredValue('sub2api-helper:global:excluded-origins'))),
     [origin],
   );
+});
+
+function createAdminAccountUsageRow(environment, { accountId, accountName, homepage = false }) {
+  const table = environment.document.createElement('table');
+  const tbody = environment.document.createElement('tbody');
+  const row = environment.document.createElement('tr');
+  row.setAttribute('data-row-id', String(accountId));
+
+  const selectCell = environment.document.createElement('td');
+  const nameCell = environment.document.createElement('td');
+  const nameStack = environment.document.createElement('div');
+  nameStack.className = 'flex flex-col';
+
+  const name = environment.document.createElement(homepage ? 'a' : 'span');
+  name.className = 'font-medium text-gray-900 dark:text-white';
+  if (homepage) {
+    name.setAttribute('href', 'https://example.test/account');
+  }
+  name.textContent = accountName;
+
+  nameStack.appendChild(name);
+  nameCell.appendChild(nameStack);
+  row.appendChild(selectCell);
+  row.appendChild(nameCell);
+  tbody.appendChild(row);
+  table.appendChild(tbody);
+  environment.document.body.appendChild(table);
+
+  return { name, nameCell, nameStack, row, table };
+}
+
+function createAccountUsageFilter(environment, { accountId, accountName, showResult = true }) {
+  const page = environment.document.createElement('div');
+  page.className = 'space-y-6';
+
+  const container = environment.document.createElement('div');
+  container.className = 'usage-filter-dropdown relative w-full';
+
+  const label = environment.document.createElement('label');
+  label.className = 'input-label';
+  label.textContent = '账户';
+
+  const input = environment.document.createElement('input');
+  input.setAttribute('placeholder', '按名称搜索账号...');
+
+  container.appendChild(label);
+  container.appendChild(input);
+  page.appendChild(container);
+  environment.document.body.appendChild(page);
+
+  const state = { inputEvents: 0, selected: false };
+
+  input.addEventListener('input', () => {
+    state.inputEvents += 1;
+    if (!showResult) {
+      return;
+    }
+    if (container.querySelector('button[aria-label="Clear account filter"]')) {
+      return;
+    }
+    if (container.querySelector(`[data-test-account-result="${accountId}"]`)) {
+      return;
+    }
+
+    const dropdown = environment.document.createElement('div');
+    dropdown.setAttribute('data-test-account-dropdown', 'true');
+
+    const result = environment.document.createElement('button');
+    result.setAttribute('data-test-account-result', String(accountId));
+    result.textContent = `${accountName} #${accountId}`;
+    result.addEventListener('click', () => {
+      state.selected = true;
+      input.value = accountName;
+
+      const clear = environment.document.createElement('button');
+      clear.setAttribute('aria-label', 'Clear account filter');
+      clear.textContent = '✕';
+      container.appendChild(clear);
+      dropdown.remove();
+    });
+
+    dropdown.appendChild(result);
+    container.appendChild(dropdown);
+  });
+
+  return { container, input, page, state };
+}
+
+test('admin accounts adds an idempotent usage shortcut to each account row', async () => {
+  const origin = 'https://account-usage-shortcut.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  const first = createAdminAccountUsageRow(environment, { accountId: 42, accountName: 'Account A' });
+  const second = createAdminAccountUsageRow(environment, { accountId: 7, accountName: 'Account B' });
+  const third = createAdminAccountUsageRow(environment, {
+    accountId: 9,
+    accountName: 'Account C',
+    homepage: true,
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const firstLink = first.row.querySelector('[data-sub2api-account-usage-link="true"]');
+  assert.ok(firstLink);
+  assert.equal(firstLink.parentElement, first.name);
+  assert.equal(firstLink.getAttribute('href'), '/admin/usage?account_id=42');
+  assert.equal(firstLink.getAttribute('target'), '_blank');
+  assert.equal(firstLink.getAttribute('rel'), 'noopener noreferrer');
+  assert.equal(firstLink.getAttribute('title'), '查看使用记录');
+  assert.equal(firstLink.getAttribute('aria-label'), '查看使用记录');
+
+  const secondLink = second.row.querySelector('[data-sub2api-account-usage-link="true"]');
+  assert.ok(secondLink);
+  assert.equal(secondLink.getAttribute('href'), '/admin/usage?account_id=7');
+
+  const thirdLink = third.row.querySelector('[data-sub2api-account-usage-link="true"]');
+  assert.ok(thirdLink);
+  assert.equal(thirdLink.parentElement, third.nameStack);
+  assert.equal(third.name.querySelectorAll('a').length, 0);
+
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+  assert.equal(first.row.querySelectorAll('[data-sub2api-account-usage-link="true"]').length, 1);
+  assert.equal(second.row.querySelectorAll('[data-sub2api-account-usage-link="true"]').length, 1);
+
+  first.row.setAttribute('data-row-id', '43');
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const updatedLink = first.row.querySelector('[data-sub2api-account-usage-link="true"]');
+  assert.ok(updatedLink);
+  assert.equal(updatedLink.getAttribute('href'), '/admin/usage?account_id=43');
+  assert.equal(first.row.querySelectorAll('[data-sub2api-account-usage-link="true"]').length, 1);
+});
+
+test('admin accounts usage shortcut honors the global feature switch', async () => {
+  const origin = 'https://account-usage-shortcut-disabled.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('admin-accounts-usage-link')]: false,
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  const account = createAdminAccountUsageRow(environment, { accountId: 42, accountName: 'Account A' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(account.row.querySelector('[data-sub2api-account-usage-link="true"]'), null);
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const accountsGroup = environment
+    .findSettingsRoot()
+    .querySelector('section[data-sub2api-settings-group="admin-accounts"]');
+  assert.ok(accountsGroup);
+  assert.ok(
+    accountsGroup.querySelector('input[data-sub2api-feature-global-switch="admin-accounts-usage-link"]'),
+  );
+});
+
+test('admin usage deep link backfills the native account filter', async () => {
+  const origin = 'https://account-usage-deeplink.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, { accountId: 42, accountName: 'Account A' });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', {
+    code: 0,
+    data: { id: 42, name: 'Account A' },
+  });
+  environment.vmContext.localStorage.setItem('auth_token', 'test-token');
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  assert.equal(filter.input.value, 'Account A');
+  assert.equal(filter.state.selected, true);
+  assert.ok(filter.container.querySelector('button[aria-label="Clear account filter"]'));
+  assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
+
+  const accountCalls = environment.getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/accounts/42'));
+  assert.deepEqual(accountCalls.map((call) => call.url), [`${origin}/api/v1/admin/accounts/42`]);
+  assert.equal(accountCalls[0].headers.Authorization, 'Bearer test-token');
+  assert.equal(accountCalls[0].headers['X-Admin-UI-Request'], '1');
+});
+
+test('admin usage deep link shows a retry notice when the account cannot be selected', async () => {
+  const origin = 'https://account-usage-deeplink-fail.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, {
+    accountId: 42,
+    accountName: 'Account A',
+    showResult: false,
+  });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', {
+    code: 0,
+    data: { id: 42, name: 'Account A' },
+  });
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(500);
+
+  const notice = filter.page.querySelector('[data-sub2api-account-usage-notice="true"]');
+  assert.ok(notice);
+  assert.match(notice.textContent, /Account A/);
+  assert.match(notice.textContent, /#42/);
+  assert.match(notice.textContent, /未能自动选中账号/);
+  assert.equal(filter.input.value, 'Account A');
+
+  const buttons = notice.querySelectorAll('button');
+  const retryButton = buttons.find((button) => button.textContent.trim() === '重试');
+  const closeButton = buttons.find((button) => button.textContent.trim() === '关闭');
+  assert.ok(retryButton);
+  assert.ok(closeButton);
+
+  closeButton.click();
+  assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
+});
+
+test('admin usage deep link shows a non-retry notice when the account is missing', async () => {
+  const origin = 'https://account-usage-deeplink-missing.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, { accountId: 42, accountName: 'Account A' });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', { code: 0, data: null });
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  const notice = filter.page.querySelector('[data-sub2api-account-usage-notice="true"]');
+  assert.ok(notice);
+  assert.match(notice.textContent, /无法读取账号/);
+  assert.match(notice.textContent, /#42/);
+
+  const buttons = notice.querySelectorAll('button');
+  assert.equal(buttons.some((button) => button.textContent.trim() === '重试'), false);
+  assert.ok(buttons.some((button) => button.textContent.trim() === '关闭'));
+});
+
+test('admin usage deep link is ignored when the shortcut feature is disabled', async () => {
+  const origin = 'https://account-usage-deeplink-disabled.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('admin-accounts-usage-link')]: false,
+    },
+    origin,
+    pathname: '/admin/usage',
+  });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, { accountId: 42, accountName: 'Account A' });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', {
+    code: 0,
+    data: { id: 42, name: 'Account A' },
+  });
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  assert.equal(filter.input.value, '');
+  assert.equal(filter.state.selected, false);
+  assert.equal(
+    environment.getFetchCalls().some((call) => call.url.includes('/api/v1/admin/accounts/42')),
+    false,
+  );
+  assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
 });

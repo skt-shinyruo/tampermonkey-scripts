@@ -17,6 +17,7 @@
     if (isAdminAccountsPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
+      installAccountUsageLinks();
       await restoreSavedAdminAccountsFilters();
       await restoreSavedPageSize();
       return;
@@ -40,6 +41,10 @@
       stopAutoRefresh();
       closeAutoRefreshMenu();
       return;
+    }
+
+    if (isAdminUsagePage()) {
+      applyAccountUsageDeepLink();
     }
 
     const rangeRestored = await restoreSavedRange();

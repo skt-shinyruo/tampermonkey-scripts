@@ -88,6 +88,7 @@
   const FEATURE_IDS = {
     ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
+    ADMIN_ACCOUNTS_USAGE_LINK: 'admin-accounts-usage-link',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
@@ -163,6 +164,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
       label: '账号管理 tab (/admin/accounts) - 每页数量',
+    },
+    {
+      description: '在 /admin/accounts tab 的每个账号行增加使用记录快捷入口，并在 /admin/usage 深链中自动回填账户筛选。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK,
+      label: '账号管理 tab (/admin/accounts) - 使用记录快捷入口',
     },
     {
       description: '记住 /admin/groups tab 每页显示数量。',

@@ -123,8 +123,28 @@ A globally persisted set of origin URLs where Sub2API Helper is deactivated, man
 _Avoid_: 域名黑名单, 屏蔽网站列表
 
 **每页数量记忆 (Page Size Memory)**:
-Sub2API Helper 按页面独立保存并恢复表格每页行数选择的功能。
+Sub2API Helper 按页面独立保存并恢复表格每页行数选择。
 _Avoid_: 页面大小记忆, 分页大小, 每页条数记忆
+
+**管理端使用记录 (Admin Usage Records)**:
+The administrator-facing usage records page (`/admin/usage`) covering all users, distinct from the per-user usage page (`/usage`).
+_Avoid_: 使用记录页, 用户使用记录
+
+**账号 (Account)**:
+An upstream AI platform account managed on the accounts page (`/admin/accounts`) and referenced by a numeric ID.
+_Avoid_: 账户, 用户, API 密钥
+
+**账户筛选 (Account Filter)**:
+The admin usage control that scopes records to one 账号.
+_Avoid_: 账号搜索, 账户搜索框
+
+**账号使用记录入口 (Account Usage Shortcut)**:
+The per-account action on the accounts page that opens 管理端使用记录 scoped to that 账号.
+_Avoid_: 使用记录按钮, 账户详情
+
+**账号筛选深链 (Account Filter Deep Link)**:
+A 管理端使用记录 link carrying a specific 账号 so the page opens scoped to it.
+_Avoid_: 账户链接, 使用记录分享链接
 
 ## AIHub Supplier Hall
 
