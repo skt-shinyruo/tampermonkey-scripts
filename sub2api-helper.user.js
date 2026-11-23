@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.62
+// @version      0.22.63
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,9 +16,10 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.62';
+  const SCRIPT_VERSION = '0.22.63';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
+  const STORAGE_READ_CACHE_MS = 2000;
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
@@ -362,6 +363,9 @@
   let autoRefreshResumeToken = 0;
   let lastAutoRefreshEvent = 'boot';
   let autoRefreshDebugEvents = [];
+  // Read cache for hot-path feature flags; any storage write clears it, so
+  // same-tab toggles are immediate and cross-tab changes land within the TTL.
+  let featureFlagCache = null;
 
   const storage = {
     get(key, fallback = null) {
@@ -385,6 +389,7 @@
       } catch (error) {
         localStorage.setItem(key, JSON.stringify(value));
       }
+      featureFlagCache = null;
     },
     delete(key) {
       try {
@@ -392,6 +397,7 @@
       } catch (error) {
         localStorage.removeItem(key);
       }
+      featureFlagCache = null;
     },
   };
 
@@ -481,7 +487,19 @@
   }
 
   function getEnabledSetting(key, fallback = true) {
-    return normalizeEnabledSetting(storage.get(key, STORAGE_MISSING), fallback);
+    const now = Date.now();
+    if (!featureFlagCache || now - featureFlagCache.at >= STORAGE_READ_CACHE_MS) {
+      featureFlagCache = { at: now, values: new Map() };
+    }
+
+    const cacheKey = `${key}:${fallback}`;
+    if (!featureFlagCache.values.has(cacheKey)) {
+      featureFlagCache.values.set(
+        cacheKey,
+        normalizeEnabledSetting(storage.get(key, STORAGE_MISSING), fallback),
+      );
+    }
+    return featureFlagCache.values.get(cacheKey);
   }
 
   function getGlobalFeatureEnabled(featureId) {
@@ -2368,7 +2386,7 @@
     setStyles(title, { color: '#0f172a', fontSize: '14px', fontWeight: '800' });
 
     const hint = document.createElement('span');
-    hint.textContent = `仅对账号管理页标记的监控账户生效，每轮最多 ${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号、串行请求，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
+    hint.textContent = `仅对账号管理页标记的监控账户生效，错峰自动获取：每个监控账户在间隔窗口内随机错开时刻查询，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
     setStyles(hint, { color: '#64748b', fontSize: '12px', lineHeight: '1.4' });
 
     const control = document.createElement('label');
@@ -2382,7 +2400,7 @@
     });
 
     const controlLabel = document.createElement('span');
-    controlLabel.textContent = '间隔（分钟）';
+    controlLabel.textContent = '每账号间隔（分钟）';
 
     const input = document.createElement('input');
     input.type = 'number';
@@ -2402,12 +2420,12 @@
     input.addEventListener('change', () => {
       setAccountHitRateIntervalMinutes(input.value);
       input.value = String(getAccountHitRateIntervalMinutes());
-      restartAccountHitRateCycle();
+      resetAccountHitRateSchedule();
     });
 
     const tracked = document.createElement('span');
     tracked.setAttribute('data-sub2api-account-hit-rate-tracked-count', 'true');
-    tracked.textContent = `已监控 ${getTrackedAccountIds().length}/${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号`;
+    tracked.textContent = `已监控 ${getTrackedAccountIds().length} 个账号`;
     setStyles(tracked, { color: '#64748b', fontSize: '12px', fontWeight: '600' });
 
     control.appendChild(controlLabel);
@@ -5591,7 +5609,8 @@
   const ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE = 'data-sub2api-account-hit-rate-original-label';
   const ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE = 'data-sub2api-account-hit-rate-track';
   const ACCOUNT_HIT_RATE_NOTICE_ATTRIBUTE = 'data-sub2api-account-hit-rate-notice';
-  const ACCOUNT_HIT_RATE_MAX_TRACKED = 10;
+  const ACCOUNT_HIT_RATE_TICK_MS = 1000;
+  const ACCOUNT_HIT_RATE_BOOTSTRAP_SPACING_MS = 1500;
   const ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES = 30;
   const ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES = 1440;
   const ACCOUNT_HIT_RATE_DEFAULT_INTERVAL_MINUTES = 30;
@@ -5600,9 +5619,10 @@
   const ACCOUNT_HIT_RATE_JITTER_MAX_MS = 2000;
   const ACCOUNT_HIT_RATE_HOVER_DELAY_MS = 150;
   const ACCOUNT_HIT_RATE_INJECTION_DELAY_MS = 50;
-  const ACCOUNT_HIT_RATE_FAILURE_THRESHOLD = 3;
+  const ACCOUNT_HIT_RATE_FAILURE_THRESHOLD = 2;
   const ACCOUNT_HIT_RATE_QUERY_CACHE_LIMIT = 200;
   const ACCOUNT_HIT_RATE_DAY_LABELS = { yesterday: '昨', today: '今' };
+  const ACCOUNT_HIT_RATE_DAYS = ['today', 'yesterday'];
 
   const accountHitRateTodayEntries = new Map();
   const accountHitRateInFlight = new Map();
@@ -5610,15 +5630,17 @@
   let accountHitRateInjectionTimer = null;
   let accountHitRateInjectionPending = false;
   let accountHitRateNotice = null;
-  let accountHitRateCycleTimer = null;
-  let accountHitRateCycleInFlight = false;
-  let accountHitRateConsecutiveFailures = 0;
-  let accountHitRatePaused = false;
-  let accountHitRateLastError = null;
-  let accountHitRateNextRunAt = null;
+  let accountHitRateTicker = null;
+  let accountHitRateSchedulerBusy = false;
+  let accountHitRateNextAllowedAt = 0;
+  const accountHitRateFailures = new Map();
+  const accountHitRateBroken = new Set();
+  const accountHitRateNextDueAt = new Map();
   let accountHitRateVisibilityInstalled = false;
   let accountHitRateObserver = null;
   let accountHitRateResolvedTimeZone = null;
+  let accountHitRateTrackedCache = null;
+  let accountHitRateYesterdayCache = null;
 
   function isAccountHitRateEnabled() {
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
@@ -5668,26 +5690,35 @@
   }
 
   function getTrackedAccountIds() {
-    const raw = getStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_TRACKED, []);
-    if (!Array.isArray(raw)) {
-      return [];
+    const now = Date.now();
+    if (
+      accountHitRateTrackedCache
+      && now - accountHitRateTrackedCache.at < STORAGE_READ_CACHE_MS
+    ) {
+      return accountHitRateTrackedCache.ids;
     }
 
+    const raw = getStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_TRACKED, []);
     const ids = [];
-    for (const value of raw) {
-      const accountId = Number(value);
-      if (Number.isSafeInteger(accountId) && accountId > 0 && !ids.includes(accountId)) {
-        ids.push(accountId);
+    if (Array.isArray(raw)) {
+      for (const value of raw) {
+        const accountId = Number(value);
+        if (Number.isSafeInteger(accountId) && accountId > 0 && !ids.includes(accountId)) {
+          ids.push(accountId);
+        }
       }
     }
+
+    accountHitRateTrackedCache = { at: now, ids };
     return ids;
   }
 
   function setTrackedAccountIds(ids) {
-    setStorageValue(
-      STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_TRACKED,
-      (ids || []).filter((id) => Number.isSafeInteger(Number(id)) && Number(id) > 0).map(Number),
-    );
+    const normalized = (ids || [])
+      .filter((id) => Number.isSafeInteger(Number(id)) && Number(id) > 0)
+      .map(Number);
+    setStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_TRACKED, normalized);
+    accountHitRateTrackedCache = { at: Date.now(), ids: normalized };
   }
 
   function isAccountHitRateTracked(accountId) {
@@ -5703,9 +5734,6 @@
     const ids = getTrackedAccountIds();
     const exists = ids.includes(normalizedId);
     if (tracked && !exists) {
-      if (ids.length >= ACCOUNT_HIT_RATE_MAX_TRACKED) {
-        return 'limit';
-      }
       setTrackedAccountIds([...ids, normalizedId]);
       return 'added';
     }
@@ -5715,15 +5743,32 @@
       accountHitRateTodayEntries.delete(normalizedId);
       accountHitRateInFlight.delete(normalizedId);
       deleteAccountHitRateYesterday(normalizedId);
+      accountHitRateNextDueAt.delete(normalizedId);
+      accountHitRateFailures.delete(normalizedId);
+      accountHitRateBroken.delete(normalizedId);
       return 'removed';
     }
 
     return 'unchanged';
   }
 
-  function getAccountHitRateYesterdayStore() {
+  function loadAccountHitRateYesterdayStore() {
     const raw = getStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, {});
     return raw && typeof raw === 'object' && !Array.isArray(raw) ? { ...raw } : {};
+  }
+
+  function getAccountHitRateYesterdayStore() {
+    const now = Date.now();
+    if (
+      accountHitRateYesterdayCache
+      && now - accountHitRateYesterdayCache.at < STORAGE_READ_CACHE_MS
+    ) {
+      return accountHitRateYesterdayCache.store;
+    }
+
+    const store = loadAccountHitRateYesterdayStore();
+    accountHitRateYesterdayCache = { at: now, store };
+    return store;
   }
 
   function getAccountHitRateYesterday(accountId, yesterdayDate) {
@@ -5743,6 +5788,7 @@
     }
     store[String(accountId)] = { date: yesterdayDate, fetchedAt: Date.now(), hitRate };
     setStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, store);
+    accountHitRateYesterdayCache = { at: Date.now(), store };
   }
 
   function deleteAccountHitRateYesterday(accountId) {
@@ -5752,6 +5798,7 @@
     }
     delete store[String(accountId)];
     setStorageValue(STORAGE_NAMES.ADMIN_ACCOUNTS_HIT_RATE_YESTERDAY, store);
+    accountHitRateYesterdayCache = { at: Date.now(), store };
   }
 
   function getAccountHitRateTodayEntry(accountId, todayDate) {
@@ -5944,9 +5991,17 @@
               : null;
             setAccountHitRateYesterday(normalizedId, dates.yesterday, yesterdayRate);
           }
-          accountHitRateLastError = null;
+          accountHitRateFailures.delete(normalizedId);
+          accountHitRateBroken.delete(normalizedId);
         } else {
-          accountHitRateLastError = result.status === 'auth' ? '无权限或登录态失效' : '查询失败';
+          if (result.status === 'auth') {
+            showAccountHitRateNotice('缓存命中率自动获取登录态失效，请重新登录后点击账号行徽标重试。');
+          }
+          const failures = (accountHitRateFailures.get(normalizedId) || 0) + 1;
+          accountHitRateFailures.set(normalizedId, failures);
+          if (failures >= ACCOUNT_HIT_RATE_FAILURE_THRESHOLD) {
+            accountHitRateBroken.add(normalizedId);
+          }
         }
         return { ...result, accountId: normalizedId };
       })
@@ -5995,6 +6050,9 @@
 
     const dayLabel = day === 'today' ? '今天' : '昨天';
     const dateText = day === 'today' ? dates.today : dates.yesterday;
+    if (day === 'today' && accountHitRateBroken.has(Number(accountId))) {
+      return `缓存命中率·今天（${dateText}）：连续 ${ACCOUNT_HIT_RATE_FAILURE_THRESHOLD} 次查询失败，已停止自动获取，点击重试`;
+    }
     const entry = getAccountHitRateDayEntry(accountId, day, dates);
 
     if (accountHitRateInFlight.has(Number(accountId)) && !entry) {
@@ -6040,7 +6098,7 @@
   }
 
   function getAccountHitRateRenderModel(accountId, dates) {
-    const days = ['today', 'yesterday'].map((day) => ({
+    const days = ACCOUNT_HIT_RATE_DAYS.map((day) => ({
       day,
       state: getAccountHitRateDayState(accountId, day, dates),
       title: buildAccountHitRateDayTitle(accountId, day, dates),
@@ -6049,11 +6107,39 @@
     return { days, tracked: isAccountHitRateTracked(accountId) };
   }
 
-  function getAccountHitRateRenderKey(model) {
-    return [
-      model.tracked ? '1' : '0',
-      ...model.days.map((entry) => `${entry.state.label}|${entry.state.textClass}|${entry.title}`),
-    ].join('~');
+  // Cheap signature: primitives only, so an unchanged row never builds labels
+  // or titles. The minute bucket keeps the tooltip age from freezing.
+  function getAccountHitRateRenderKey(accountId, dates) {
+    if (!dates) {
+      return 'nodates';
+    }
+
+    const now = Date.now();
+    const pending = accountHitRateInFlight.has(Number(accountId));
+    const parts = [
+      isAccountHitRateTracked(accountId) ? '1' : '0',
+      accountHitRateBroken.has(Number(accountId)) ? 'B' : '0',
+    ];
+
+    for (const day of ACCOUNT_HIT_RATE_DAYS) {
+      const entry = getAccountHitRateDayEntry(accountId, day, dates);
+      if (!entry) {
+        parts.push(`${day}:${pending ? 'pending' : 'none'}`);
+        continue;
+      }
+
+      const hasRate = Number.isFinite(entry.hitRate);
+      parts.push([
+        day,
+        entry.date,
+        entry.status || 'ok',
+        hasRate ? entry.hitRate : 'n',
+        entry.fetchedAt,
+        hasRate ? Math.floor(Math.max(now - entry.fetchedAt, 0) / 60000) : '',
+      ].join(':'));
+    }
+
+    return parts.join('|');
   }
 
   function createAccountHitRateBadge(accountId, day) {
@@ -6095,7 +6181,12 @@
     badge.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      requestAccountHitRate(accountId, { forceToday: day === 'today' });
+      const normalizedId = Number(accountId);
+      accountHitRateBroken.delete(normalizedId);
+      accountHitRateFailures.delete(normalizedId);
+      requestAccountHitRate(normalizedId, { forceToday: day === 'today' }).then(() => {
+        setAccountHitRateNextDue(normalizedId, getAccountHitRateIntervalMs());
+      });
     });
 
     return badge;
@@ -6138,25 +6229,17 @@
     toggle.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const nextTracked = !isAccountHitRateTracked(accountId);
-      const outcome = setAccountHitRateTracked(accountId, nextTracked);
+      const normalizedId = Number(accountId);
+      const nextTracked = !isAccountHitRateTracked(normalizedId);
+      const outcome = setAccountHitRateTracked(normalizedId, nextTracked);
 
-      if (outcome === 'limit') {
-        showAccountHitRateNotice(
-          `最多只能自动获取 ${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号，请先取消其中一个。`,
-          { resumable: false },
-        );
-      } else {
-        if (accountHitRatePaused) {
-          accountHitRatePaused = false;
-          accountHitRateConsecutiveFailures = 0;
-        }
-        hideAccountHitRateNotice();
-        if (nextTracked) {
-          requestAccountHitRate(accountId);
-        }
-        restartAccountHitRateCycle();
+      hideAccountHitRateNotice();
+      if (nextTracked && outcome === 'added') {
+        requestAccountHitRate(normalizedId).then(() => {
+          setAccountHitRateNextDue(normalizedId, getAccountHitRateIntervalMs());
+        });
       }
+      restartAccountHitRateScheduler();
 
       refreshSettingsPanel();
       scheduleAccountHitRateInjection();
@@ -6195,8 +6278,8 @@
     if (columnIndex === null || columnIndex === undefined) {
       return null;
     }
-    const cells = [...row.children].filter((child) => child.tagName === 'TD');
-    return cells[columnIndex] || null;
+    const cell = row.children[columnIndex];
+    return cell && cell.tagName === 'TD' ? cell : null;
   }
 
   function getAccountHitRateStatsContainer(cell) {
@@ -6390,6 +6473,10 @@
   }
 
   function renderAccountHitRateRow(accountId) {
+    if (!isPageVisible()) {
+      return;
+    }
+
     const { index } = getAccountHitRateTableState();
     if (index === null) {
       return;
@@ -6423,8 +6510,7 @@
       return;
     }
 
-    const model = getAccountHitRateRenderModel(accountId, dates);
-    const renderKey = getAccountHitRateRenderKey(model);
+    const modelKey = getAccountHitRateRenderKey(accountId, dates);
     let line = cell.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
 
     if (line) {
@@ -6452,11 +6538,11 @@
         }
       }
 
-      if (line.getAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE) === renderKey) {
+      if (line.getAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE) === modelKey) {
         return;
       }
-      renderAccountHitRateLine(line, model);
-      line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, renderKey);
+      renderAccountHitRateLine(line, getAccountHitRateRenderModel(accountId, dates));
+      line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, modelKey);
       return;
     }
 
@@ -6473,8 +6559,8 @@
       setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
     }
 
-    renderAccountHitRateLine(line, model);
-    line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, renderKey);
+    renderAccountHitRateLine(line, getAccountHitRateRenderModel(accountId, dates));
+    line.setAttribute(ACCOUNT_HIT_RATE_RENDER_KEY_ATTRIBUTE, modelKey);
   }
 
   function clearAccountHitRateRows() {
@@ -6488,7 +6574,7 @@
   }
 
   function injectAccountHitRateRows() {
-    if (!isAdminAccountsPage() || !isAccountHitRateEnabled()) {
+    if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
       return;
     }
 
@@ -6522,16 +6608,15 @@
     if (!isAdminAccountsPage() || !isAccountHitRateEnabled()) {
       return;
     }
-    if (getTrackedAccountIds().length === 0 || accountHitRatePaused) {
+    if (getTrackedAccountIds().length === 0) {
+      stopAccountHitRateSchedule();
       return;
     }
-    if (accountHitRateCycleTimer || accountHitRateCycleInFlight) {
+    if (accountHitRateTicker || accountHitRateSchedulerBusy) {
       return;
     }
     if (isPageVisible()) {
-      runAccountHitRateCycle();
-    } else {
-      scheduleAccountHitRateCycle();
+      ensureAccountHitRateTicker();
     }
   }
 
@@ -6569,25 +6654,11 @@
     message.setAttribute('data-sub2api-account-hit-rate-notice-text', 'true');
     notice.appendChild(message);
 
-    const resumeButton = document.createElement('button');
-    resumeButton.setAttribute('type', 'button');
-    resumeButton.setAttribute('data-sub2api-account-hit-rate-notice-resume', 'true');
-    resumeButton.textContent = '恢复';
-    setStyles(resumeButton, { cursor: 'pointer', marginLeft: 'auto' });
-    resumeButton.addEventListener('click', () => {
-      accountHitRatePaused = false;
-      accountHitRateConsecutiveFailures = 0;
-      hideAccountHitRateNotice();
-      restartAccountHitRateCycle();
-      runAccountHitRateCycle();
-    });
-    notice.appendChild(resumeButton);
-
     const closeButton = document.createElement('button');
     closeButton.setAttribute('type', 'button');
     closeButton.setAttribute('data-sub2api-account-hit-rate-notice-close', 'true');
     closeButton.textContent = '关闭';
-    setStyles(closeButton, { cursor: 'pointer' });
+    setStyles(closeButton, { cursor: 'pointer', marginLeft: 'auto' });
     closeButton.addEventListener('click', () => hideAccountHitRateNotice());
     notice.appendChild(closeButton);
 
@@ -6598,7 +6669,7 @@
     return document.querySelector('.space-y-6') || document.querySelector('main') || document.body;
   }
 
-  function showAccountHitRateNotice(text, { resumable = true } = {}) {
+  function showAccountHitRateNotice(text) {
     if (!accountHitRateNotice?.isConnected) {
       const anchor = getAccountHitRateNoticeAnchor();
       if (!anchor) {
@@ -6614,13 +6685,6 @@
     if (message && message.textContent !== text) {
       message.textContent = text;
     }
-
-    const resumeButton = accountHitRateNotice.querySelector(
-      '[data-sub2api-account-hit-rate-notice-resume="true"]',
-    );
-    if (resumeButton) {
-      resumeButton.style.display = resumable ? '' : 'none';
-    }
   }
 
   function hideAccountHitRateNotice() {
@@ -6633,106 +6697,102 @@
     return !ready || index !== null;
   }
 
-  function scheduleAccountHitRateCycle() {
-    if (accountHitRateCycleTimer) {
-      window.clearInterval(accountHitRateCycleTimer);
-      accountHitRateCycleTimer = null;
-    }
-
-    const shouldRun = isAdminAccountsPage()
-      && isAccountHitRateEnabled()
-      && isAccountHitRateColumnAvailable()
-      && isPageVisible()
-      && !accountHitRatePaused
-      && getTrackedAccountIds().length > 0;
-
-    if (!shouldRun) {
-      accountHitRateNextRunAt = null;
-      return;
-    }
-
-    const intervalMs = getAccountHitRateIntervalMinutes() * 60 * 1000;
-    accountHitRateNextRunAt = Date.now() + intervalMs;
-    accountHitRateCycleTimer = window.setInterval(() => {
-      if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
-        return;
-      }
-      if (!isAccountHitRateColumnAvailable()) {
-        stopAccountHitRateSchedule();
-        return;
-      }
-      accountHitRateNextRunAt = Date.now() + intervalMs;
-      runAccountHitRateCycle();
-    }, intervalMs);
+  function getAccountHitRateIntervalMs() {
+    return getAccountHitRateIntervalMinutes() * 60 * 1000;
   }
 
-  function restartAccountHitRateCycle() {
-    scheduleAccountHitRateCycle();
+  function setAccountHitRateNextDue(accountId, delayMs) {
+    accountHitRateNextDueAt.set(Number(accountId), Date.now() + delayMs);
+  }
+
+  function ensureAccountHitRateTicker() {
+    if (accountHitRateTicker) {
+      return;
+    }
+    accountHitRateTicker = window.setInterval(
+      runAccountHitRateSchedulerTick,
+      ACCOUNT_HIT_RATE_TICK_MS,
+    );
   }
 
   function stopAccountHitRateSchedule() {
-    if (accountHitRateCycleTimer) {
-      window.clearInterval(accountHitRateCycleTimer);
-      accountHitRateCycleTimer = null;
+    if (accountHitRateTicker) {
+      window.clearInterval(accountHitRateTicker);
+      accountHitRateTicker = null;
     }
-    accountHitRateNextRunAt = null;
   }
 
-  async function runAccountHitRateCycle() {
-    if (accountHitRateCycleInFlight || accountHitRatePaused) {
-      return;
-    }
-    if (!isAdminAccountsPage() || !isAccountHitRateEnabled()) {
+  function restartAccountHitRateScheduler() {
+    if (getTrackedAccountIds().length > 0 && isPageVisible()) {
+      ensureAccountHitRateTicker();
+    } else {
       stopAccountHitRateSchedule();
+    }
+  }
+
+  function resetAccountHitRateSchedule() {
+    accountHitRateNextDueAt.clear();
+    restartAccountHitRateScheduler();
+  }
+
+  function pickDueAccountHitRate(now, intervalMs) {
+    const accountIds = getTrackedAccountIds();
+    const bootstrapWindow = Math.min(
+      intervalMs,
+      accountIds.length * ACCOUNT_HIT_RATE_BOOTSTRAP_SPACING_MS,
+    );
+    let pick = null;
+    let pickDue = Infinity;
+    for (const accountId of accountIds) {
+      if (accountHitRateBroken.has(accountId)) {
+        continue;
+      }
+      if (!accountHitRateNextDueAt.has(accountId)) {
+        // ponytail: bootstrap phases are in-memory only; persist per-account
+        // schedules if the first-round spread ever needs to survive reloads.
+        accountHitRateNextDueAt.set(accountId, now + Math.random() * bootstrapWindow);
+      }
+      const due = accountHitRateNextDueAt.get(accountId);
+      if (due <= now && due < pickDue) {
+        pick = accountId;
+        pickDue = due;
+      }
+    }
+    return pick;
+  }
+
+  function runAccountHitRateSchedulerTick() {
+    if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
       return;
     }
     if (!isAccountHitRateColumnAvailable()) {
       stopAccountHitRateSchedule();
       return;
     }
-    if (!isPageVisible()) {
+    if (accountHitRateSchedulerBusy || Date.now() < accountHitRateNextAllowedAt) {
       return;
     }
 
-    const accountIds = getTrackedAccountIds().slice(0, ACCOUNT_HIT_RATE_MAX_TRACKED);
-    if (accountIds.length === 0) {
-      scheduleAccountHitRateCycle();
+    const intervalMs = getAccountHitRateIntervalMs();
+    const accountId = pickDueAccountHitRate(Date.now(), intervalMs);
+    if (accountId === null) {
       return;
     }
 
-    accountHitRateCycleInFlight = true;
-    try {
-      for (const accountId of accountIds) {
-        if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible() || accountHitRatePaused) {
-          break;
-        }
-
-        const result = await requestAccountHitRate(accountId, { forceToday: true });
-        if (result?.status !== 'ok') {
-          accountHitRateConsecutiveFailures += 1;
-          if (accountHitRateConsecutiveFailures >= ACCOUNT_HIT_RATE_FAILURE_THRESHOLD) {
-            accountHitRatePaused = true;
-            showAccountHitRateNotice(
-              `自动获取缓存命中率已暂停：连续 ${ACCOUNT_HIT_RATE_FAILURE_THRESHOLD} 次查询失败（${accountHitRateLastError || '未知原因'}）。`,
-            );
-            break;
-          }
-        } else {
-          accountHitRateConsecutiveFailures = 0;
-        }
-        if (result?.retryAfterMs) {
-          await sleep(result.retryAfterMs);
-        }
-
-        await sleep(
-          ACCOUNT_HIT_RATE_JITTER_MIN_MS
-            + Math.random() * (ACCOUNT_HIT_RATE_JITTER_MAX_MS - ACCOUNT_HIT_RATE_JITTER_MIN_MS),
+    accountHitRateSchedulerBusy = true;
+    requestAccountHitRate(accountId, { forceToday: true })
+      .then((result) => {
+        setAccountHitRateNextDue(
+          accountId,
+          intervalMs + Math.random() * ACCOUNT_HIT_RATE_JITTER_MAX_MS,
         );
-      }
-    } finally {
-      accountHitRateCycleInFlight = false;
-      scheduleAccountHitRateCycle();
-    }
+        const gapMs = ACCOUNT_HIT_RATE_JITTER_MIN_MS
+          + Math.random() * (ACCOUNT_HIT_RATE_JITTER_MAX_MS - ACCOUNT_HIT_RATE_JITTER_MIN_MS);
+        accountHitRateNextAllowedAt = Date.now() + Math.max(gapMs, result?.retryAfterMs || 0);
+      })
+      .finally(() => {
+        accountHitRateSchedulerBusy = false;
+      });
   }
 
   function installAccountHitRateVisibilityWatcher() {
@@ -6742,14 +6802,11 @@
     accountHitRateVisibilityInstalled = true;
 
     const resumeIfPending = () => {
-      if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || accountHitRatePaused) {
+      if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
         return;
       }
-      if (!isPageVisible()) {
-        return;
-      }
-      if (getTrackedAccountIds().length > 0 && accountHitRateNextRunAt === null) {
-        runAccountHitRateCycle();
+      if (getTrackedAccountIds().length > 0 && !accountHitRateTicker) {
+        ensureAccountHitRateTicker();
       }
     };
 
@@ -6761,6 +6818,8 @@
         stopAccountHitRateSchedule();
         return;
       }
+      // Passes were skipped while the page was hidden; catch the injection up.
+      scheduleAccountHitRateInjection();
       resumeIfPending();
     });
 
