@@ -5295,7 +5295,16 @@ function createAdminAccountUsageRow(environment, { accountId, accountName, homep
   }
   name.textContent = accountName;
 
-  nameStack.appendChild(name);
+  let tooltipRoot = null;
+  if (homepage) {
+    tooltipRoot = environment.document.createElement('div');
+    tooltipRoot.className = 'group relative ml-1 inline-flex items-center align-middle';
+    tooltipRoot.appendChild(name);
+    nameStack.appendChild(tooltipRoot);
+  } else {
+    nameStack.appendChild(name);
+  }
+
   nameCell.appendChild(nameStack);
   row.appendChild(selectCell);
   row.appendChild(nameCell);
@@ -5303,7 +5312,7 @@ function createAdminAccountUsageRow(environment, { accountId, accountName, homep
   table.appendChild(tbody);
   environment.document.body.appendChild(table);
 
-  return { name, nameCell, nameStack, row, table };
+  return { name, nameCell, nameStack, row, table, tooltipRoot };
 }
 
 function createAccountUsageFilter(environment, { accountId, accountName, showResult = true }) {
@@ -5395,7 +5404,8 @@ test('admin accounts adds an idempotent usage shortcut to each account row', asy
 
   const thirdLink = third.row.querySelector('[data-sub2api-account-usage-link="true"]');
   assert.ok(thirdLink);
-  assert.equal(thirdLink.parentElement, third.nameStack);
+  assert.equal(thirdLink.parentElement, third.tooltipRoot);
+  assert.equal(thirdLink.parentElement, third.name.parentElement);
   assert.equal(third.name.querySelectorAll('a').length, 0);
 
   environment.runMutationObservers();

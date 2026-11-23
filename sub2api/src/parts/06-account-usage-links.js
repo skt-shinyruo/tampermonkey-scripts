@@ -80,6 +80,33 @@
     return cells[1] || null;
   }
 
+  function hasAccountUsageInlineFlexClass(element) {
+    return String(element?.className || '')
+      .split(/\s+/)
+      .includes('inline-flex');
+  }
+
+  function getAccountUsageLinkPlacement(nameCell, nameElement) {
+    if (nameElement && nameElement.tagName === 'SPAN') {
+      return { inline: true, parent: nameElement };
+    }
+
+    const parent = nameElement?.parentElement;
+    if (
+      nameElement
+      && nameElement.tagName === 'A'
+      && parent
+      && hasAccountUsageInlineFlexClass(parent)
+    ) {
+      return { inline: true, parent };
+    }
+
+    return {
+      inline: false,
+      parent: nameCell.querySelector('div') || nameCell,
+    };
+  }
+
   function injectAccountUsageLinks() {
     if (!isAdminAccountsPage() || !isAccountUsageShortcutEnabled()) {
       return;
@@ -91,32 +118,34 @@
         continue;
       }
 
-      const existingLink = row.querySelector(`[${ACCOUNT_USAGE_LINK_ATTRIBUTE}="true"]`);
-      if (existingLink) {
-        if (existingLink.getAttribute(ACCOUNT_USAGE_LINK_ID_ATTRIBUTE) === accountId) {
-          continue;
-        }
-        existingLink.remove();
-      }
-
       const nameCell = findAccountNameCell(row);
       if (!nameCell) {
         continue;
       }
 
-      const link = createAccountUsageLink(accountId);
       const nameElement = nameCell.querySelector('.font-medium') || nameCell.querySelector('a');
-      if (nameElement && nameElement.tagName === 'SPAN') {
+      const placement = getAccountUsageLinkPlacement(nameCell, nameElement);
+      const existingLink = row.querySelector(`[${ACCOUNT_USAGE_LINK_ATTRIBUTE}="true"]`);
+      if (existingLink) {
+        if (
+          existingLink.getAttribute(ACCOUNT_USAGE_LINK_ID_ATTRIBUTE) === accountId
+          && existingLink.parentElement === placement.parent
+        ) {
+          continue;
+        }
+        existingLink.remove();
+      }
+
+      const link = createAccountUsageLink(accountId);
+      if (placement.inline) {
         setStyles(link, {
+          alignSelf: 'center',
           marginLeft: '4px',
           marginTop: '0',
           verticalAlign: 'middle',
         });
-        nameElement.appendChild(link);
-      } else {
-        const container = nameCell.querySelector('div') || nameCell;
-        container.appendChild(link);
       }
+      placement.parent.appendChild(link);
     }
   }
 
