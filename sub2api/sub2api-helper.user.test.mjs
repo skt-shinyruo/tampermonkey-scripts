@@ -5323,7 +5323,13 @@ function createAdminAccountUsageRow(environment, { accountId, accountName, homep
   return { name, nameCell, nameStack, row, table, tooltipRoot };
 }
 
-function createAccountUsageFilter(environment, { accountId, accountName, showResult = true }) {
+function createAccountUsageFilter(environment, {
+  accountId,
+  accountName,
+  showResult = true,
+  resultId = accountId,
+  portalResult = false,
+}) {
   const page = environment.document.createElement('div');
   page.className = 'space-y-6';
 
@@ -5352,7 +5358,7 @@ function createAccountUsageFilter(environment, { accountId, accountName, showRes
     if (container.querySelector('button[aria-label="Clear account filter"]')) {
       return;
     }
-    if (container.querySelector(`[data-test-account-result="${accountId}"]`)) {
+    if (container.querySelector(`[data-test-account-result="${resultId}"]`)) {
       return;
     }
 
@@ -5360,8 +5366,8 @@ function createAccountUsageFilter(environment, { accountId, accountName, showRes
     dropdown.setAttribute('data-test-account-dropdown', 'true');
 
     const result = environment.document.createElement('button');
-    result.setAttribute('data-test-account-result', String(accountId));
-    result.textContent = `${accountName} #${accountId}`;
+    result.setAttribute('data-test-account-result', String(resultId));
+    result.textContent = `${accountName} #${resultId}`;
     result.addEventListener('click', () => {
       state.selected = true;
       input.value = accountName;
@@ -5374,7 +5380,7 @@ function createAccountUsageFilter(environment, { accountId, accountName, showRes
     });
 
     dropdown.appendChild(result);
-    container.appendChild(dropdown);
+    (portalResult ? environment.document.body : container).appendChild(dropdown);
   });
 
   return { container, input, page, state };
@@ -5494,6 +5500,54 @@ test('admin usage deep link backfills the native account filter', async () => {
   assert.deepEqual(accountCalls.map((call) => call.url), [`${origin}/api/v1/admin/accounts/42`]);
   assert.equal(accountCalls[0].headers.Authorization, 'Bearer test-token');
   assert.equal(accountCalls[0].headers['X-Admin-UI-Request'], '1');
+});
+
+test('admin usage deep link finds a dropdown result rendered outside the filter container', async () => {
+  const origin = 'https://account-usage-deeplink-portal.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, {
+    accountId: 42,
+    accountName: 'Account A',
+    portalResult: true,
+  });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', {
+    code: 0,
+    data: { id: 42, name: 'Account A' },
+  });
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  assert.equal(filter.input.value, 'Account A');
+  assert.equal(filter.state.selected, true);
+  assert.ok(filter.container.querySelector('button[aria-label="Clear account filter"]'));
+  assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
+});
+
+test('admin usage deep link falls back to a unique matching account name', async () => {
+  const origin = 'https://account-usage-deeplink-name-fallback.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/usage' });
+  createUsageFingerprint(environment);
+  const filter = createAccountUsageFilter(environment, {
+    accountId: 42,
+    accountName: 'Account A',
+    resultId: 99,
+  });
+  environment.setFetchResponse('/api/v1/admin/accounts/42', {
+    code: 0,
+    data: { id: 42, name: 'Account A' },
+  });
+  environment.location.href = `${origin}/admin/usage?account_id=42`;
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  assert.equal(filter.input.value, 'Account A');
+  assert.equal(filter.state.selected, true);
+  assert.ok(filter.container.querySelector('button[aria-label="Clear account filter"]'));
+  assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
 });
 
 test('admin usage deep link shows a retry notice when the account cannot be selected', async () => {

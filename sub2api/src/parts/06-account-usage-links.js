@@ -233,13 +233,14 @@
   }
 
   function findAccountUsageClearButton(container) {
-    if (!container) {
-      return null;
-    }
-
-    const labelledButton = container.querySelector('button[aria-label="Clear account filter"]');
+    const labelledButton = container?.querySelector('button[aria-label="Clear account filter"]')
+      || document.querySelector('button[aria-label="Clear account filter"]');
     if (labelledButton) {
       return labelledButton;
+    }
+
+    if (!container) {
+      return null;
     }
 
     for (const button of container.querySelectorAll('button')) {
@@ -254,19 +255,51 @@
     return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
-  function findAccountUsageDropdownButton(container, accountId) {
-    if (!container) {
-      return null;
-    }
+  function findAccountUsageDropdownButton(container, accountId, accountName) {
+    const candidates = [];
+    const seenCandidates = new Set();
+    const addCandidates = (root) => {
+      if (!root) {
+        return;
+      }
+      for (const selector of ['button', '[role="option"]']) {
+        for (const element of root.querySelectorAll(selector)) {
+          if (!seenCandidates.has(element)) {
+            seenCandidates.add(element);
+            candidates.push(element);
+          }
+        }
+      }
+    };
 
-    for (const button of container.querySelectorAll('button')) {
-      const text = normalizeAccountUsageText(button.textContent);
-      const idMatch = text.match(/#(\d+)$/);
-      if (idMatch && Number(idMatch[1]) === accountId) {
-        return button;
+    addCandidates(container);
+    addCandidates(document);
+
+    const normalizedName = normalizeAccountUsageText(accountName);
+    let nameMatch = null;
+    let nameMatchCount = 0;
+
+    for (const element of candidates) {
+      if (element.getAttribute('aria-label') === 'Clear account filter') {
+        continue;
+      }
+
+      const text = normalizeAccountUsageText(element.textContent);
+      const idMatches = [...text.matchAll(/#(\d+)/g)];
+      if (
+        idMatches.length
+        && Number(idMatches[idMatches.length - 1][1]) === accountId
+      ) {
+        return element;
+      }
+
+      if (normalizedName && idMatches.length && text.startsWith(normalizedName)) {
+        nameMatch = element;
+        nameMatchCount += 1;
       }
     }
-    return null;
+
+    return nameMatchCount === 1 ? nameMatch : null;
   }
 
   function dispatchAccountUsageInputEvent(input, type, bubbles = false) {
@@ -488,39 +521,46 @@
       }
     }
     dispatchAccountUsageInputEvent(input, 'focus');
+    const expectedInputValue = input.value;
 
-    const dropdownButton = await waitFor(
-      () => findAccountUsageDropdownButton(findAccountUsageFilterContainer(), accountId),
-      ACCOUNT_USAGE_DEEP_LINK_TIMEOUT_MS,
-    );
-    if (token !== accountUsageDeepLinkToken) {
-      return;
+    let selectedClearButton = null;
+    for (let attempt = 0; attempt < 3 && !selectedClearButton; attempt += 1) {
+      const dropdownButton = await waitFor(
+        () => findAccountUsageDropdownButton(
+          findAccountUsageFilterContainer(),
+          accountId,
+          accountName,
+        ),
+        attempt === 0 ? ACCOUNT_USAGE_DEEP_LINK_TIMEOUT_MS : 1000,
+      );
+      if (token !== accountUsageDeepLinkToken) {
+        return;
+      }
+      if (!dropdownButton) {
+        break;
+      }
+
+      const liveContainer = findAccountUsageFilterContainer();
+      if (liveContainer && findAccountUsageClearButton(liveContainer)) {
+        return;
+      }
+
+      const liveInput = liveContainer?.querySelector('input');
+      if (liveInput && liveInput.value !== expectedInputValue) {
+        return;
+      }
+
+      dropdownButton.click();
+
+      selectedClearButton = await waitFor(
+        () => findAccountUsageClearButton(findAccountUsageFilterContainer()),
+        ACCOUNT_USAGE_SELECTION_TIMEOUT_MS,
+      );
+      if (token !== accountUsageDeepLinkToken) {
+        return;
+      }
     }
 
-    const currentContainer = findAccountUsageFilterContainer();
-    if (currentContainer && findAccountUsageClearButton(currentContainer)) {
-      return;
-    }
-    if (!dropdownButton) {
-      showAccountUsageNotice({ accountId, accountName });
-      return;
-    }
-    if (normalizeAccountUsageText(input.value) !== normalizeAccountUsageText(accountName)) {
-      return;
-    }
-
-    dropdownButton.click();
-
-    const selectedClearButton = await waitFor(
-      () => {
-        const container = findAccountUsageFilterContainer();
-        return container ? findAccountUsageClearButton(container) : null;
-      },
-      ACCOUNT_USAGE_SELECTION_TIMEOUT_MS,
-    );
-    if (token !== accountUsageDeepLinkToken) {
-      return;
-    }
     if (!selectedClearButton) {
       showAccountUsageNotice({ accountId, accountName });
       return;
