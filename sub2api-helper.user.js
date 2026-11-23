@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.51
+// @version      0.22.52
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.51';
+  const SCRIPT_VERSION = '0.22.52';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
@@ -4894,6 +4894,33 @@
     return cells[1] || null;
   }
 
+  function hasAccountUsageInlineFlexClass(element) {
+    return String(element?.className || '')
+      .split(/\s+/)
+      .includes('inline-flex');
+  }
+
+  function getAccountUsageLinkPlacement(nameCell, nameElement) {
+    if (nameElement && nameElement.tagName === 'SPAN') {
+      return { inline: true, parent: nameElement };
+    }
+
+    const parent = nameElement?.parentElement;
+    if (
+      nameElement
+      && nameElement.tagName === 'A'
+      && parent
+      && hasAccountUsageInlineFlexClass(parent)
+    ) {
+      return { inline: true, parent };
+    }
+
+    return {
+      inline: false,
+      parent: nameCell.querySelector('div') || nameCell,
+    };
+  }
+
   function injectAccountUsageLinks() {
     if (!isAdminAccountsPage() || !isAccountUsageShortcutEnabled()) {
       return;
@@ -4905,32 +4932,34 @@
         continue;
       }
 
-      const existingLink = row.querySelector(`[${ACCOUNT_USAGE_LINK_ATTRIBUTE}="true"]`);
-      if (existingLink) {
-        if (existingLink.getAttribute(ACCOUNT_USAGE_LINK_ID_ATTRIBUTE) === accountId) {
-          continue;
-        }
-        existingLink.remove();
-      }
-
       const nameCell = findAccountNameCell(row);
       if (!nameCell) {
         continue;
       }
 
-      const link = createAccountUsageLink(accountId);
       const nameElement = nameCell.querySelector('.font-medium') || nameCell.querySelector('a');
-      if (nameElement && nameElement.tagName === 'SPAN') {
+      const placement = getAccountUsageLinkPlacement(nameCell, nameElement);
+      const existingLink = row.querySelector(`[${ACCOUNT_USAGE_LINK_ATTRIBUTE}="true"]`);
+      if (existingLink) {
+        if (
+          existingLink.getAttribute(ACCOUNT_USAGE_LINK_ID_ATTRIBUTE) === accountId
+          && existingLink.parentElement === placement.parent
+        ) {
+          continue;
+        }
+        existingLink.remove();
+      }
+
+      const link = createAccountUsageLink(accountId);
+      if (placement.inline) {
         setStyles(link, {
+          alignSelf: 'center',
           marginLeft: '4px',
           marginTop: '0',
           verticalAlign: 'middle',
         });
-        nameElement.appendChild(link);
-      } else {
-        const container = nameCell.querySelector('div') || nameCell;
-        container.appendChild(link);
       }
+      placement.parent.appendChild(link);
     }
   }
 
