@@ -117,6 +117,7 @@
       case FEATURE_IDS.ADMIN_USAGE_PAGE_SIZE:
         return isAdminUsagePage();
       case FEATURE_IDS.ADMIN_ACCOUNTS_FILTERS:
+      case FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE:
       case FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE:
         return isAdminAccountsPage();
       case FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK:
@@ -465,6 +466,10 @@
 
     if (!isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_USAGE_LINK) || !isAdminUsagePage()) {
       cleanupAccountUsageDeepLink();
+    }
+
+    if (!isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE) || !isAdminAccountsPage()) {
+      cleanupAccountHitRate();
     }
   }
 
@@ -849,6 +854,77 @@
     row.appendChild(textWrap);
     row.appendChild(controls);
     row.appendChild(customControl);
+    return row;
+  }
+
+  function createAccountHitRateSettingsRow() {
+    const row = document.createElement('div');
+    row.setAttribute('data-sub2api-account-hit-rate-settings-row', 'true');
+    setStyles(row, {
+      border: '1px solid rgba(148, 163, 184, 0.35)',
+      borderRadius: '8px',
+      display: 'grid',
+      gap: '10px',
+      padding: '12px',
+    });
+
+    const textWrap = document.createElement('div');
+    setStyles(textWrap, { display: 'grid', gap: '4px' });
+
+    const title = document.createElement('span');
+    title.textContent = '账号缓存命中率自动获取';
+    setStyles(title, { color: '#0f172a', fontSize: '14px', fontWeight: '800' });
+
+    const hint = document.createElement('span');
+    hint.textContent = `仅对账号管理页标记的监控账户生效，每轮最多 ${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号、串行请求，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
+    setStyles(hint, { color: '#64748b', fontSize: '12px', lineHeight: '1.4' });
+
+    const control = document.createElement('label');
+    setStyles(control, {
+      alignItems: 'center',
+      color: '#334155',
+      display: 'inline-flex',
+      fontSize: '12px',
+      fontWeight: '700',
+      gap: '8px',
+    });
+
+    const controlLabel = document.createElement('span');
+    controlLabel.textContent = '间隔（分钟）';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.min = String(ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES);
+    input.max = String(ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES);
+    input.step = '1';
+    input.value = String(getAccountHitRateIntervalMinutes());
+    input.setAttribute('data-sub2api-account-hit-rate-interval-input', 'true');
+    setStyles(input, {
+      border: '1px solid rgba(148, 163, 184, 0.45)',
+      borderRadius: '8px',
+      color: '#0f172a',
+      font: '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      padding: '7px 9px',
+      width: '88px',
+    });
+    input.addEventListener('change', () => {
+      setAccountHitRateIntervalMinutes(input.value);
+      input.value = String(getAccountHitRateIntervalMinutes());
+      restartAccountHitRateCycle();
+    });
+
+    const tracked = document.createElement('span');
+    tracked.setAttribute('data-sub2api-account-hit-rate-tracked-count', 'true');
+    tracked.textContent = `已监控 ${getTrackedAccountIds().length}/${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号`;
+    setStyles(tracked, { color: '#64748b', fontSize: '12px', fontWeight: '600' });
+
+    control.appendChild(controlLabel);
+    control.appendChild(input);
+    textWrap.appendChild(title);
+    textWrap.appendChild(hint);
+    row.appendChild(textWrap);
+    row.appendChild(control);
+    row.appendChild(tracked);
     return row;
   }
 
@@ -1238,6 +1314,7 @@
       featureGroups.appendChild(createSidebarWidthSettingsRow(state.sidebarWidth));
       featureGroups.appendChild(createThemeModeSettingsRow(state.themeMode));
     }
+    featureGroups.appendChild(createAccountHitRateSettingsRow());
     featureGroups.appendChild(createExcludedOriginsSettingsRow(state.excludedOrigins));
     panel.appendChild(header);
     panel.appendChild(status);

@@ -9,6 +9,9 @@
     ADMIN_ACCOUNTS_FILTER_PRIVACY: 'admin-accounts-filter-privacy',
     ADMIN_ACCOUNTS_FILTER_STATUS: 'admin-accounts-filter-status',
     ADMIN_ACCOUNTS_FILTER_TYPE: 'admin-accounts-filter-type',
+    ADMIN_ACCOUNTS_HIT_RATE_INTERVAL: 'admin-accounts-hit-rate-interval',
+    ADMIN_ACCOUNTS_HIT_RATE_RANGE: 'admin-accounts-hit-rate-range',
+    ADMIN_ACCOUNTS_HIT_RATE_TRACKED: 'admin-accounts-hit-rate-tracked',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
     ADMIN_DASHBOARD_GRANULARITY: 'admin-dashboard-granularity',
     ADMIN_GROUPS_PAGE_SIZE: 'admin-groups-page-size',
@@ -87,6 +90,7 @@
   };
   const FEATURE_IDS = {
     ADMIN_ACCOUNTS_FILTERS: 'admin-accounts-filters',
+    ADMIN_ACCOUNTS_HIT_RATE: 'admin-accounts-hit-rate',
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
     ADMIN_ACCOUNTS_USAGE_LINK: 'admin-accounts-usage-link',
     ADMIN_DASHBOARD_DATE_RANGE: 'admin-dashboard-date-range',
@@ -164,6 +168,12 @@
       groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
       id: FEATURE_IDS.ADMIN_ACCOUNTS_PAGE_SIZE,
       label: '账号管理 tab (/admin/accounts) - 每页数量',
+    },
+    {
+      description: '在 /admin/accounts tab 的每个账号行展示缓存命中率，并支持按账号定时自动获取。',
+      groupId: SETTINGS_GROUPS.ADMIN_ACCOUNTS,
+      id: FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE,
+      label: '账号管理 tab (/admin/accounts) - 缓存命中率',
     },
     {
       description: '在 /admin/accounts tab 的每个账号行增加使用记录快捷入口，并在 /admin/usage 深链中自动回填账户筛选。',

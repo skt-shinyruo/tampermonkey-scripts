@@ -231,6 +231,10 @@ class TestElement {
 
   dispatchEvent(event) {
     const actualEvent = {
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
       stopPropagation() {},
       target: this,
       ...event,
@@ -385,6 +389,7 @@ function createTestEnvironment({
   const timeouts = new Map();
   const fetchCalls = [];
   const fetchResponses = new Map();
+  const fetchStatuses = new Map();
   const mediaQueryListeners = new Set();
   const menuCommands = new Map();
   const windowListeners = new Map();
@@ -540,10 +545,11 @@ function createTestEnvironment({
       fetchCalls.push({ headers: { ...(init.headers || {}) }, method, url: urlText });
       const requestPath = new URL(urlText, origin).pathname;
       const responseBody = fetchResponses.get(urlText) || fetchResponses.get(requestPath);
+      const statusOverride = fetchStatuses.get(requestPath);
       const response = {
         method,
-        ok: true,
-        status: 200,
+        ok: statusOverride ? statusOverride < 400 : true,
+        status: statusOverride || 200,
         url: urlText,
         clone() {
           return this;
@@ -1059,6 +1065,13 @@ function createTestEnvironment({
     },
     setFetchResponse(pathOrUrl, responseBody) {
       fetchResponses.set(pathOrUrl, responseBody);
+    },
+    setFetchStatus(pathOrUrl, status) {
+      fetchStatuses.set(pathOrUrl, status);
+    },
+    setVisibilityState(value) {
+      document.visibilityState = value;
+      dispatchDocumentEvent('visibilitychange');
     },
     getMenuCommand(label) {
       return menuCommands.get(label) || null;
@@ -5633,4 +5646,431 @@ test('admin usage deep link is ignored when the shortcut feature is disabled', a
     false,
   );
   assert.equal(filter.page.querySelector('[data-sub2api-account-usage-notice="true"]'), null);
+});
+
+function buildAccountHitRateStatsResponse({
+  inputTokens = 0,
+  outputTokens = 0,
+  cacheCreationTokens = 0,
+  cacheReadTokens = 0,
+} = {}) {
+  return {
+    code: 0,
+    data: {
+      average_duration_ms: 0,
+      total_actual_cost: 0,
+      total_cache_creation_tokens: cacheCreationTokens,
+      total_cache_read_tokens: cacheReadTokens,
+      total_cache_tokens: cacheCreationTokens + cacheReadTokens,
+      total_cost: 0,
+      total_input_tokens: inputTokens,
+      total_output_tokens: outputTokens,
+      total_requests: 1,
+      total_tokens: inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
+    },
+  };
+}
+
+function readTrackedAccountIds(environment, origin) {
+  const raw = environment.getStoredValue(
+    getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked'),
+  );
+  return Array.isArray(raw) ? JSON.parse(JSON.stringify(raw)).map(Number) : [];
+}
+
+test('admin accounts renders a cache hit rate badge and derived percentage', async () => {
+  const origin = 'https://account-hit-rate.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 42, accountName: 'Account A' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({
+      cacheCreationTokens: 0,
+      cacheReadTokens: 900,
+      inputTokens: 100,
+      outputTokens: 50,
+    }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.ok(badge, 'hit rate badge should be injected next to the usage shortcut');
+  assert.equal(badge.textContent, '–');
+
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  const statsCalls = environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats'));
+  assert.equal(statsCalls.length, 1);
+  const requestUrl = new URL(statsCalls[0].url);
+  assert.equal(requestUrl.searchParams.get('account_id'), '42');
+  assert.equal(requestUrl.searchParams.get('start_date'), requestUrl.searchParams.get('end_date'));
+  assert.equal(statsCalls[0].headers.Authorization, undefined);
+  assert.equal(statsCalls[0].headers['X-Admin-UI-Request'], '1');
+
+  const rendered = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.equal(rendered.textContent, '90%');
+  assert.match(rendered.className, /text-emerald-600/);
+});
+
+test('admin accounts hit rate uses yesterday when the saved range is yesterday', async () => {
+  const origin = 'https://account-hit-rate-yesterday.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-range')]: 'yesterday',
+    },
+    now,
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 7, accountName: 'Account B' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 10, inputTokens: 90 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.ok(badge);
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  const call = environment
+    .getFetchCalls()
+    .find((entry) => entry.url.includes('/api/v1/admin/usage/stats'));
+  const requestUrl = new URL(call.url);
+  assert.equal(requestUrl.searchParams.get('start_date'), '2026-05-08');
+  assert.equal(requestUrl.searchParams.get('end_date'), '2026-05-08');
+});
+
+test('admin accounts hit rate renders a dash when the range has no prompt tokens', async () => {
+  const origin = 'https://account-hit-rate-empty.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 11, accountName: 'Account C' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ outputTokens: 500 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  const rendered = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.equal(rendered.textContent, '–');
+  assert.match(rendered.getAttribute('title'), /没有 Prompt Token/);
+});
+
+test('admin accounts hit rate degrades to a dash on a failed response', async () => {
+  const origin = 'https://account-hit-rate-error.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 12, accountName: 'Account D' });
+  environment.setFetchStatus('/api/v1/admin/usage/stats', 500);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  const rendered = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.equal(rendered.textContent, '–');
+  assert.match(rendered.getAttribute('title'), /查询失败/);
+});
+
+test('admin accounts hit rate tracking persists and is capped', async () => {
+  const origin = 'https://account-hit-rate-track.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 21, accountName: 'Account E' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 50, inputTokens: 50 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const toggle = account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]');
+  assert.ok(toggle);
+  assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+
+  toggle.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  assert.deepEqual(readTrackedAccountIds(environment, origin), [21]);
+  const trackedToggle = account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]');
+  assert.equal(trackedToggle.getAttribute('aria-pressed'), 'true');
+
+  trackedToggle.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+  assert.deepEqual(readTrackedAccountIds(environment, origin), []);
+});
+
+test('admin accounts hit rate ignores tracked ids beyond the configured cap', async () => {
+  const origin = 'https://account-hit-rate-cap.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 99, accountName: 'Account F' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const toggle = account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]');
+  toggle.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+
+  const stored = readTrackedAccountIds(environment, origin);
+  assert.deepEqual(stored, [99]);
+});
+
+test('admin accounts hit rate feature switch removes the injected controls', async () => {
+  const origin = 'https://account-hit-rate-switch.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getGlobalFeatureStorageKey('admin-accounts-hit-rate')]: false,
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 31, accountName: 'Account G' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(account.row.querySelector('[data-sub2api-account-hit-rate="true"]'), null);
+  assert.equal(account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]'), null);
+});
+
+test('admin accounts hit rate settings row normalizes the interval input', async () => {
+  const origin = 'https://account-hit-rate-settings.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  assert.ok(settingsRoot);
+
+  const row = settingsRoot.querySelector('[data-sub2api-account-hit-rate-settings-row="true"]');
+  assert.ok(row);
+  assert.match(row.textContent, /已监控 0\/10 个账号/);
+
+  const input = row.querySelector('[data-sub2api-account-hit-rate-interval-input="true"]');
+  assert.equal(input.value, '30');
+
+  input.value = '5';
+  input.dispatchEvent({ type: 'change' });
+  assert.equal(input.value, '30');
+  assert.equal(
+    environment.getStoredValue(
+      getScopedStorageKey(origin, 'admin-accounts-hit-rate-interval'),
+    ),
+    30,
+  );
+
+  input.value = '120';
+  input.dispatchEvent({ type: 'change' });
+  assert.equal(input.value, '120');
+  assert.equal(
+    environment.getStoredValue(
+      getScopedStorageKey(origin, 'admin-accounts-hit-rate-interval'),
+    ),
+    120,
+  );
+});
+
+test('admin accounts hit rate maps severity bands to the shared palette', async () => {
+  const cases = [
+    { expectedClass: 'text-emerald-600', cache: { cacheReadTokens: 95, inputTokens: 5 } },
+    { expectedClass: 'text-amber-600', cache: { cacheReadTokens: 85, inputTokens: 15 } },
+    { expectedClass: 'text-orange-600', cache: { cacheReadTokens: 65, inputTokens: 35 } },
+    { expectedClass: 'text-red-600', cache: { cacheReadTokens: 40, inputTokens: 60 } },
+  ];
+
+  for (const [index, testCase] of cases.entries()) {
+    const origin = `https://account-hit-rate-band-${index}.sub2api.example.test`;
+    const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+    environment.createSidebarToggle({ collapsed: false });
+    createAdminAccountsFilters(environment);
+    const account = createAdminAccountUsageRow(environment, { accountId: 40 + index, accountName: `Band ${index}` });
+    environment.setFetchResponse(
+      '/api/v1/admin/usage/stats',
+      buildAccountHitRateStatsResponse(testCase.cache),
+    );
+
+    vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+    await flushMicrotasks(200);
+    environment.runMutationObservers();
+    await flushMicrotasks(200);
+
+    const badge = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+    badge.dispatchEvent({ type: 'click' });
+    await flushMicrotasks(200);
+
+    const rendered = account.row.querySelector('[data-sub2api-account-hit-rate="true"]');
+    assert.match(rendered.className, new RegExp(testCase.expectedClass));
+  }
+});
+
+test('admin accounts hit rate pauses after three consecutive failures and can resume', async () => {
+  const origin = 'https://account-hit-rate-breaker.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [51, 52, 53],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 51, accountName: 'Tracked A' });
+  createAdminAccountUsageRow(environment, { accountId: 52, accountName: 'Tracked B' });
+  createAdminAccountUsageRow(environment, { accountId: 53, accountName: 'Tracked C' });
+  environment.setFetchStatus('/api/v1/admin/usage/stats', 500);
+
+  const pageRoot = environment.document.createElement('div');
+  pageRoot.className = 'space-y-6';
+  environment.document.body.appendChild(pageRoot);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+
+  const statsCalls = environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats'));
+  assert.equal(statsCalls.length, 3);
+
+  const notice = pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]');
+  assert.ok(notice, 'breaker notice should be rendered after repeated failures');
+  assert.match(notice.textContent, /已暂停/);
+
+  const resume = notice.querySelector('[data-sub2api-account-hit-rate-notice-resume="true"]');
+  assert.ok(resume);
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 70, inputTokens: 30 }),
+  );
+  environment.setFetchStatus('/api/v1/admin/usage/stats', 200);
+  resume.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(400);
+
+  const callsAfterResume = environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats'));
+  assert.ok(callsAfterResume.length > 3);
+});
+
+test('admin accounts hit rate does not sweep while the page is hidden', async () => {
+  const origin = 'https://account-hit-rate-hidden.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [61],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 61, accountName: 'Tracked Hidden' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 80, inputTokens: 20 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+
+  const initialCalls = environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats')).length;
+  assert.equal(initialCalls, 1);
+
+  environment.setVisibilityState('hidden');
+  await flushMicrotasks(200);
+
+  for (const { handler } of environment.intervals.values()) {
+    handler();
+  }
+  await flushMicrotasks(300);
+
+  const hiddenCalls = environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats')).length;
+  assert.equal(hiddenCalls, initialCalls);
+});
+
+test('admin accounts hit rate does not restart a cycle on repeated injections', async () => {
+  const origin = 'https://account-hit-rate-idempotent.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [71],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 71, accountName: 'Tracked Idempotent' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 60, inputTokens: 40 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+
+  const countCalls = () => environment
+    .getFetchCalls()
+    .filter((call) => call.url.includes('/api/v1/admin/usage/stats')).length;
+
+  const baseline = countCalls();
+  assert.equal(baseline, 1);
+
+  for (let round = 0; round < 3; round += 1) {
+    environment.runMutationObservers();
+    await flushMicrotasks(200);
+  }
+
+  assert.equal(countCalls(), baseline);
 });

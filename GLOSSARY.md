@@ -146,6 +146,18 @@ _Avoid_: 使用记录按钮, 账户详情
 A 管理端使用记录 link carrying a specific 账号 so the page opens scoped to it.
 _Avoid_: 账户链接, 使用记录分享链接
 
+**监控账户 (Tracked Account)**:
+An 账号 the user explicitly opts into automatic cache hit rate retrieval on the accounts page.
+_Avoid_: 关注账号, 订阅账号, 自动刷新账号
+
+**统计区间 (Stats Window)**:
+The `今天` / `昨天` calendar-day span that scopes cache hit rate retrieval on the accounts page, independent of the 日期范围 selected on usage pages.
+_Avoid_: 查询范围, 时间窗口, 日期范围
+
+**缓存命中率 (Cache Hit Rate)**:
+The ratio of cache read tokens to all prompt-side tokens (`缓存读取 / (输入 + 缓存创建 + 缓存读取)`) for one 账号 over a 统计区间.
+_Avoid_: 缓存率, 命中比例, 缓存复用率
+
 ## AIHub Supplier Hall
 
 **供应商大厅 (Supplier Hall)**:

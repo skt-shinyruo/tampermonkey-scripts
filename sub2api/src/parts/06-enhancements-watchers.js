@@ -18,6 +18,7 @@
       stopAutoRefresh();
       closeAutoRefreshMenu();
       installAccountUsageLinks();
+      installAccountHitRateLinks();
       await restoreSavedAdminAccountsFilters();
       await restoreSavedPageSize();
       return;
@@ -26,6 +27,7 @@
     if (isAdminGroupsPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
+      stopAccountHitRateSchedule();
       await restoreSavedPageSize();
       return;
     }
@@ -33,6 +35,7 @@
     if (isAdminUsersPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
+      stopAccountHitRateSchedule();
       await restoreSavedPageSize();
       return;
     }
@@ -40,6 +43,7 @@
     if (!isUsagePage() && !isDashboardPage()) {
       stopAutoRefresh();
       closeAutoRefreshMenu();
+      stopAccountHitRateSchedule();
       return;
     }
 
