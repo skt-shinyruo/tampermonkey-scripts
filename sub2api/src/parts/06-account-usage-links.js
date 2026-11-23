@@ -310,6 +310,35 @@
     }
   }
 
+  function logAccountUsageDeepLinkFailure(accountId, accountName) {
+    try {
+      const candidates = [];
+      for (const element of document.querySelectorAll('button, [role="option"]')) {
+        const text = normalizeAccountUsageText(element.textContent);
+        if (!text) {
+          continue;
+        }
+        if (!text.includes(String(accountId)) && !text.includes(accountName)) {
+          continue;
+        }
+        candidates.push({
+          ariaLabel: element.getAttribute('aria-label') || '',
+          tagName: element.tagName,
+          text,
+        });
+      }
+
+      console.warn('[Sub2API Helper] account usage shortcut failed', {
+        accountId,
+        accountName,
+        candidates,
+        version: SCRIPT_VERSION,
+      });
+    } catch {
+      // Ignore diagnostics failures on unusual host pages.
+    }
+  }
+
   async function fetchAdminAccountName(accountId) {
     const fetchFunction = typeof window.fetch === 'function'
       ? window.fetch.bind(window)
@@ -550,7 +579,32 @@
         return;
       }
 
+      const clickContainer = liveContainer || findAccountUsageFilterContainer();
+      const originalParent = dropdownButton.parentElement;
+      const originalNextSibling = dropdownButton.nextSibling || null;
+      const shouldRelocate = Boolean(
+        clickContainer
+        && originalParent
+        && dropdownButton.tagName === 'BUTTON'
+        && !clickContainer.contains(dropdownButton)
+      );
+      if (shouldRelocate) {
+        clickContainer.appendChild(dropdownButton);
+      }
+
       dropdownButton.click();
+
+      if (shouldRelocate && originalParent) {
+        if (originalParent.isConnected && dropdownButton.isConnected) {
+          const reference = originalNextSibling
+            && originalNextSibling.parentNode === originalParent
+            ? originalNextSibling
+            : null;
+          originalParent.insertBefore(dropdownButton, reference);
+        } else if (dropdownButton.parentElement === clickContainer) {
+          dropdownButton.remove();
+        }
+      }
 
       selectedClearButton = await waitFor(
         () => findAccountUsageClearButton(findAccountUsageFilterContainer()),
@@ -562,6 +616,7 @@
     }
 
     if (!selectedClearButton) {
+      logAccountUsageDeepLinkFailure(accountId, accountName);
       showAccountUsageNotice({ accountId, accountName });
       return;
     }
