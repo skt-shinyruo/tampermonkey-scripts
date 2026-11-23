@@ -309,6 +309,14 @@ class TestElement {
   getAttribute(name) {
     return this.attributes[name] ?? null;
   }
+
+  removeAttribute(name) {
+    delete this.attributes[name];
+    if (name.startsWith('data-')) {
+      const camelKey = name.slice(5).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+      delete this.dataset[camelKey];
+    }
+  }
 }
 
 class TestInputElement extends TestElement {
@@ -5391,22 +5399,29 @@ test('admin accounts adds an idempotent usage shortcut to each account row', asy
 
   const firstLink = first.row.querySelector('[data-sub2api-account-usage-link="true"]');
   assert.ok(firstLink);
-  assert.equal(firstLink.parentElement, first.name);
+  assert.equal(firstLink.parentElement, first.nameStack);
   assert.equal(firstLink.getAttribute('href'), '/admin/usage?account_id=42');
   assert.equal(firstLink.getAttribute('target'), '_blank');
   assert.equal(firstLink.getAttribute('rel'), 'noopener noreferrer');
-  assert.equal(firstLink.getAttribute('title'), '查看使用记录');
-  assert.equal(firstLink.getAttribute('aria-label'), '查看使用记录');
+  assert.equal(firstLink.getAttribute('title'), '查看该账号的使用记录');
+  assert.equal(firstLink.getAttribute('aria-label'), '查看该账号的使用记录');
+  assert.match(firstLink.textContent, /使用记录/);
+  assert.equal(firstLink.style.position, 'absolute');
+  assert.equal(firstLink.style.width, '84px');
+  assert.equal(first.nameStack.style.paddingLeft, '92px');
+  assert.equal(first.nameStack.style.position, 'relative');
+  assert.equal(first.name.querySelector('[data-sub2api-account-usage-link="true"]'), null);
 
   const secondLink = second.row.querySelector('[data-sub2api-account-usage-link="true"]');
   assert.ok(secondLink);
+  assert.equal(secondLink.parentElement, second.nameStack);
   assert.equal(secondLink.getAttribute('href'), '/admin/usage?account_id=7');
 
   const thirdLink = third.row.querySelector('[data-sub2api-account-usage-link="true"]');
   assert.ok(thirdLink);
-  assert.equal(thirdLink.parentElement, third.tooltipRoot);
-  assert.equal(thirdLink.parentElement, third.name.parentElement);
+  assert.equal(thirdLink.parentElement, third.nameStack);
   assert.equal(third.name.querySelectorAll('a').length, 0);
+  assert.equal(third.name.querySelector('[data-sub2api-account-usage-link="true"]'), null);
 
   environment.runMutationObservers();
   await flushMicrotasks(200);
@@ -5441,6 +5456,8 @@ test('admin accounts usage shortcut honors the global feature switch', async () 
   await flushMicrotasks(200);
 
   assert.equal(account.row.querySelector('[data-sub2api-account-usage-link="true"]'), null);
+  assert.equal(account.nameStack.getAttribute('data-sub2api-account-usage-gutter'), null);
+  assert.equal(account.nameStack.style.paddingLeft, undefined);
 
   environment.getMenuCommand('Sub2API Helper 设置')();
   const accountsGroup = environment
