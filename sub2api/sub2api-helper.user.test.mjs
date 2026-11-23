@@ -5298,11 +5298,33 @@ test('settings panel displays site exclusion switch and manages excluded origins
   );
 });
 
-function createAdminAccountUsageRow(environment, { accountId, accountName, homepage = false }) {
+function createAdminAccountUsageRow(environment, {
+  accountId,
+  accountName,
+  hideTodayStatsColumn = false,
+  homepage = false,
+  todayStatsState = 'data',
+}) {
   const table = environment.document.createElement('table');
   const tbody = environment.document.createElement('tbody');
   const row = environment.document.createElement('tr');
   row.setAttribute('data-row-id', String(accountId));
+
+  const headerRow = environment.document.createElement('tr');
+  const selectHeader = environment.document.createElement('th');
+  const nameHeader = environment.document.createElement('th');
+  nameHeader.textContent = '名称';
+  headerRow.appendChild(selectHeader);
+  headerRow.appendChild(nameHeader);
+  let todayHeader = null;
+  if (!hideTodayStatsColumn) {
+    todayHeader = environment.document.createElement('th');
+    todayHeader.textContent = '今日统计';
+    headerRow.appendChild(todayHeader);
+  }
+  const thead = environment.document.createElement('thead');
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
 
   const selectCell = environment.document.createElement('td');
   const nameCell = environment.document.createElement('td');
@@ -5329,11 +5351,61 @@ function createAdminAccountUsageRow(environment, { accountId, accountName, homep
   nameCell.appendChild(nameStack);
   row.appendChild(selectCell);
   row.appendChild(nameCell);
+
+  let todayStatsCell = null;
+  let todayStatsContainer = null;
+  if (!hideTodayStatsColumn) {
+    todayStatsCell = environment.document.createElement('td');
+    const root = environment.document.createElement('div');
+    if (todayStatsState === 'data') {
+      const container = environment.document.createElement('div');
+      container.className = 'space-y-0.5 text-xs';
+      const lines = [
+        ['请求:', '2.2万'],
+        ['Token:', '1554.00M'],
+        ['账号计费:', 'US$61.52'],
+        ['用户扣费:', 'US$103.17'],
+      ];
+      for (const [labelText, valueText] of lines) {
+        const line = environment.document.createElement('div');
+        line.className = 'flex items-center gap-1';
+        const label = environment.document.createElement('span');
+        label.className = 'text-gray-500 dark:text-gray-400';
+        label.textContent = labelText;
+        const value = environment.document.createElement('span');
+        value.className = 'font-medium text-gray-700 dark:text-gray-300';
+        value.textContent = valueText;
+        line.appendChild(label);
+        line.appendChild(value);
+        container.appendChild(line);
+      }
+      root.appendChild(container);
+      todayStatsContainer = container;
+    } else {
+      const empty = environment.document.createElement('div');
+      empty.className = 'text-xs text-gray-400';
+      empty.textContent = '-';
+      root.appendChild(empty);
+    }
+    todayStatsCell.appendChild(root);
+    row.appendChild(todayStatsCell);
+  }
+
   tbody.appendChild(row);
   table.appendChild(tbody);
   environment.document.body.appendChild(table);
 
-  return { name, nameCell, nameStack, row, table, tooltipRoot };
+  return {
+    name,
+    nameCell,
+    nameStack,
+    row,
+    table,
+    todayHeader,
+    todayStatsCell,
+    todayStatsContainer,
+    tooltipRoot,
+  };
 }
 
 function createAccountUsageFilter(environment, {
@@ -6073,4 +6145,177 @@ test('admin accounts hit rate does not restart a cycle on repeated injections', 
   }
 
   assert.equal(countCalls(), baseline);
+});
+
+test('admin accounts hit rate lives in the today stats column, not the name cell', async () => {
+  const origin = 'https://account-hit-rate-layout.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 81, accountName: 'Layout Account' });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 80, inputTokens: 20 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.ok(badge, 'hit rate should render inside the today stats cell');
+  assert.equal(
+    account.nameCell.querySelector('[data-sub2api-account-hit-rate="true"]'),
+    null,
+    'hit rate must not render in the name cell',
+  );
+
+  const line = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
+  assert.ok(line);
+  assert.equal(line.parentElement, account.todayStatsContainer, 'line joins the upstream stats stack');
+  assert.equal(line.style.gridColumn, '1 / -1', 'line spans the full grid width');
+
+  assert.equal(account.todayStatsContainer.style.display, 'grid');
+  assert.equal(account.todayStatsContainer.style.gridTemplateColumns, 'auto auto');
+  assert.equal(account.todayStatsContainer.getAttribute('data-sub2api-account-hit-rate-grid'), 'true');
+
+  for (const child of account.todayStatsContainer.children) {
+    assert.equal(child.style.marginTop, '0', 'space-y margins must be neutralized for the grid');
+  }
+
+  const label = line.querySelector('[data-sub2api-account-hit-rate-label="true"]');
+  assert.equal(label.textContent, '命中率(今天):');
+
+  const statLabels = [...account.todayStatsContainer.children]
+    .filter((child) => child.getAttribute('data-sub2api-account-hit-rate-row') !== 'true')
+    .map((child) => child.children[0].textContent);
+  assert.deepEqual(statLabels, ['请求:', 'Token:', '账号:', '用户:']);
+
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+  assert.equal(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate="true"]').textContent,
+    '80%',
+  );
+});
+
+test('admin accounts hit rate labels the window when the saved range is yesterday', async () => {
+  const origin = 'https://account-hit-rate-label.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-range')]: 'yesterday',
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 82, accountName: 'Label Account' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const label = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-label="true"]');
+  assert.equal(label.textContent, '命中率(昨天):');
+});
+
+test('admin accounts hit rate still renders when the today stats cell has no data', async () => {
+  const origin = 'https://account-hit-rate-nodata.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, {
+    accountId: 83,
+    accountName: 'Empty Stats',
+    todayStatsState: 'empty',
+  });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 30, inputTokens: 70 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const badge = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate="true"]');
+  assert.ok(badge, 'hit rate should render even when today stats show a dash');
+
+  badge.dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+  assert.equal(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate="true"]').textContent,
+    '30%',
+  );
+});
+
+test('admin accounts hit rate stays out and stops polling when the today stats column is hidden', async () => {
+  const origin = 'https://account-hit-rate-hidden-column.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [84],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, {
+    accountId: 84,
+    accountName: 'Hidden Column',
+    hideTodayStatsColumn: true,
+  });
+  environment.setFetchResponse(
+    '/api/v1/admin/usage/stats',
+    buildAccountHitRateStatsResponse({ cacheReadTokens: 50, inputTokens: 50 }),
+  );
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(400);
+  environment.runMutationObservers();
+  await flushMicrotasks(300);
+
+  assert.equal(account.row.querySelector('[data-sub2api-account-hit-rate="true"]'), null);
+  assert.equal(
+    environment.getFetchCalls().filter((call) => call.url.includes('/api/v1/admin/usage/stats')).length,
+    0,
+    'no stats request should fire while the column is hidden',
+  );
+  assert.deepEqual(environment.getIntervalDurations().filter((ms) => ms >= 30 * 60 * 1000), []);
+});
+
+test('admin accounts hit rate restores upstream labels and layout when the feature is turned off', async () => {
+  const origin = 'https://account-hit-rate-restore.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 91, accountName: 'Restore Account' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(account.todayStatsContainer.style.display, 'grid');
+  assert.equal(account.todayStatsContainer.children[2].children[0].textContent, '账号:');
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const featureSwitch = settingsRoot.querySelector(
+    'input[data-sub2api-feature-global-switch="admin-accounts-hit-rate"]',
+  );
+  assert.ok(featureSwitch);
+  featureSwitch.checked = false;
+  featureSwitch.dispatchEvent({ type: 'change' });
+  await flushMicrotasks(200);
+
+  assert.equal(account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate="true"]'), null);
+  assert.equal(account.todayStatsContainer.style.display, '');
+  assert.equal(account.todayStatsContainer.getAttribute('data-sub2api-account-hit-rate-grid'), null);
+  assert.equal(account.todayStatsContainer.children[2].children[0].textContent, '账号计费:');
+  assert.equal(account.todayStatsContainer.children[3].children[0].textContent, '用户扣费:');
 });

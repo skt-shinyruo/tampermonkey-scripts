@@ -150,6 +150,10 @@ _Avoid_: 账户链接, 使用记录分享链接
 An 账号 the user explicitly opts into automatic cache hit rate retrieval on the accounts page.
 _Avoid_: 关注账号, 订阅账号, 自动刷新账号
 
+**今日统计 (Today Stats)**:
+The upstream-rendered accounts page column showing one 账号's today-only requests, tokens and billing, always scoped to today regardless of the selected 统计区间.
+_Avoid_: 当日统计, 今日用量, 今日数据
+
 **统计区间 (Stats Window)**:
 The `今天` / `昨天` calendar-day span that scopes cache hit rate retrieval on the accounts page, independent of the 日期范围 selected on usage pages.
 _Avoid_: 查询范围, 时间窗口, 日期范围

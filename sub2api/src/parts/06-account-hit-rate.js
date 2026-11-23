@@ -1,5 +1,7 @@
   const ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE = 'data-sub2api-account-hit-rate';
   const ACCOUNT_HIT_RATE_ROW_ATTRIBUTE = 'data-sub2api-account-hit-rate-row';
+  const ACCOUNT_HIT_RATE_GRID_ATTRIBUTE = 'data-sub2api-account-hit-rate-grid';
+  const ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE = 'data-sub2api-account-hit-rate-original-label';
   const ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE = 'data-sub2api-account-hit-rate-track';
   const ACCOUNT_HIT_RATE_RANGE_ATTRIBUTE = 'data-sub2api-account-hit-rate-range';
   const ACCOUNT_HIT_RATE_NOTICE_ATTRIBUTE = 'data-sub2api-account-hit-rate-notice';
@@ -491,88 +493,269 @@
     return toggle;
   }
 
-  function getAccountHitRateMount(row) {
-    const link = row.querySelector(`[${ACCOUNT_USAGE_LINK_ATTRIBUTE}="true"]`);
-    if (link?.parentElement) {
-      return link.parentElement;
+  function getAccountHitRateHeaderRow() {
+    for (const row of document.querySelectorAll('tr')) {
+      if (row.parentElement && row.parentElement.tagName === 'THEAD') {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  function getAccountHitRateTableState() {
+    const headerRow = getAccountHitRateHeaderRow();
+    if (!headerRow) {
+      return { index: null, ready: false };
     }
 
-    const nameCell = findAccountNameCell(row);
-    if (!nameCell) {
+    const headers = [...headerRow.children].filter((child) => child.tagName === 'TH');
+    if (!headers.length) {
+      return { index: null, ready: false };
+    }
+
+    const index = headers.findIndex((header) =>
+      /今日|today/i.test(String(header.textContent || '').replace(/\s+/g, ' ').trim()),
+    );
+    return { index: index >= 0 ? index : null, ready: true };
+  }
+
+  function getAccountHitRateCell(row, columnIndex) {
+    if (columnIndex === null || columnIndex === undefined) {
       return null;
     }
-    return nameCell.querySelector('div') || nameCell;
+    const cells = [...row.children].filter((child) => child.tagName === 'TD');
+    return cells[columnIndex] || null;
+  }
+
+  function getAccountHitRateStatsContainer(cell) {
+    if (!cell) {
+      return null;
+    }
+
+    for (const container of cell.querySelectorAll('div')) {
+      const className = String(container.className || '');
+      if (className.includes('space-y-0.5') && className.includes('text-xs')) {
+        return container;
+      }
+    }
+    return null;
+  }
+
+  const ACCOUNT_HIT_RATE_SHORT_LABELS = [
+    { pattern: /^(账号计费|account)/i, short: '账号' },
+    { pattern: /^(用户扣费|user)/i, short: '用户' },
+  ];
+
+  function applyAccountHitRateShortLabels(container) {
+    for (const line of [...container.children]) {
+      if (line.getAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE) === 'true') {
+        continue;
+      }
+
+      const label = [...line.children].find((child) => child.tagName === 'SPAN');
+      if (!label) {
+        continue;
+      }
+
+      const original = String(label.textContent || '').trim();
+      const matched = ACCOUNT_HIT_RATE_SHORT_LABELS.find((entry) => entry.pattern.test(original));
+      if (!matched) {
+        continue;
+      }
+
+      if (label.getAttribute(ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE) === null) {
+        label.setAttribute(ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE, original);
+      }
+
+      const suffix = original.endsWith(':') || original.endsWith('：') ? original.slice(-1) : '';
+      const nextText = `${matched.short}${suffix}`;
+      if (label.textContent !== nextText) {
+        label.textContent = nextText;
+      }
+    }
+  }
+
+  function resetAccountHitRateShortLabels(container) {
+    for (const line of [...container.children]) {
+      for (const label of [...line.children]) {
+        const original = label.getAttribute(ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE);
+        if (original === null) {
+          continue;
+        }
+        if (label.textContent !== original) {
+          label.textContent = original;
+        }
+        label.removeAttribute(ACCOUNT_HIT_RATE_LABEL_ATTRIBUTE);
+      }
+    }
+  }
+
+  function applyAccountHitRateGrid(container) {
+    if (!container) {
+      return;
+    }
+
+    if (container.getAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE) !== 'true') {
+      container.setAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE, 'true');
+      setStyles(container, {
+        columnGap: '0.75em',
+        display: 'grid',
+        gridTemplateColumns: 'auto auto',
+        justifyContent: 'start',
+        rowGap: '0.15em',
+      });
+    }
+
+    for (const child of [...container.children]) {
+      if (child.getAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE) === 'true') {
+        continue;
+      }
+      setStyles(child, { marginTop: '0' });
+    }
+
+    applyAccountHitRateShortLabels(container);
+  }
+
+  function resetAccountHitRateGrid(container) {
+    if (!container || container.getAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE) !== 'true') {
+      return;
+    }
+
+    container.removeAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE);
+    setStyles(container, {
+      columnGap: '',
+      display: '',
+      gridTemplateColumns: '',
+      justifyContent: '',
+      rowGap: '',
+    });
+    for (const child of [...container.children]) {
+      setStyles(child, { marginTop: '' });
+    }
+    resetAccountHitRateShortLabels(container);
+  }
+
+  function createAccountHitRateLine(accountId) {
+    const line = document.createElement('div');
+    line.setAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE, 'true');
+    line.className = 'flex items-center gap-1 text-xs';
+    setStyles(line, {
+      alignItems: 'center',
+      display: 'flex',
+      gap: '4px',
+      gridColumn: '1 / -1',
+    });
+
+    const label = document.createElement('span');
+    label.setAttribute('data-sub2api-account-hit-rate-label', 'true');
+    label.className = 'text-gray-500 dark:text-gray-400';
+    line.appendChild(label);
+
+    const badge = createAccountHitRateBadge(accountId);
+    line.appendChild(badge);
+
+    const toggle = createAccountHitRateTrackToggle(accountId);
+    line.appendChild(toggle);
+
+    return line;
+  }
+
+  function renderAccountHitRateLine(line, accountId) {
+    const tracked = isAccountHitRateTracked(accountId);
+    const rangeLabel = getAccountHitRateRangeLabel();
+    const state = getAccountHitRateRowState(accountId);
+
+    const label = line.querySelector('[data-sub2api-account-hit-rate-label="true"]');
+    const labelText = `命中率(${rangeLabel}):`;
+    if (label && label.textContent !== labelText) {
+      label.textContent = labelText;
+    }
+
+    const badge = line.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="true"]`);
+    if (badge) {
+      badge.className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${state.textClass}`;
+      if (badge.textContent !== state.label) {
+        badge.textContent = state.label;
+      }
+      const title = buildAccountHitRateTitle(accountId);
+      if (badge.getAttribute('title') !== title) {
+        badge.setAttribute('title', title);
+        badge.setAttribute('aria-label', title);
+      }
+    }
+
+    const toggle = line.querySelector(`[${ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE}="true"]`);
+    if (toggle) {
+      const trackClass = tracked
+        ? 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400'
+        : 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
+      if (toggle.className !== trackClass) {
+        toggle.className = trackClass;
+      }
+      const toggleTitle = tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
+      if (toggle.getAttribute('title') !== toggleTitle) {
+        toggle.setAttribute('title', toggleTitle);
+        toggle.setAttribute('aria-label', toggleTitle);
+      }
+      toggle.setAttribute('aria-pressed', tracked ? 'true' : 'false');
+    }
   }
 
   function renderAccountHitRateRow(accountId) {
+    const { index } = getAccountHitRateTableState();
+    if (index === null) {
+      return;
+    }
+
     for (const row of document.querySelectorAll('tr')) {
       if (Number(row.getAttribute('data-row-id')) !== Number(accountId)) {
         continue;
       }
-      renderAccountHitRateRowElement(row);
+      renderAccountHitRateRowElement(row, index);
     }
   }
 
-  function renderAccountHitRateRowElement(row) {
+  function renderAccountHitRateRowElement(row, columnIndex) {
     const accountId = Number(row.getAttribute('data-row-id'));
     if (!Number.isSafeInteger(accountId) || accountId <= 0) {
       return;
     }
 
-    const mount = getAccountHitRateMount(row);
-    if (!mount) {
+    const cell = getAccountHitRateCell(row, columnIndex);
+    if (!cell) {
       return;
     }
 
-    const tracked = isAccountHitRateTracked(accountId);
-    let wrapper = row.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
-    if (!wrapper) {
-      wrapper = document.createElement('span');
-      wrapper.setAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE, 'true');
-      wrapper.className = 'inline-flex items-center gap-1 text-xs';
-      setStyles(wrapper, {
-        alignItems: 'center',
-        display: 'inline-flex',
-        gap: '4px',
-      });
-      mount.appendChild(wrapper);
+    const statsContainer = getAccountHitRateStatsContainer(cell);
+    const mount = statsContainer || cell.querySelector('div') || cell;
+
+    let line = cell.querySelector(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`);
+    if (!line) {
+      line = createAccountHitRateLine(accountId);
     }
 
-    let badge = wrapper.querySelector(`[${ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE}="true"]`);
-    if (!badge) {
-      badge = createAccountHitRateBadge(accountId);
-      wrapper.appendChild(badge);
+    if (line.parentElement !== mount) {
+      mount.appendChild(line);
     }
 
-    const state = getAccountHitRateRowState(accountId);
-    badge.className = `inline-flex items-center font-medium tabular-nums whitespace-nowrap ${state.textClass}`;
-    if (badge.textContent !== state.label) {
-      badge.textContent = state.label;
-    }
-    const title = buildAccountHitRateTitle(accountId);
-    if (badge.getAttribute('title') !== title) {
-      badge.setAttribute('title', title);
-      badge.setAttribute('aria-label', title);
+    if (statsContainer) {
+      applyAccountHitRateGrid(statsContainer);
+      setStyles(line, { gridColumn: '1 / -1', marginTop: '0' });
+    } else {
+      setStyles(line, { gridColumn: '', marginTop: '4px' });
     }
 
-    let toggle = wrapper.querySelector(`[${ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE}="true"]`);
-    if (!toggle) {
-      toggle = createAccountHitRateTrackToggle(accountId);
-      wrapper.appendChild(toggle);
-    }
+    renderAccountHitRateLine(line, accountId);
+  }
 
-    const trackClass = tracked
-      ? 'inline-flex items-center justify-center text-amber-500 hover:text-amber-600 dark:text-amber-400'
-      : 'inline-flex items-center justify-center text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400';
-    if (toggle.className !== trackClass) {
-      toggle.className = trackClass;
+  function clearAccountHitRateRows() {
+    for (const line of document.querySelectorAll(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`)) {
+      const container = line.parentElement;
+      line.remove();
+      if (container) {
+        resetAccountHitRateGrid(container);
+      }
     }
-    const toggleTitle = tracked ? '停止自动获取该账号的缓存命中率' : '自动获取该账号的缓存命中率';
-    if (toggle.getAttribute('title') !== toggleTitle) {
-      toggle.setAttribute('title', toggleTitle);
-      toggle.setAttribute('aria-label', toggleTitle);
-    }
-    toggle.setAttribute('aria-pressed', tracked ? 'true' : 'false');
   }
 
   function injectAccountHitRateRows() {
@@ -580,13 +763,43 @@
       return;
     }
 
+    const { index, ready } = getAccountHitRateTableState();
+    if (!ready) {
+      return;
+    }
+
+    if (index === null) {
+      clearAccountHitRateRows();
+      stopAccountHitRateSchedule();
+      return;
+    }
+
     for (const row of document.querySelectorAll('tr')) {
       const accountId = Number(row.getAttribute('data-row-id'));
       if (Number.isSafeInteger(accountId) && accountId > 0) {
-        renderAccountHitRateRowElement(row);
+        renderAccountHitRateRowElement(row, index);
       }
     }
+
     installAccountHitRateRangeControl();
+    ensureAccountHitRatePolling();
+  }
+
+  function ensureAccountHitRatePolling() {
+    if (!isAdminAccountsPage() || !isAccountHitRateEnabled()) {
+      return;
+    }
+    if (getTrackedAccountIds().length === 0 || accountHitRatePaused) {
+      return;
+    }
+    if (accountHitRateCycleTimer || accountHitRateCycleInFlight) {
+      return;
+    }
+    if (isPageVisible()) {
+      runAccountHitRateCycle();
+    } else {
+      scheduleAccountHitRateCycle();
+    }
   }
 
   function scheduleAccountHitRateInjection() {
@@ -826,6 +1039,11 @@
     accountHitRateNotice = null;
   }
 
+  function isAccountHitRateColumnAvailable() {
+    const { index, ready } = getAccountHitRateTableState();
+    return !ready || index !== null;
+  }
+
   function scheduleAccountHitRateCycle() {
     if (accountHitRateCycleTimer) {
       window.clearInterval(accountHitRateCycleTimer);
@@ -834,6 +1052,7 @@
 
     const shouldRun = isAdminAccountsPage()
       && isAccountHitRateEnabled()
+      && isAccountHitRateColumnAvailable()
       && !accountHitRatePaused
       && getTrackedAccountIds().length > 0;
 
@@ -846,6 +1065,10 @@
     accountHitRateNextRunAt = Date.now() + intervalMs;
     accountHitRateCycleTimer = window.setInterval(() => {
       if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
+        return;
+      }
+      if (!isAccountHitRateColumnAvailable()) {
+        stopAccountHitRateSchedule();
         return;
       }
       accountHitRateNextRunAt = Date.now() + intervalMs;
@@ -871,6 +1094,10 @@
       return;
     }
     if (!isAdminAccountsPage() || !isAccountHitRateEnabled()) {
+      stopAccountHitRateSchedule();
+      return;
+    }
+    if (!isAccountHitRateColumnAvailable()) {
       stopAccountHitRateSchedule();
       return;
     }
@@ -958,17 +1185,6 @@
     installAccountHitRateVisibilityWatcher();
     scheduleAccountHitRateInjection();
 
-    if (getTrackedAccountIds().length > 0) {
-      if (accountHitRateCycleTimer || accountHitRateCycleInFlight) {
-        return;
-      }
-      if (isPageVisible()) {
-        runAccountHitRateCycle();
-      } else {
-        scheduleAccountHitRateCycle();
-      }
-    }
-
     if (accountHitRateObserver) {
       return;
     }
@@ -1001,9 +1217,5 @@
     accountHitRateRangeControl?.remove();
     accountHitRateRangeControl = null;
 
-    for (const element of document.querySelectorAll(
-      `[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`,
-    )) {
-      element.remove();
-    }
+    clearAccountHitRateRows();
   }
