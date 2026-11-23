@@ -162,6 +162,26 @@ _Avoid_: 查询范围, 时间窗口, 日期范围, 命中率区间
 The ratio of cache read tokens to all prompt-side tokens (`缓存读取 / (输入 + 缓存创建 + 缓存读取)`) for one 账号 over a 统计区间.
 _Avoid_: 缓存率, 命中比例, 缓存复用率
 
+**错峰刷新 (Staggered Refresh)**:
+每个监控账户在刷新间隔内拥有独立随机到期时刻，调度器逐个到期逐个查询，任意时刻至多一个请求在途。
+_Avoid_: 批量轮询, 全量刷新, 定时轰炸
+
+**注入 pass (Injection Pass)**:
+账号表一次 50ms 去抖后的整表处理单元：定位行、比对渲染签名、仅对变化行写 DOM；由 DOM 变更或页面恢复可见触发。
+_Avoid_: 扫描, 重绘, 轮询
+
+**轮询 cycle (Polling Cycle)**:
+调度器对全部监控账户执行的一轮趋势请求，按刷新间隔触发，受熔断与错峰刷新约束。
+_Avoid_: pass, 自动刷新, 定时刷新
+
+**渲染签名 (Render Key)**:
+由原始值（日期、命中率、抓取时刻、分钟桶、是否监控）拼成的行级键；签名未变则该行不产生任何 DOM 写入。
+_Avoid_: 渲染模型, 快照, 行指纹
+
+**稳态 (Steady State)**:
+无在途请求且数据无语义变化的重复注入 pass；稳态契约是零 GM 存储读取与零 DOM 写入。
+_Avoid_: 空闲, 静止, 挂机状态
+
 ## AIHub Supplier Hall
 
 **供应商大厅 (Supplier Hall)**:

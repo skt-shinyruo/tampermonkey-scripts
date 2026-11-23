@@ -876,7 +876,7 @@
     setStyles(title, { color: '#0f172a', fontSize: '14px', fontWeight: '800' });
 
     const hint = document.createElement('span');
-    hint.textContent = `仅对账号管理页标记的监控账户生效，每轮最多 ${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号、串行请求，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
+    hint.textContent = `仅对账号管理页标记的监控账户生效，错峰自动获取：每个监控账户在间隔窗口内随机错开时刻查询，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
     setStyles(hint, { color: '#64748b', fontSize: '12px', lineHeight: '1.4' });
 
     const control = document.createElement('label');
@@ -890,7 +890,7 @@
     });
 
     const controlLabel = document.createElement('span');
-    controlLabel.textContent = '间隔（分钟）';
+    controlLabel.textContent = '每账号间隔（分钟）';
 
     const input = document.createElement('input');
     input.type = 'number';
@@ -910,12 +910,12 @@
     input.addEventListener('change', () => {
       setAccountHitRateIntervalMinutes(input.value);
       input.value = String(getAccountHitRateIntervalMinutes());
-      restartAccountHitRateCycle();
+      resetAccountHitRateSchedule();
     });
 
     const tracked = document.createElement('span');
     tracked.setAttribute('data-sub2api-account-hit-rate-tracked-count', 'true');
-    tracked.textContent = `已监控 ${getTrackedAccountIds().length}/${ACCOUNT_HIT_RATE_MAX_TRACKED} 个账号`;
+    tracked.textContent = `已监控 ${getTrackedAccountIds().length} 个账号`;
     setStyles(tracked, { color: '#64748b', fontSize: '12px', fontWeight: '600' });
 
     control.appendChild(controlLabel);

@@ -414,6 +414,7 @@ function createTestEnvironment({
   let nextTimeoutId = 1;
   const documentListeners = new Map();
   const gmState = new Map(Object.entries(gmValues));
+  const gmReadKeys = [];
   const intervals = new Map();
   const localStorageState = new Map();
   const mutationObservers = new Set();
@@ -540,6 +541,7 @@ function createTestEnvironment({
       gmState.delete(key);
     },
     GM_getValue(key, fallback) {
+      gmReadKeys.push(key);
       return gmState.has(key) ? gmState.get(key) : fallback;
     },
     GM_setValue(key, value) {
@@ -1130,6 +1132,9 @@ function createTestEnvironment({
     getStoredValue(key) {
       return gmState.get(key);
     },
+    getStorageReadKeys() {
+      return [...gmReadKeys];
+    },
     getLocalStorageValue(key) {
       return context.localStorage.getItem(key);
     },
@@ -1146,6 +1151,21 @@ function createTestEnvironment({
           handler();
         }
       }
+    },
+    runHitRateSchedulerTick() {
+      for (const { handler } of intervals.values()) {
+        if (handler.name === 'runAccountHitRateSchedulerTick') {
+          handler();
+        }
+      }
+    },
+    hasHitRateSchedulerTick() {
+      for (const { handler } of intervals.values()) {
+        if (handler.name === 'runAccountHitRateSchedulerTick') {
+          return true;
+        }
+      }
+      return false;
     },
     sendDocumentClick(target) {
       dispatchDocumentEvent('click', { target });
@@ -6101,12 +6121,20 @@ test('admin accounts hit rate maps severity bands to the shared palette', async 
   }
 });
 
-test('admin accounts hit rate tracking persists and is capped', async () => {
+test('admin accounts hit rate tracking persists without a cap', async () => {
   const origin = 'https://account-hit-rate-track.sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
   environment.createSidebarToggle({ collapsed: false });
   createAdminAccountsFilters(environment);
-  const account = createAdminAccountUsageRow(environment, { accountId: 21, accountName: 'Account H' });
+  const accounts = [];
+  for (let index = 0; index < 11; index += 1) {
+    accounts.push(
+      createAdminAccountUsageRow(environment, {
+        accountId: 21 + index,
+        accountName: `Account H${index}`,
+      }),
+    );
+  }
   environment.setFetchResponse(
     '/api/v1/admin/dashboard/trend',
     buildAccountHitRateTrendResponse({}),
@@ -6117,64 +6145,97 @@ test('admin accounts hit rate tracking persists and is capped', async () => {
   environment.runMutationObservers();
   await flushMicrotasks(200);
 
-  const toggle = account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]');
-  assert.ok(toggle);
-  assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  for (const account of accounts) {
+    account.row
+      .querySelector('[data-sub2api-account-hit-rate-track="true"]')
+      .dispatchEvent({ type: 'click' });
+    await flushMicrotasks(200);
+  }
 
-  toggle.dispatchEvent({ type: 'click' });
-  await flushMicrotasks(200);
-
-  assert.deepEqual(readTrackedAccountIds(environment, origin), [21]);
-  assert.equal(
-    account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]').getAttribute('aria-pressed'),
-    'true',
+  assert.deepEqual(
+    readTrackedAccountIds(environment, origin),
+    accounts.map((account, index) => 21 + index),
   );
+  assert.equal(getHitRateCalls(environment).length, 11, 'every starred account must be fetched, no cap');
+  assert.equal(environment.hasHitRateSchedulerTick(), true, 'starring must arm the staggered scheduler');
 
-  account.row.querySelector('[data-sub2api-account-hit-rate-track="true"]').dispatchEvent({ type: 'click' });
+  accounts[10].row
+    .querySelector('[data-sub2api-account-hit-rate-track="true"]')
+    .dispatchEvent({ type: 'click' });
   await flushMicrotasks(200);
-  assert.deepEqual(readTrackedAccountIds(environment, origin), []);
+  assert.equal(readTrackedAccountIds(environment, origin).length, 10);
 });
 
-test('admin accounts hit rate pauses after three consecutive failures and can resume', async () => {
+test('admin accounts hit rate breaker trips per account after two consecutive failures', async () => {
   const origin = 'https://account-hit-rate-breaker.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const today = getTestIsoDate(now);
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [51, 52, 53],
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [51],
     },
+    now,
     origin,
     pathname: '/admin/accounts',
   });
   environment.createSidebarToggle({ collapsed: false });
   createAdminAccountsFilters(environment);
-  createAdminAccountUsageRow(environment, { accountId: 51, accountName: 'Tracked A' });
-  createAdminAccountUsageRow(environment, { accountId: 52, accountName: 'Tracked B' });
-  createAdminAccountUsageRow(environment, { accountId: 53, accountName: 'Tracked C' });
+  const account = createAdminAccountUsageRow(environment, { accountId: 51, accountName: 'Tracked A' });
   environment.setFetchStatus('/api/v1/admin/dashboard/trend', 500);
-
   const pageRoot = environment.document.createElement('div');
   pageRoot.className = 'space-y-6';
   environment.document.body.appendChild(pageRoot);
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
 
-  assert.equal(getHitRateCalls(environment).length, 3);
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 1);
+  assert.equal(
+    pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]'),
+    null,
+    'non-auth failures must not raise the notice',
+  );
 
-  const notice = pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]');
-  assert.ok(notice, 'breaker notice should be rendered after repeated failures');
-  assert.match(notice.textContent, /已暂停/);
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 2);
+  assert.match(
+    getHitRateBadge(account, 'today').getAttribute('title'),
+    /已停止自动获取/,
+  );
+
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 2, 'a broken account must leave the schedule');
 
   environment.setFetchResponse(
     '/api/v1/admin/dashboard/trend',
-    buildAccountHitRateTrendResponse({}),
+    buildAccountHitRateTrendResponse({ [today]: { input: 10, read: 90 } }),
   );
   environment.setFetchStatus('/api/v1/admin/dashboard/trend', 200);
-  notice
-    .querySelector('[data-sub2api-account-hit-rate-notice-resume="true"]')
-    .dispatchEvent({ type: 'click' });
-  await flushMicrotasks(400);
+  getHitRateBadge(account, 'today').dispatchEvent({ type: 'click' });
+  await flushMicrotasks(200);
+  assert.doesNotMatch(
+    getHitRateBadge(account, 'today').getAttribute('title'),
+    /已停止自动获取/,
+  );
 
-  assert.ok(getHitRateCalls(environment).length > 3);
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(
+    getHitRateCalls(environment).length,
+    4,
+    'a successful retry must re-enter the schedule',
+  );
 });
 
 test('admin accounts hit rate does not sweep while the page is hidden', async () => {
@@ -6192,23 +6253,31 @@ test('admin accounts hit rate does not sweep while the page is hidden', async ()
   environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
 
-  const initialCalls = getHitRateCalls(environment).length;
-  assert.equal(initialCalls, 1);
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 1);
 
   environment.setVisibilityState('hidden');
   await flushMicrotasks(200);
+  assert.equal(
+    environment.hasHitRateSchedulerTick(),
+    false,
+    'a hidden page must drop the scheduler tick',
+  );
 
-  for (const { handler } of environment.intervals.values()) {
-    handler();
-  }
-  await flushMicrotasks(300);
-
-  assert.equal(getHitRateCalls(environment).length, initialCalls);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+  assert.equal(environment.hasHitRateSchedulerTick(), false);
+  assert.equal(getHitRateCalls(environment).length, 1);
 });
 
-test('admin accounts hit rate does not restart a cycle on repeated injections', async () => {
+test('admin accounts hit rate does not restart scheduling on repeated injections', async () => {
   const origin = 'https://account-hit-rate-idempotent.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
@@ -6223,8 +6292,14 @@ test('admin accounts hit rate does not restart a cycle on repeated injections', 
   environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
 
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
   const baseline = getHitRateCalls(environment).length;
   assert.equal(baseline, 1);
 
@@ -6233,7 +6308,10 @@ test('admin accounts hit rate does not restart a cycle on repeated injections', 
     await flushMicrotasks(200);
   }
 
-  assert.equal(getHitRateCalls(environment).length, baseline);
+  assert.equal(getHitRateCalls(environment).length, baseline, 'repeated injections must not refetch');
+  const tickHandlers = [...environment.intervals.values()]
+    .filter(({ handler }) => handler.name === 'runAccountHitRateSchedulerTick');
+  assert.equal(tickHandlers.length, 1, 'repeated injections must keep exactly one scheduler tick');
 });
 
 test('admin accounts hit rate stays out and stops polling when the today stats column is hidden', async () => {
@@ -6261,7 +6339,11 @@ test('admin accounts hit rate stays out and stops polling when the today stats c
 
   assert.equal(account.row.querySelector('[data-sub2api-account-hit-rate]'), null);
   assert.equal(getHitRateCalls(environment).length, 0);
-  assert.deepEqual(environment.getIntervalDurations().filter((ms) => ms >= 30 * 60 * 1000), []);
+  assert.equal(
+    environment.hasHitRateSchedulerTick(),
+    false,
+    'a missing today stats column must leave no scheduler tick behind',
+  );
 });
 
 test('admin accounts hit rate restores upstream labels and layout when the feature is turned off', async () => {
@@ -6311,7 +6393,8 @@ test('admin accounts hit rate settings row normalizes the interval input', async
 
   const row = settingsRoot.querySelector('[data-sub2api-account-hit-rate-settings-row="true"]');
   assert.ok(row);
-  assert.match(row.textContent, /已监控 0\/10 个账号/);
+  assert.match(row.textContent, /已监控 0 个账号/);
+  assert.match(row.textContent, /错峰/);
 
   const input = row.querySelector('[data-sub2api-account-hit-rate-interval-input="true"]');
   assert.equal(input.value, '30');
@@ -6348,62 +6431,83 @@ test('admin accounts hit rate leaves no schedule behind when hidden mid-cycle', 
   environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
   assert.equal(getHitRateCalls(environment).length, 1);
 
   environment.setVisibilityState('hidden');
   await flushMicrotasks(300);
 
-  // A DOM mutation while hidden must not re-arm the polling timer.
+  // A DOM mutation while hidden must not re-arm the scheduler.
   environment.runMutationObservers();
   await flushMicrotasks(300);
 
-  const hitRateIntervals = environment
-    .getIntervalDurations()
-    .filter((ms) => ms >= 30 * 60 * 1000);
-  assert.deepEqual(hitRateIntervals, [], 'no polling interval may survive a hidden page');
-
-  const callsWhileHidden = getHitRateCalls(environment).length;
-  for (const { handler } of environment.intervals.values()) {
-    handler();
-  }
-  await flushMicrotasks(300);
-  assert.equal(getHitRateCalls(environment).length, callsWhileHidden);
+  assert.equal(
+    environment.hasHitRateSchedulerTick(),
+    false,
+    'no scheduler tick may survive a hidden page',
+  );
+  assert.equal(getHitRateCalls(environment).length, 1);
 });
 
-test('admin accounts hit rate resumes immediately after the page becomes visible again', async () => {
+test('admin accounts hit rate resumes pacing after the page becomes visible again', async () => {
   const origin = 'https://account-hit-rate-resume.sub2api.example.test';
   const environment = createTestEnvironment({
     gmValues: {
-      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [96],
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [96, 98],
     },
     origin,
     pathname: '/admin/accounts',
   });
   environment.createSidebarToggle({ collapsed: false });
   createAdminAccountsFilters(environment);
-  createAdminAccountUsageRow(environment, { accountId: 96, accountName: 'Tracked Resume' });
+  createAdminAccountUsageRow(environment, { accountId: 96, accountName: 'Tracked Resume A' });
+  createAdminAccountUsageRow(environment, { accountId: 98, accountName: 'Tracked Resume B' });
   environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
-  assert.equal(getHitRateCalls(environment).length, 1);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(getHitRateCalls(environment).length, 0, 'nothing fetches before a due time');
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(3000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 1, 'one account at a time, never a burst');
 
   environment.setVisibilityState('hidden');
   await flushMicrotasks(300);
-  environment.runMutationObservers();
-  await flushMicrotasks(300);
+  environment.advanceTime(30 * 60 * 1000 + 2000); // both accounts overdue while hidden
   environment.setVisibilityState('visible');
-  await flushMicrotasks(400);
+  await flushMicrotasks(300);
+  assert.equal(
+    getHitRateCalls(environment).length,
+    1,
+    'becoming visible must not fire a burst by itself',
+  );
 
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 2, 'the tick drains overdue accounts one at a time');
+
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
   assert.equal(
     getHitRateCalls(environment).length,
     2,
-    'returning to the foreground must trigger a fresh cycle',
+    'the min request gap must hold the next account back',
   );
 });
 
-test('admin accounts hit rate keeps breaker progress across a manual success', async () => {
+test('admin accounts hit rate manual success resets the account breaker', async () => {
   const origin = 'https://account-hit-rate-breaker-manual.sub2api.example.test';
   const now = RealDate.parse('2026-05-09T12:00:00+08:00');
   const today = getTestIsoDate(now);
@@ -6419,14 +6523,19 @@ test('admin accounts hit rate keeps breaker progress across a manual success', a
   createAdminAccountsFilters(environment);
   const account = createAdminAccountUsageRow(environment, { accountId: 97, accountName: 'Tracked Breaker' });
   environment.setFetchStatus('/api/v1/admin/dashboard/trend', 500);
-
   const pageRoot = environment.document.createElement('div');
   pageRoot.className = 'space-y-6';
   environment.document.body.appendChild(pageRoot);
 
   vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
-  await flushMicrotasks(400);
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
 
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
   assert.equal(getHitRateCalls(environment).length, 1);
   assert.equal(
     pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]'),
@@ -6441,18 +6550,139 @@ test('admin accounts hit rate keeps breaker progress across a manual success', a
   environment.setFetchStatus('/api/v1/admin/dashboard/trend', 200);
   getHitRateBadge(account, 'today').dispatchEvent({ type: 'click' });
   await flushMicrotasks(300);
+  assert.doesNotMatch(
+    getHitRateBadge(account, 'today').getAttribute('title'),
+    /已停止自动获取/,
+  );
 
+  // The manual success reset the per-account counter: two more consecutive
+  // scheduled failures are needed to trip it again.
   environment.setFetchStatus('/api/v1/admin/dashboard/trend', 500);
-  for (let round = 0; round < 2; round += 1) {
-    for (const { handler } of environment.intervals.values()) {
-      handler();
-    }
-    await flushMicrotasks(500);
-  }
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(300);
+  assert.equal(getHitRateCalls(environment).length, 3);
+  assert.doesNotMatch(
+    getHitRateBadge(account, 'today').getAttribute('title'),
+    /已停止自动获取/,
+    'a single failure after a manual success must not trip the breaker',
+  );
+
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(300);
+  assert.equal(getHitRateCalls(environment).length, 4);
+  assert.match(
+    getHitRateBadge(account, 'today').getAttribute('title'),
+    /已停止自动获取/,
+  );
+});
+
+test('admin accounts hit rate staggers refreshes and holds the min request gap', async () => {
+  const origin = 'https://account-hit-rate-stagger.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [81, 82],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 81, accountName: 'Stagger A' });
+  createAdminAccountUsageRow(environment, { accountId: 82, accountName: 'Stagger B' });
+  environment.setFetchResponse('/api/v1/admin/dashboard/trend', buildAccountHitRateTrendResponse({}));
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(getHitRateCalls(environment).length, 0, 'the first round must wait for its random phase');
+
+  // Past the bootstrap window both accounts are overdue; still one per tick.
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(3000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 1, 'one request per tick, never a burst');
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 1, 'the min request gap must hold the next request');
+
+  environment.advanceTime(2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 2, 'the gap release drains the second account');
+
+  environment.advanceTime(30 * 60 * 1000 + 2000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(getHitRateCalls(environment).length, 3, 'steady state refreshes one account per interval');
+  assert.equal(environment.hasHitRateSchedulerTick(), true);
+
+  // Changing the interval in settings must re-spread the schedule.
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const intervalInput = settingsRoot.querySelector(
+    '[data-sub2api-account-hit-rate-interval-input="true"]',
+  );
+  intervalInput.value = '1440';
+  intervalInput.dispatchEvent({ type: 'change' });
+
+  environment.advanceTime(2000); // release the min request gap before reassigning
+  environment.runHitRateSchedulerTick(); // reassigns phases under the new interval
+  environment.advanceTime(3000);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
+  assert.equal(
+    getHitRateCalls(environment).length,
+    4,
+    'an interval change must re-spread the schedule',
+  );
+});
+
+test('admin accounts hit rate shows a display-only notice on auth failure', async () => {
+  const origin = 'https://account-hit-rate-auth.sub2api.example.test';
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-tracked')]: [86],
+    },
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  createAdminAccountUsageRow(environment, { accountId: 86, accountName: 'Auth Account' });
+  environment.setFetchStatus('/api/v1/admin/dashboard/trend', 401);
+  const pageRoot = environment.document.createElement('div');
+  pageRoot.className = 'space-y-6';
+  environment.document.body.appendChild(pageRoot);
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  environment.runHitRateSchedulerTick();
+  environment.advanceTime(1500);
+  environment.runHitRateSchedulerTick();
+  await flushMicrotasks(200);
 
   const notice = pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]');
-  assert.ok(notice, 'a manual success must not reset the polling breaker');
-  assert.match(notice.textContent, /已暂停/);
+  assert.ok(notice, 'an auth failure must surface the notice');
+  assert.match(notice.textContent, /登录态失效/);
+  assert.equal(
+    notice.querySelector('[data-sub2api-account-hit-rate-notice-resume="true"]'),
+    null,
+    'the notice must be display-only',
+  );
+  assert.ok(notice.querySelector('[data-sub2api-account-hit-rate-notice-close="true"]'));
+
+  notice
+    .querySelector('[data-sub2api-account-hit-rate-notice-close="true"]')
+    .dispatchEvent({ type: 'click' });
+  assert.equal(pageRoot.querySelector('[data-sub2api-account-hit-rate-notice="true"]'), null);
 });
 
 function sumElementWrites(node) {
@@ -6580,4 +6810,84 @@ test('admin accounts hit rate follows the grid when today stats arrive later', a
   assert.equal(container.style.display, 'grid');
   assert.equal(container.style.gridTemplateColumns, 'auto auto');
   assert.equal(container.children[2].children[0].textContent, '账号:');
+});
+
+test('admin accounts hit rate steady passes stop reading hit rate and flag storage', async () => {
+  const origin = 'https://account-hit-rate-storage-cache.sub2api.example.test';
+  const now = RealDate.parse('2026-05-09T12:00:00+08:00');
+  const today = getTestIsoDate(now);
+  const yesterday = shiftIsoDateText(today, -1);
+  const environment = createTestEnvironment({
+    gmValues: {
+      [getScopedStorageKey(origin, 'admin-accounts-hit-rate-yesterday')]: {
+        301: { date: yesterday, fetchedAt: now, hitRate: 55 },
+      },
+    },
+    now,
+    origin,
+    pathname: '/admin/accounts',
+  });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 301, accountName: 'Cache Row' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.ok(account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'));
+  assert.equal(getHitRateBadge(account, 'yesterday').textContent, '昨 55%');
+
+  const hitRateKeys = (keys) => keys.filter((key) => key.endsWith('admin-accounts-hit-rate-tracked')
+    || key.endsWith('admin-accounts-hit-rate-yesterday')
+    || (key.includes('feature:') && key.endsWith(':enabled')));
+  const baseline = hitRateKeys(environment.getStorageReadKeys()).length;
+  assert.ok(baseline > 0, 'warm-up must have read the hit rate and flag keys at least once');
+
+  for (let round = 0; round < 10; round += 1) {
+    environment.runMutationObservers();
+    await flushMicrotasks(80);
+  }
+
+  assert.equal(
+    hitRateKeys(environment.getStorageReadKeys()).length,
+    baseline,
+    'steady passes must serve flags, tracked, and yesterday data from the in-process cache',
+  );
+});
+
+test('admin accounts hit rate skips injection while hidden and catches up when visible', async () => {
+  const origin = 'https://account-hit-rate-hidden-injection.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 302, accountName: 'Hidden Injection' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.ok(account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'));
+
+  environment.setVisibilityState('hidden');
+  await flushMicrotasks(200);
+  account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]').remove();
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  assert.equal(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'),
+    null,
+    'a hidden page must not re-inject the hit rate line',
+  );
+
+  environment.setVisibilityState('visible');
+  await flushMicrotasks(200);
+
+  assert.ok(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'),
+    'becoming visible must catch up the skipped injection',
+  );
 });

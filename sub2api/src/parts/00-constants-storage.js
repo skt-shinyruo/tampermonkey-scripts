@@ -1,6 +1,7 @@
   const SCRIPT_VERSION = '0.22.6';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
+  const STORAGE_READ_CACHE_MS = 2000;
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
   const STORAGE_NAMES = {
     ADMIN_ACCOUNTS_PAGE_SIZE: 'admin-accounts-page-size',
@@ -344,6 +345,9 @@
   let autoRefreshResumeToken = 0;
   let lastAutoRefreshEvent = 'boot';
   let autoRefreshDebugEvents = [];
+  // Read cache for hot-path feature flags; any storage write clears it, so
+  // same-tab toggles are immediate and cross-tab changes land within the TTL.
+  let featureFlagCache = null;
 
   const storage = {
     get(key, fallback = null) {
@@ -367,6 +371,7 @@
       } catch (error) {
         localStorage.setItem(key, JSON.stringify(value));
       }
+      featureFlagCache = null;
     },
     delete(key) {
       try {
@@ -374,6 +379,7 @@
       } catch (error) {
         localStorage.removeItem(key);
       }
+      featureFlagCache = null;
     },
   };
 
@@ -463,7 +469,19 @@
   }
 
   function getEnabledSetting(key, fallback = true) {
-    return normalizeEnabledSetting(storage.get(key, STORAGE_MISSING), fallback);
+    const now = Date.now();
+    if (!featureFlagCache || now - featureFlagCache.at >= STORAGE_READ_CACHE_MS) {
+      featureFlagCache = { at: now, values: new Map() };
+    }
+
+    const cacheKey = `${key}:${fallback}`;
+    if (!featureFlagCache.values.has(cacheKey)) {
+      featureFlagCache.values.set(
+        cacheKey,
+        normalizeEnabledSetting(storage.get(key, STORAGE_MISSING), fallback),
+      );
+    }
+    return featureFlagCache.values.get(cacheKey);
   }
 
   function getGlobalFeatureEnabled(featureId) {
