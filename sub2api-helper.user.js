@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.55
+// @version      0.22.56
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.55';
+  const SCRIPT_VERSION = '0.22.56';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const SETTINGS_MENU_LABEL = 'Sub2API Helper 设置';
@@ -5124,6 +5124,35 @@
     }
   }
 
+  function logAccountUsageDeepLinkFailure(accountId, accountName) {
+    try {
+      const candidates = [];
+      for (const element of document.querySelectorAll('button, [role="option"]')) {
+        const text = normalizeAccountUsageText(element.textContent);
+        if (!text) {
+          continue;
+        }
+        if (!text.includes(String(accountId)) && !text.includes(accountName)) {
+          continue;
+        }
+        candidates.push({
+          ariaLabel: element.getAttribute('aria-label') || '',
+          tagName: element.tagName,
+          text,
+        });
+      }
+
+      console.warn('[Sub2API Helper] account usage shortcut failed', {
+        accountId,
+        accountName,
+        candidates,
+        version: SCRIPT_VERSION,
+      });
+    } catch {
+      // Ignore diagnostics failures on unusual host pages.
+    }
+  }
+
   async function fetchAdminAccountName(accountId) {
     const fetchFunction = typeof window.fetch === 'function'
       ? window.fetch.bind(window)
@@ -5364,7 +5393,32 @@
         return;
       }
 
+      const clickContainer = liveContainer || findAccountUsageFilterContainer();
+      const originalParent = dropdownButton.parentElement;
+      const originalNextSibling = dropdownButton.nextSibling || null;
+      const shouldRelocate = Boolean(
+        clickContainer
+        && originalParent
+        && dropdownButton.tagName === 'BUTTON'
+        && !clickContainer.contains(dropdownButton)
+      );
+      if (shouldRelocate) {
+        clickContainer.appendChild(dropdownButton);
+      }
+
       dropdownButton.click();
+
+      if (shouldRelocate && originalParent) {
+        if (originalParent.isConnected && dropdownButton.isConnected) {
+          const reference = originalNextSibling
+            && originalNextSibling.parentNode === originalParent
+            ? originalNextSibling
+            : null;
+          originalParent.insertBefore(dropdownButton, reference);
+        } else if (dropdownButton.parentElement === clickContainer) {
+          dropdownButton.remove();
+        }
+      }
 
       selectedClearButton = await waitFor(
         () => findAccountUsageClearButton(findAccountUsageFilterContainer()),
@@ -5376,6 +5430,7 @@
     }
 
     if (!selectedClearButton) {
+      logAccountUsageDeepLinkFailure(accountId, accountName);
       showAccountUsageNotice({ accountId, accountName });
       return;
     }
