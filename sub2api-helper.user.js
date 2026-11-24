@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.63
+// @version      0.22.64
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.63';
+  const SCRIPT_VERSION = '0.22.64';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const STORAGE_READ_CACHE_MS = 2000;
@@ -347,6 +347,7 @@
   const usageLogRowsById = new Map();
   const usageLogRowsByRequestId = new Map();
   let lastObservedPageSizeValue = null;
+  const labeledSelectButtonCache = new Map();
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
   let adminAccountsFilterSelectionActiveUntil = 0;
@@ -1199,15 +1200,37 @@
     window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
+  function isLiveElement(element) {
+    let current = element;
+    while (current) {
+      if (current.isConnected === false) {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return Boolean(element);
+  }
+
   function findSpanByText(text) {
-    return [...document.querySelectorAll('span')].find((element) => element.textContent.trim() === text);
+    for (const element of document.querySelectorAll('span')) {
+      if (element.textContent.trim() === text) {
+        return element;
+      }
+    }
+    return null;
   }
 
   function getLabeledSelectButton(labelText) {
+    const cached = labeledSelectButtonCache.get(labelText);
+    if (isLiveElement(cached)) {
+      return cached;
+    }
+
     let current = findSpanByText(labelText)?.parentElement || null;
     while (current) {
       const button = current.querySelector('button.select-trigger');
       if (button) {
+        labeledSelectButtonCache.set(labelText, button);
         return button;
       }
       current = current.parentElement;
@@ -5638,6 +5661,7 @@
   const accountHitRateNextDueAt = new Map();
   let accountHitRateVisibilityInstalled = false;
   let accountHitRateObserver = null;
+  let accountHitRateObservedTableBody = null;
   let accountHitRateResolvedTimeZone = null;
   let accountHitRateTrackedCache = null;
   let accountHitRateYesterdayCache = null;
@@ -6257,6 +6281,12 @@
     return null;
   }
 
+  function getAccountHitRateTableBody() {
+    const main = document.querySelector('main');
+    const table = (main && main.querySelector('table')) || document.querySelector('table');
+    return table ? table.querySelector('tbody') : null;
+  }
+
   function getAccountHitRateTableState() {
     const headerRow = getAccountHitRateHeaderRow();
     if (!headerRow) {
@@ -6835,18 +6865,28 @@
     installAccountHitRateVisibilityWatcher();
     scheduleAccountHitRateInjection();
 
-    if (accountHitRateObserver) {
+    const tableBody = getAccountHitRateTableBody();
+    if (!tableBody) {
       return;
     }
-    accountHitRateObserver = new MutationObserver(() => {
-      scheduleAccountHitRateInjection();
-    });
-    accountHitRateObserver.observe(document.documentElement, {
+    if (accountHitRateObserver && tableBody === accountHitRateObservedTableBody) {
+      return;
+    }
+
+    if (accountHitRateObserver) {
+      accountHitRateObserver.disconnect();
+    } else {
+      accountHitRateObserver = new MutationObserver(() => {
+        scheduleAccountHitRateInjection();
+      });
+    }
+    accountHitRateObserver.observe(tableBody, {
       attributeFilter: ['data-row-id'],
       attributes: true,
       childList: true,
       subtree: true,
     });
+    accountHitRateObservedTableBody = tableBody;
   }
 
   function cleanupAccountHitRate() {
@@ -6857,6 +6897,7 @@
       accountHitRateObserver.disconnect();
       accountHitRateObserver = null;
     }
+    accountHitRateObservedTableBody = null;
     if (accountHitRateInjectionTimer) {
       window.clearTimeout(accountHitRateInjectionTimer);
       accountHitRateInjectionTimer = null;
