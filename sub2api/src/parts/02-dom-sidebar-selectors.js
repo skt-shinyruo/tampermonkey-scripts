@@ -413,15 +413,37 @@
     window.setTimeout(saveSettledSidebarState, SIDEBAR_STATE_SAVE_DELAY_MS);
   }
 
+  function isLiveElement(element) {
+    let current = element;
+    while (current) {
+      if (current.isConnected === false) {
+        return false;
+      }
+      current = current.parentElement;
+    }
+    return Boolean(element);
+  }
+
   function findSpanByText(text) {
-    return [...document.querySelectorAll('span')].find((element) => element.textContent.trim() === text);
+    for (const element of document.querySelectorAll('span')) {
+      if (element.textContent.trim() === text) {
+        return element;
+      }
+    }
+    return null;
   }
 
   function getLabeledSelectButton(labelText) {
+    const cached = labeledSelectButtonCache.get(labelText);
+    if (isLiveElement(cached)) {
+      return cached;
+    }
+
     let current = findSpanByText(labelText)?.parentElement || null;
     while (current) {
       const button = current.querySelector('button.select-trigger');
       if (button) {
+        labeledSelectButtonCache.set(labelText, button);
         return button;
       }
       current = current.parentElement;

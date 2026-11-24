@@ -329,6 +329,7 @@
   const usageLogRowsById = new Map();
   const usageLogRowsByRequestId = new Map();
   let lastObservedPageSizeValue = null;
+  const labeledSelectButtonCache = new Map();
   let granularitySelectionActiveUntil = 0;
   let lastObservedGranularityValue = null;
   let adminAccountsFilterSelectionActiveUntil = 0;

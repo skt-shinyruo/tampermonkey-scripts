@@ -34,6 +34,7 @@
   const accountHitRateNextDueAt = new Map();
   let accountHitRateVisibilityInstalled = false;
   let accountHitRateObserver = null;
+  let accountHitRateObservedTableBody = null;
   let accountHitRateResolvedTimeZone = null;
   let accountHitRateTrackedCache = null;
   let accountHitRateYesterdayCache = null;
@@ -653,6 +654,12 @@
     return null;
   }
 
+  function getAccountHitRateTableBody() {
+    const main = document.querySelector('main');
+    const table = (main && main.querySelector('table')) || document.querySelector('table');
+    return table ? table.querySelector('tbody') : null;
+  }
+
   function getAccountHitRateTableState() {
     const headerRow = getAccountHitRateHeaderRow();
     if (!headerRow) {
@@ -1231,18 +1238,28 @@
     installAccountHitRateVisibilityWatcher();
     scheduleAccountHitRateInjection();
 
-    if (accountHitRateObserver) {
+    const tableBody = getAccountHitRateTableBody();
+    if (!tableBody) {
       return;
     }
-    accountHitRateObserver = new MutationObserver(() => {
-      scheduleAccountHitRateInjection();
-    });
-    accountHitRateObserver.observe(document.documentElement, {
+    if (accountHitRateObserver && tableBody === accountHitRateObservedTableBody) {
+      return;
+    }
+
+    if (accountHitRateObserver) {
+      accountHitRateObserver.disconnect();
+    } else {
+      accountHitRateObserver = new MutationObserver(() => {
+        scheduleAccountHitRateInjection();
+      });
+    }
+    accountHitRateObserver.observe(tableBody, {
       attributeFilter: ['data-row-id'],
       attributes: true,
       childList: true,
       subtree: true,
     });
+    accountHitRateObservedTableBody = tableBody;
   }
 
   function cleanupAccountHitRate() {
@@ -1253,6 +1270,7 @@
       accountHitRateObserver.disconnect();
       accountHitRateObserver = null;
     }
+    accountHitRateObservedTableBody = null;
     if (accountHitRateInjectionTimer) {
       window.clearTimeout(accountHitRateInjectionTimer);
       accountHitRateInjectionTimer = null;

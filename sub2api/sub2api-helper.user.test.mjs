@@ -555,13 +555,17 @@ function createTestEnvironment({
     MutationObserver: class TestMutationObserver {
       constructor(callback) {
         this.callback = callback;
+        this.target = null;
+        this.options = null;
       }
 
       disconnect() {
         mutationObservers.delete(this);
       }
 
-      observe() {
+      observe(target, options) {
+        this.target = target;
+        this.options = options;
         mutationObservers.add(this);
       }
     },
@@ -1140,6 +1144,9 @@ function createTestEnvironment({
     },
     intervals,
     refreshButton,
+    getMutationObservers() {
+      return [...mutationObservers];
+    },
     runMutationObservers() {
       for (const observer of mutationObservers) {
         observer.callback([]);
@@ -6889,5 +6896,44 @@ test('admin accounts hit rate skips injection while hidden and catches up when v
   assert.ok(
     account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'),
     'becoming visible must catch up the skipped injection',
+  );
+});
+
+test('hit rate observer stays scoped to the accounts table and page-size lookup is cached', async () => {
+  const origin = 'https://account-hit-rate-observer-scope.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  environment.createSelectControl({ labelText: '每页:', options: ['20', '50'], value: '20' });
+  createAdminAccountUsageRow(environment, { accountId: 401, accountName: 'Observer Row' });
+
+  let spanScans = 0;
+  const originalQuerySelectorAll = environment.document.querySelectorAll.bind(environment.document);
+  environment.document.querySelectorAll = (selector) => {
+    if (selector === 'span') {
+      spanScans += 1;
+    }
+    return originalQuerySelectorAll(selector);
+  };
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  const rowObservers = environment.getMutationObservers().filter(
+    (observer) => observer.options?.attributeFilter?.includes('data-row-id'),
+  );
+  assert.equal(rowObservers.length, 2, 'usage links and hit rate each keep one row observer');
+  const hitRateObserver = rowObservers.find((observer) => observer.target?.tagName === 'TBODY');
+  assert.ok(hitRateObserver, 'hit rate observer must bind to the accounts table body');
+  assert.notEqual(hitRateObserver.target, environment.document.documentElement);
+
+  const before = spanScans;
+  for (let round = 0; round < 5; round += 1) {
+    environment.runMutationObservers();
+    await flushMicrotasks(80);
+  }
+  assert.ok(
+    spanScans - before <= 5,
+    `cached page-size lookup must not rescan spans on every mutation (got ${spanScans - before})`,
   );
 });
