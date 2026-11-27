@@ -5601,6 +5601,33 @@ test('admin accounts adds an idempotent usage shortcut to each account row', asy
   assert.equal(first.row.querySelectorAll('[data-sub2api-account-usage-link="true"]').length, 1);
 });
 
+test('usage shortcut observer reacts to an added account table', async () => {
+  const origin = 'https://account-usage-shortcut-added-table.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountUsageRow(environment, { accountId: 71, accountName: 'Existing Row' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+
+  const second = createAdminAccountUsageRow(environment, { accountId: 72, accountName: 'Added Row' });
+  const usageObserver = environment.getMutationObservers().find(
+    (observer) => observer.target === environment.document.documentElement
+      && observer.options?.attributeFilter?.includes('data-row-id'),
+  );
+  assert.ok(usageObserver);
+
+  usageObserver.callback([{
+    type: 'childList',
+    target: environment.document.body,
+    addedNodes: [second.table],
+    removedNodes: [],
+  }]);
+  await flushMicrotasks(200);
+
+  assert.ok(second.row.querySelector('[data-sub2api-account-usage-link="true"]'));
+});
+
 test('admin accounts usage shortcut honors the global feature switch', async () => {
   const origin = 'https://account-usage-shortcut-disabled.sub2api.example.test';
   const environment = createTestEnvironment({
@@ -6736,6 +6763,89 @@ test('admin accounts hit rate does not rewrite unchanged rows on repeated inject
   const after = sumElementWrites(account.todayStatsCell);
 
   assert.equal(after, before, 'an unchanged row must not produce DOM writes');
+});
+
+test('hit rate ignores its own mutations and only renders rows named by records', async () => {
+  const origin = 'https://account-hit-rate-targeted-records.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const first = createAdminAccountUsageRow(environment, { accountId: 211, accountName: 'First Row' });
+  const second = createAdminAccountUsageRow(environment, { accountId: 212, accountName: 'Second Row' });
+  first.table.querySelector('tbody').appendChild(second.row);
+  second.table.remove();
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const hitRateObserver = environment.getMutationObservers().find(
+    (observer) => observer.target?.tagName === 'TBODY'
+      && observer.options?.attributeFilter?.includes('data-row-id'),
+  );
+  assert.ok(hitRateObserver);
+  const firstLine = first.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
+  const secondLine = second.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
+  assert.ok(firstLine);
+  assert.ok(secondLine);
+
+  const firstWrites = sumElementWrites(first.todayStatsCell);
+  hitRateObserver.callback([{
+    type: 'childList',
+    target: first.todayStatsCell,
+    addedNodes: [firstLine],
+    removedNodes: [],
+  }]);
+  assert.equal(
+    sumElementWrites(first.todayStatsCell),
+    firstWrites,
+    'a mutation produced by the hit rate line itself must not re-render the row',
+  );
+
+  const secondGrid = secondLine.parentElement;
+  secondLine.remove();
+  hitRateObserver.callback([{
+    type: 'childList',
+    target: secondGrid,
+    addedNodes: [],
+    removedNodes: [secondLine],
+  }]);
+  assert.ok(
+    second.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'),
+    'the row named by the record must be restored synchronously',
+  );
+  assert.equal(
+    sumElementWrites(first.todayStatsCell),
+    firstWrites,
+    'an unrelated row must not be touched',
+  );
+});
+
+test('admin accounts hit rate injects in the row mutation turn instead of after a timer', async () => {
+  const origin = 'https://account-hit-rate-sync-injection.sub2api.example.test';
+  const environment = createTestEnvironment({ origin, pathname: '/admin/accounts' });
+  environment.createSidebarToggle({ collapsed: false });
+  createAdminAccountsFilters(environment);
+  const account = createAdminAccountUsageRow(environment, { accountId: 203, accountName: 'Sync Row' });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks(200);
+  environment.runMutationObservers();
+  await flushMicrotasks(200);
+
+  const line = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
+  assert.ok(line);
+
+  // Simulate the virtualized table replacing the row's cell content. The line
+  // must come back before the next layout, otherwise the virtualizer measures
+  // the row twice and corrects scrollTop (viewed as jumps while scrolling up).
+  line.remove();
+  environment.runMutationObservers();
+  assert.ok(
+    account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]'),
+    'the line must be restored in the same mutation turn, without a timer',
+  );
 });
 
 test('admin accounts hit rate reuses the date formatter instead of rebuilding it', async () => {

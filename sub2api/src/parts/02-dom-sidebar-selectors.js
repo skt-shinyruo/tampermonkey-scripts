@@ -323,12 +323,23 @@
     }
 
     ensureSidebarWidthStyleElement();
-    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
-    sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    const widthValue = `${effectiveWidthPx}px`;
     const layoutContent = getSidebarLayoutContentElement(sidebar);
+    if (
+      sidebar.dataset.sub2apiSidebarWidthApplied === 'true'
+      && sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width') === widthValue
+      && layoutContent
+      && layoutContent.dataset.sub2apiSidebarLayoutWidthApplied === 'true'
+      && layoutContent.style.getPropertyValue('--sub2api-helper-sidebar-width') === widthValue
+    ) {
+      return true;
+    }
+
+    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
+    sidebar.style.setProperty('--sub2api-helper-sidebar-width', widthValue);
     if (layoutContent) {
       layoutContent.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
-      layoutContent.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+      layoutContent.style.setProperty('--sub2api-helper-sidebar-width', widthValue);
     } else {
       removeSidebarLayoutWidthOverride();
     }

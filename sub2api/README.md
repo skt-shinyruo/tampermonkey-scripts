@@ -171,3 +171,6 @@ node --check sub2api/build-userscript.mjs
 - 单元格会在「`-` 占位」与「stats 堆栈」之间切换。行要跟着容器走：判断依据必须是容器类名（`space-y-0.5 text-xs`），不能用 `data-sub2api-account-hit-rate-grid` 属性——那个属性正是我们之后才加上的，用它探测会永远落空。
 - 命中率回归测试至少覆盖：一次请求同时渲染今天与昨天、昨天缓存后只查今天、昨天缓存跨日失效、某天无记录、失败保留旧值、跨午夜作废今天、监控账户持久化（无上限）、单账户连续 2 次失败熔断与点击重试恢复、手动成功清零计数、隐藏页停表、列隐藏时不注入也不调度、重复注入不重复请求、未变行零写入、格式化器只构造一次、无数据转有数据时行迁入网格、四档配色分级、错峰首轮随机铺开与最小请求间距、前台恢复按间距逐个排干、auth 失败纯展示通知条。
 - 命中率的 observer 只监听账号表 `tbody`，不再监听整个 `documentElement`；SPA 替换表格节点后，`installAccountHitRateLinks()` 必须比较已观察节点并重新挂载，否则滚动时行变更不会触发注入。页面共用的每页数量按钮查找走缓存，失效判断要沿 `parentElement` 检查整条祖先链的 `isConnected`（只查按钮自身会在上游只移除容器时留下陈旧按钮）。
+- 命中率注入必须在产生该行的同一个 mutation turn 内完成，不能退回到 `setTimeout` 延迟。账号表超过 50 行时是虚拟滚动 + `ResizeObserver` 动态测高；延迟注入会先让浏览器按旧布局绘制并测量，再改行高（把 stats 栈改成 grid 并加一行，实测行高 97px → 85px），虚拟器随后为每个新挂载行校正 `scrollTop`，向上滚动时会回拨（实测 9 次、168px）。observer 回调只渲染 records 指向的行，并在每轮结束后 `takeRecords()` 丢弃自身写入；完整 `tr` 扫描只用于安装、可见性恢复和显式刷新。回归测试要在不推进定时器的前提下断言「行被移除后调用一次 observer，行立即回来」，并覆盖自身 mutation 不触发重绘、无关行不被触碰。
+- `installPageSizeWatcher` 的 cleanup/restore 套件必须合并执行：设置按钮仍然即时安装，但 `restoreSavedSidebarState`、`restoreSavedPageSize`、筛选条件恢复、`installAccountHitRateLinks` 等重活最多每 100ms 跑一轮，运行中到达的 mutation 只标记 dirty 并在结束后补跑，避免滚动时每个 mutation 都跑整套恢复。
+- 侧边栏宽度和账号名称 gutter 的样式写入必须先比较当前值；值没变时不要重复 `setProperty` / `setAttribute`，否则每次 page-size watcher 或 usage-link pass 都会触发样式重算。

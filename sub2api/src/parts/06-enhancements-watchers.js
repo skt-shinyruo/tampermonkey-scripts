@@ -330,13 +330,21 @@
     sidebarWidthResizeWatcherInstalled = true;
   }
 
-  function installPageSizeWatcher() {
-    if (pageSizeWatcherInstalled) {
+  const PAGE_SIZE_WATCHER_MIN_INTERVAL_MS = 100;
+  let pageSizeWatcherLastRunAt = 0;
+  let pageSizeWatcherTimer = null;
+  let pageSizeWatcherRunning = false;
+  let pageSizeWatcherDirty = false;
+
+  async function runPageSizeWatcher() {
+    if (pageSizeWatcherRunning) {
+      pageSizeWatcherDirty = true;
       return;
     }
 
-    const observer = new MutationObserver(async () => {
-      installSettingsLauncherButton();
+    pageSizeWatcherRunning = true;
+    pageSizeWatcherLastRunAt = Date.now();
+    try {
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
@@ -350,6 +358,48 @@
       }
       handleGranularityValueChange();
       scheduleUsageTableEnhancement();
+      if (isAdminAccountsPage()) {
+        installAccountHitRateLinks();
+      }
+    } finally {
+      pageSizeWatcherRunning = false;
+      pageSizeWatcherLastRunAt = Date.now();
+      if (pageSizeWatcherDirty) {
+        pageSizeWatcherDirty = false;
+        schedulePageSizeWatcher();
+      }
+    }
+  }
+
+  function startPageSizeWatcherRun() {
+    runPageSizeWatcher().catch(() => {});
+  }
+
+  function schedulePageSizeWatcher() {
+    if (pageSizeWatcherTimer) {
+      return;
+    }
+
+    const elapsed = Date.now() - pageSizeWatcherLastRunAt;
+    if (elapsed >= PAGE_SIZE_WATCHER_MIN_INTERVAL_MS) {
+      startPageSizeWatcherRun();
+      return;
+    }
+
+    pageSizeWatcherTimer = window.setTimeout(() => {
+      pageSizeWatcherTimer = null;
+      startPageSizeWatcherRun();
+    }, PAGE_SIZE_WATCHER_MIN_INTERVAL_MS - elapsed);
+  }
+
+  function installPageSizeWatcher() {
+    if (pageSizeWatcherInstalled) {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      installSettingsLauncherButton();
+      schedulePageSizeWatcher();
     });
     observer.observe(document.documentElement, {
       childList: true,

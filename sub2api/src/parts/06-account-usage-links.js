@@ -86,11 +86,17 @@
       return;
     }
 
-    container.setAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE, 'true');
-    setStyles(container, {
-      paddingLeft: `${ACCOUNT_USAGE_ACTION_GUTTER_EM}em`,
-      position: 'relative',
-    });
+    if (container.getAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE) !== 'true') {
+      container.setAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE, 'true');
+    }
+
+    const paddingLeft = `${ACCOUNT_USAGE_ACTION_GUTTER_EM}em`;
+    if (container.style.paddingLeft !== paddingLeft) {
+      container.style.paddingLeft = paddingLeft;
+    }
+    if (container.style.position !== 'relative') {
+      container.style.position = 'relative';
+    }
   }
 
   function resetAccountUsageGutter(container) {
@@ -156,6 +162,25 @@
     }, ACCOUNT_USAGE_LINK_INJECTION_DELAY_MS);
   }
 
+  function isAccountUsageLinkRelevantRecord(record) {
+    if (record.type === 'attributes') {
+      return record.attributeName === 'data-row-id' && record.target?.tagName === 'TR';
+    }
+
+    if (record.target?.closest?.('[data-sub2api-account-hit-rate-row="true"], [data-sub2api-account-hit-rate-grid="true"]')) {
+      return false;
+    }
+
+    if (record.target?.closest?.('tr')) {
+      return true;
+    }
+
+    return [...(record.addedNodes || [])].some((node) => (
+      typeof node?.tagName === 'string'
+      && (node.tagName === 'TR' || Boolean(node.querySelector?.('tr')))
+    ));
+  }
+
   function installAccountUsageLinks() {
     if (!isAdminAccountsPage() || !isAccountUsageShortcutEnabled()) {
       cleanupAccountUsageLinks();
@@ -167,8 +192,10 @@
       return;
     }
 
-    accountUsageLinkObserver = new MutationObserver(() => {
-      scheduleAccountUsageLinkInjection();
+    accountUsageLinkObserver = new MutationObserver((records) => {
+      if (records.length === 0 || records.some(isAccountUsageLinkRelevantRecord)) {
+        scheduleAccountUsageLinkInjection();
+      }
     });
     accountUsageLinkObserver.observe(document.documentElement, {
       attributeFilter: ['data-row-id'],
