@@ -309,6 +309,8 @@
   let autoRefreshMenuCloseHookInstalled = false;
   let settingsLauncherButton = null;
   let settingsPanelRoot = null;
+  let settingsPanelThemeObserver = null;
+  let settingsPanelThemeMediaHandler = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
   let activationWatcherObserver = null;

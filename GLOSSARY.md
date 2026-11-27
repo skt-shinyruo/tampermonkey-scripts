@@ -122,6 +122,18 @@ _Avoid_: 快捷键唤醒, 隐蔽触点, 右键菜单
 A globally persisted set of origin URLs where Sub2API Helper is deactivated, manageable across all sites via the settings panel.
 _Avoid_: 域名黑名单, 屏蔽网站列表
 
+**主题模式 (Theme Mode)**:
+The 系统/浅色/深色 choice that drives how Sub2API pages are themed; 系统 follows the browser color-scheme preference.
+_Avoid_: 皮肤, 配色方案
+
+**页面主题 (Page Theme)**:
+The light or dark appearance a Sub2API page actually presents at a given moment, regardless of which Theme Mode produced it.
+_Avoid_: 全局主题, 当前皮肤
+
+**设置面板主题 (Settings Panel Theme)**:
+The light or dark palette used by the helper settings panel itself; it mirrors the Page Theme while open and falls back to the browser color-scheme preference on pages that are not Sub2API.
+_Avoid_: 面板皮肤, 弹窗主题
+
 **每页数量记忆 (Page Size Memory)**:
 Sub2API Helper 按页面独立保存并恢复表格每页行数选择。
 _Avoid_: 页面大小记忆, 分页大小, 每页条数记忆

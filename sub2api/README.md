@@ -20,7 +20,7 @@ Sub2API Helper 是一个 Tampermonkey userscript，用来增强 Sub2API 管理�
 - 使用记录自动刷新：在使用记录页的刷新按钮旁添加自动刷新控制和倒计时。
 - 仪表盘日期范围记忆：记住仪表盘日期范围，并在仪表盘趋势请求中同步改写日期参数。
 - 仪表盘粒度记忆：记住仪表盘粒度选择。
-- 设置面板：在 Tampermonkey 菜单中提供 `Sub2API Helper 设置`，并在已识别的 Sub2API 页面右下角添加 `设置` 小按钮。
+- 设置面板：在 Tampermonkey 菜单中提供 `Sub2API Helper 设置`，并在已识别的 Sub2API 页面右下角添加 `设置` 小按钮。面板配色跟随当前 Sub2API 页面实际深浅色实时切换；非 Sub2API 页面回退到浏览器深浅色偏好。
 - 功能开关：每个功能都有 `全局` 和 `当前页` 两级开关，默认开启。
 - 站点排除与彻底静默：针对魔改或冲突的 Sub2API 站点，支持在油猴扩展菜单（`🚫 排除当前网站`）或设置面板状态卡片中一键排除；排除后脚本在该站点彻底静默（零 DOM 注入、零网络拦截、零监听器），并支持在设置面板中集中查看与解禁已排除站点。
 ## 安装使用
@@ -176,3 +176,4 @@ node --check sub2api/build-userscript.mjs
 - `installPageSizeWatcher` 的 cleanup/restore 套件必须合并执行：设置按钮补装、`restoreSavedSidebarState`、`restoreSavedPageSize`、筛选条件恢复、`installAccountHitRateLinks` 等一起采用 trailing debounce——连续 mutation 停止 100ms 后才跑；连续活跃时最多 300ms 强制跑一轮。运行中到达的 mutation 只标记 dirty 并在结束后补跑，避免滚动时每个 mutation 都跑整套恢复。
 - 首次激活后必须断开 activation observer：后续 SPA 页面切换由 URL watcher 负责，否则滚动产生的每个 mutation 都会再跑一次激活判断。
 - 侧边栏宽度和账号名称 gutter 的样式写入必须先比较当前值；值没变时不要重复 `setProperty` / `setAttribute`，否则每次 page-size watcher 或 usage-link pass 都会触发样式重算。
+- 设置面板配色必须以页面实际主题（`html.dark`）为唯一来源，不能读 helper 保存的 `theme-mode` 或只看浏览器偏好：用户会绕过 helper 直接点 Sub2API 原生主题按钮，`system` 模式下浏览器偏好也可能已经变化。面板打开期间监听 `documentElement` 的 `class`；换肤重渲染必须保留设置列表滚动容器的 `scrollTop`。面板在非 Sub2API 页面通过油猴菜单打开时没有页面主题可跟，只能退到 `prefers-color-scheme`，并同样监听其变化。

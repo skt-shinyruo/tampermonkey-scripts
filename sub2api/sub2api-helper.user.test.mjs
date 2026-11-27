@@ -3088,6 +3088,87 @@ test('settings panel stores a fixed dark theme mode from the theme mode selector
   assert.equal(environment.findSettingsRoot().querySelector('input[data-sub2api-theme-mode-option="dark"]').checked, true);
 });
 
+test('settings panel uses the dark palette when the Sub2API page is dark', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'dark',
+  });
+  environment.createThemeToggle({ dark: true });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+  const panel = settingsRoot.children[0];
+
+  assert.equal(settingsRoot.dataset.sub2apiSettingsTheme, 'dark');
+  assert.equal(settingsRoot.style.background, 'rgba(2, 6, 23, 0.62)');
+  assert.equal(settingsRoot.style.colorScheme, 'dark');
+  assert.equal(panel.style.background, '#0f172a');
+  assert.equal(panel.style.color, '#e2e8f0');
+  assert.equal(panel.children[1].style.background, 'rgba(6, 78, 59, 0.35)');
+});
+
+test('open settings panel follows page theme flips and keeps its scroll position', async () => {
+  const origin = 'https://sub2api.example.test';
+  const environment = createTestEnvironment({
+    origin,
+    pathname: '/admin/accounts',
+    preferredColorScheme: 'light',
+  });
+  const themeToggle = environment.createThemeToggle({ dark: false });
+  environment.createSidebarToggle({ collapsed: false });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  let settingsRoot = environment.findSettingsRoot();
+  let scrollContainer = settingsRoot.children[0].children[2];
+  assert.equal(settingsRoot.dataset.sub2apiSettingsTheme, 'light');
+  assert.equal(settingsRoot.children[0].style.background, '#ffffff');
+  scrollContainer.scrollTop = 180;
+
+  themeToggle.click();
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  settingsRoot = environment.findSettingsRoot();
+  scrollContainer = settingsRoot.children[0].children[2];
+  assert.equal(environment.document.documentElement.classList.contains('dark'), true);
+  assert.equal(settingsRoot.dataset.sub2apiSettingsTheme, 'dark');
+  assert.equal(settingsRoot.children[0].style.background, '#0f172a');
+  assert.equal(scrollContainer.scrollTop, 180);
+});
+
+test('settings panel on a non-Sub2API page follows the browser color scheme', async () => {
+  const environment = createTestEnvironment({
+    appConfig: null,
+    origin: 'https://docs.example.test',
+    pathname: '/usage',
+    preferredColorScheme: 'dark',
+  });
+
+  vm.runInContext(source, environment.vmContext, { filename: builtScriptPath });
+  await flushMicrotasks();
+
+  environment.getMenuCommand('Sub2API Helper 设置')();
+  const settingsRoot = environment.findSettingsRoot();
+
+  assert.equal(settingsRoot.dataset.sub2apiSettingsTheme, 'dark');
+  assert.equal(settingsRoot.children[0].style.background, '#0f172a');
+
+  environment.setPreferredColorScheme('light');
+  environment.runMutationObservers();
+  await flushMicrotasks();
+
+  assert.equal(environment.findSettingsRoot().dataset.sub2apiSettingsTheme, 'light');
+});
+
 test('settings panel stores compact sidebar width mode for the current origin', async () => {
   const origin = 'https://sub2api.example.test';
   const environment = createTestEnvironment({ origin, pathname: '/usage' });
