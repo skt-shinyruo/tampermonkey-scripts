@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.66
+// @version      0.22.67
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.66';
+  const SCRIPT_VERSION = '0.22.67';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const STORAGE_READ_CACHE_MS = 2000;
@@ -327,6 +327,8 @@
   let autoRefreshMenuCloseHookInstalled = false;
   let settingsLauncherButton = null;
   let settingsPanelRoot = null;
+  let settingsPanelThemeObserver = null;
+  let settingsPanelThemeMediaHandler = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
   let activationWatcherObserver = null;
@@ -1543,6 +1545,49 @@
   function hasDatePickerFingerprint() {
     return Boolean(getTrigger() || getDateInputs().length === 2 || getPresetButtons().length > 0);
   }
+  const SETTINGS_THEME_PALETTES = {
+    light: {
+      accent: '#0f766e',
+      cardBorder: 'rgba(148, 163, 184, 0.35)',
+      controlBorder: 'rgba(148, 163, 184, 0.45)',
+      controlText: '#334155',
+      dangerText: '#ef4444',
+      faintText: '#94a3b8',
+      idleBg: '#f8fafc',
+      idleBorder: '#e2e8f0',
+      itemBorder: '#cbd5e1',
+      mutedText: '#64748b',
+      okBg: '#ecfdf5',
+      okBorder: '#bbf7d0',
+      okText: '#047857',
+      overlay: 'rgba(15, 23, 42, 0.36)',
+      panelBg: '#ffffff',
+      panelShadow: '0 24px 80px rgba(15, 23, 42, 0.22)',
+      panelText: '#0f172a',
+      raisedBg: '#ffffff',
+    },
+    dark: {
+      accent: '#2dd4bf',
+      cardBorder: 'rgba(148, 163, 184, 0.22)',
+      controlBorder: 'rgba(148, 163, 184, 0.3)',
+      controlText: '#cbd5e1',
+      dangerText: '#f87171',
+      faintText: '#64748b',
+      idleBg: '#1e293b',
+      idleBorder: '#334155',
+      itemBorder: '#334155',
+      mutedText: '#94a3b8',
+      okBg: 'rgba(6, 78, 59, 0.35)',
+      okBorder: '#14532d',
+      okText: '#6ee7b7',
+      overlay: 'rgba(2, 6, 23, 0.62)',
+      panelBg: '#0f172a',
+      panelShadow: '0 24px 80px rgba(0, 0, 0, 0.55)',
+      panelText: '#e2e8f0',
+      raisedBg: '#1e293b',
+    },
+  };
+
   function hasSub2apiInjectedConfigShape(config) {
     return Boolean(
       config &&
@@ -1800,6 +1845,59 @@
     return `当前地址: ${getCurrentOrigin()}${location.pathname}`;
   }
 
+  function getSettingsPanelTheme() {
+    return hasSub2apiAppFingerprint() ? getCurrentPageTheme() : getPreferredPageTheme();
+  }
+
+  function getSettingsPalette() {
+    return SETTINGS_THEME_PALETTES[getSettingsPanelTheme()] || SETTINGS_THEME_PALETTES.light;
+  }
+
+  function syncSettingsPanelTheme() {
+    if (!settingsPanelRoot?.isConnected) {
+      return;
+    }
+    if (settingsPanelRoot.dataset.sub2apiSettingsTheme !== getSettingsPanelTheme()) {
+      refreshSettingsPanel();
+    }
+  }
+
+  function installSettingsPanelThemeWatcher() {
+    if (!settingsPanelThemeObserver) {
+      settingsPanelThemeObserver = new MutationObserver(syncSettingsPanelTheme);
+      settingsPanelThemeObserver.observe(document.documentElement, {
+        attributeFilter: ['class'],
+        attributes: true,
+      });
+    }
+
+    if (!settingsPanelThemeMediaHandler) {
+      settingsPanelThemeMediaHandler = syncSettingsPanelTheme;
+      const mediaQuery = getBrowserThemeMediaQuery();
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', settingsPanelThemeMediaHandler);
+      } else {
+        mediaQuery.addListener(settingsPanelThemeMediaHandler);
+      }
+    }
+  }
+
+  function removeSettingsPanelThemeWatcher() {
+    settingsPanelThemeObserver?.disconnect();
+    settingsPanelThemeObserver = null;
+
+    if (!settingsPanelThemeMediaHandler) {
+      return;
+    }
+    const mediaQuery = getBrowserThemeMediaQuery();
+    if (typeof mediaQuery.removeEventListener === 'function') {
+      mediaQuery.removeEventListener('change', settingsPanelThemeMediaHandler);
+    } else if (typeof mediaQuery.removeListener === 'function') {
+      mediaQuery.removeListener(settingsPanelThemeMediaHandler);
+    }
+    settingsPanelThemeMediaHandler = null;
+  }
+
   function setStyles(element, styles) {
     Object.assign(element.style, styles);
   }
@@ -1829,18 +1927,20 @@
     if (!label) {
       return;
     }
+    const palette = getSettingsPalette();
     setStyles(label, {
-      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
-      color: checked ? '#0f766e' : '#334155',
+      border: `1px solid ${checked ? palette.accent : palette.cardBorder}`,
+      color: checked ? palette.accent : palette.controlText,
     });
   }
 
   function syncSettingsStatusText(state) {
+    const palette = getSettingsPalette();
     const statusCard = settingsPanelRoot?.querySelector('[data-sub2api-settings-status-card="true"]');
     if (statusCard) {
       setStyles(statusCard, {
-        background: state.effectiveEnabled ? '#ecfdf5' : '#f8fafc',
-        border: `1px solid ${state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
+        background: state.effectiveEnabled ? palette.okBg : palette.idleBg,
+        border: `1px solid ${state.effectiveEnabled ? palette.okBorder : palette.idleBorder}`,
       });
     }
 
@@ -1858,7 +1958,7 @@
     if (effectStatusText) {
       effectStatusText.textContent = `修改功能: ${getSettingsStatusText(state)}`;
       setStyles(effectStatusText, {
-        color: state.effectiveEnabled ? '#047857' : '#64748b',
+        color: state.effectiveEnabled ? palette.okText : palette.mutedText,
       });
     }
 
@@ -2037,7 +2137,7 @@
     const wrap = document.createElement('label');
     setStyles(wrap, {
       alignItems: 'center',
-      color: '#334155',
+      color: getSettingsPalette().controlText,
       display: 'inline-flex',
       fontSize: '12px',
       fontWeight: '700',
@@ -2073,9 +2173,10 @@
   function createFeatureSettingsRow(feature) {
     const row = document.createElement('div');
     row.setAttribute('data-sub2api-feature-row', feature.id);
+    const palette = getSettingsPalette();
     setStyles(row, {
       alignItems: 'center',
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'flex',
       flexWrap: 'wrap',
@@ -2094,7 +2195,7 @@
     const title = document.createElement('span');
     title.textContent = feature.label;
     setStyles(title, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontSize: '14px',
       fontWeight: '700',
     });
@@ -2102,7 +2203,7 @@
     const hint = document.createElement('span');
     hint.textContent = feature.description;
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.4',
     });
@@ -2140,11 +2241,12 @@
 
   function createThemeModeOption({ checked, option }) {
     const label = document.createElement('label');
+    const palette = getSettingsPalette();
     setStyles(label, {
       alignItems: 'center',
-      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      border: `1px solid ${checked ? palette.accent : palette.cardBorder}`,
       borderRadius: '8px',
-      color: checked ? '#0f766e' : '#334155',
+      color: checked ? palette.accent : palette.controlText,
       cursor: 'pointer',
       display: 'grid',
       gap: '4px',
@@ -2177,7 +2279,7 @@
     const hint = document.createElement('span');
     hint.textContent = option.description;
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.35',
     });
@@ -2195,8 +2297,9 @@
   function createThemeModeSettingsRow(themeMode) {
     const row = document.createElement('div');
     row.setAttribute('data-sub2api-theme-mode-row', 'true');
+    const palette = getSettingsPalette();
     setStyles(row, {
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '10px',
@@ -2212,7 +2315,7 @@
     const title = document.createElement('span');
     title.textContent = '主题模式';
     setStyles(title, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontSize: '14px',
       fontWeight: '800',
     });
@@ -2220,7 +2323,7 @@
     const hint = document.createElement('span');
     hint.textContent = '选择 Sub2API 使用深色、浅色，或跟随系统。';
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.4',
     });
@@ -2250,11 +2353,12 @@
 
   function createSidebarWidthModeOption({ checked, option }) {
     const label = document.createElement('label');
+    const palette = getSettingsPalette();
     setStyles(label, {
       alignItems: 'center',
-      border: `1px solid ${checked ? '#0f766e' : 'rgba(148, 163, 184, 0.35)'}`,
+      border: `1px solid ${checked ? palette.accent : palette.cardBorder}`,
       borderRadius: '8px',
-      color: checked ? '#0f766e' : '#334155',
+      color: checked ? palette.accent : palette.controlText,
       cursor: 'pointer',
       display: 'grid',
       gap: '4px',
@@ -2293,7 +2397,7 @@
     const hint = document.createElement('span');
     hint.textContent = option.description;
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.35',
     });
@@ -2308,8 +2412,9 @@
   function createSidebarWidthSettingsRow(sidebarWidth) {
     const row = document.createElement('div');
     row.setAttribute('data-sub2api-sidebar-width-row', 'true');
+    const palette = getSettingsPalette();
     setStyles(row, {
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '10px',
@@ -2325,7 +2430,7 @@
     const title = document.createElement('span');
     title.textContent = '侧边栏宽度';
     setStyles(title, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontSize: '14px',
       fontWeight: '800',
     });
@@ -2333,7 +2438,7 @@
     const hint = document.createElement('span');
     hint.textContent = `仅影响当前 Sub2API 域名，桌面窗口生效，自定义范围 ${SIDEBAR_WIDTH_MIN_PX}-${SIDEBAR_WIDTH_MAX_PX}px。`;
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.4',
     });
@@ -2357,7 +2462,7 @@
     const customControl = document.createElement('label');
     setStyles(customControl, {
       alignItems: 'center',
-      color: '#334155',
+      color: palette.controlText,
       display: 'inline-flex',
       fontSize: '12px',
       fontWeight: '700',
@@ -2376,9 +2481,9 @@
     customInput.disabled = sidebarWidth.mode !== SIDEBAR_WIDTH_MODE_VALUES.CUSTOM;
     customInput.setAttribute('data-sub2api-sidebar-width-custom-input', 'true');
     setStyles(customInput, {
-      border: '1px solid rgba(148, 163, 184, 0.45)',
+      border: `1px solid ${palette.controlBorder}`,
       borderRadius: '8px',
-      color: '#0f172a',
+      color: palette.panelText,
       font: '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       padding: '7px 9px',
       width: '88px',
@@ -2405,8 +2510,9 @@
   function createAccountHitRateSettingsRow() {
     const row = document.createElement('div');
     row.setAttribute('data-sub2api-account-hit-rate-settings-row', 'true');
+    const palette = getSettingsPalette();
     setStyles(row, {
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '10px',
@@ -2418,16 +2524,16 @@
 
     const title = document.createElement('span');
     title.textContent = '账号缓存命中率自动获取';
-    setStyles(title, { color: '#0f172a', fontSize: '14px', fontWeight: '800' });
+    setStyles(title, { color: palette.panelText, fontSize: '14px', fontWeight: '800' });
 
     const hint = document.createElement('span');
     hint.textContent = `仅对账号管理页标记的监控账户生效，错峰自动获取：每个监控账户在间隔窗口内随机错开时刻查询，间隔范围 ${ACCOUNT_HIT_RATE_MIN_INTERVAL_MINUTES}-${ACCOUNT_HIT_RATE_MAX_INTERVAL_MINUTES} 分钟。`;
-    setStyles(hint, { color: '#64748b', fontSize: '12px', lineHeight: '1.4' });
+    setStyles(hint, { color: palette.mutedText, fontSize: '12px', lineHeight: '1.4' });
 
     const control = document.createElement('label');
     setStyles(control, {
       alignItems: 'center',
-      color: '#334155',
+      color: palette.controlText,
       display: 'inline-flex',
       fontSize: '12px',
       fontWeight: '700',
@@ -2445,9 +2551,9 @@
     input.value = String(getAccountHitRateIntervalMinutes());
     input.setAttribute('data-sub2api-account-hit-rate-interval-input', 'true');
     setStyles(input, {
-      border: '1px solid rgba(148, 163, 184, 0.45)',
+      border: `1px solid ${palette.controlBorder}`,
       borderRadius: '8px',
-      color: '#0f172a',
+      color: palette.panelText,
       font: '13px/1.2 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       padding: '7px 9px',
       width: '88px',
@@ -2461,7 +2567,7 @@
     const tracked = document.createElement('span');
     tracked.setAttribute('data-sub2api-account-hit-rate-tracked-count', 'true');
     tracked.textContent = `已监控 ${getTrackedAccountIds().length} 个账号`;
-    setStyles(tracked, { color: '#64748b', fontSize: '12px', fontWeight: '600' });
+    setStyles(tracked, { color: palette.mutedText, fontSize: '12px', fontWeight: '600' });
 
     control.appendChild(controlLabel);
     control.appendChild(input);
@@ -2477,8 +2583,9 @@
     const row = document.createElement('div');
     row.dataset.sub2apiExcludedOriginsRow = 'true';
     row.setAttribute('data-sub2api-excluded-origins-row', 'true');
+    const palette = getSettingsPalette();
     setStyles(row, {
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '10px',
@@ -2494,7 +2601,7 @@
     const title = document.createElement('span');
     title.textContent = `已排除网站 (${excludedOrigins.length})`;
     setStyles(title, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontSize: '14px',
       fontWeight: '800',
     });
@@ -2502,7 +2609,7 @@
     const hint = document.createElement('span');
     hint.textContent = '被排除的网站将彻底静默运行，不产生任何 DOM 注入与网络拦截。';
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.4',
     });
@@ -2522,7 +2629,7 @@
       const emptyText = document.createElement('div');
       emptyText.textContent = '暂无已排除网站';
       setStyles(emptyText, {
-        color: '#94a3b8',
+        color: palette.faintText,
         fontSize: '12px',
       });
       listWrap.appendChild(emptyText);
@@ -2532,8 +2639,8 @@
         item.setAttribute('data-sub2api-excluded-origin-item', origin);
         setStyles(item, {
           alignItems: 'center',
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
+          background: palette.idleBg,
+          border: `1px solid ${palette.itemBorder}`,
           borderRadius: '6px',
           display: 'flex',
           justifyContent: 'space-between',
@@ -2543,7 +2650,7 @@
         const originText = document.createElement('span');
         originText.textContent = origin;
         setStyles(originText, {
-          color: '#334155',
+          color: palette.controlText,
           fontFamily: 'monospace',
           fontSize: '12px',
           overflowWrap: 'anywhere',
@@ -2554,10 +2661,10 @@
         removeButton.textContent = '移除';
         removeButton.setAttribute('data-sub2api-remove-excluded-origin', origin);
         setStyles(removeButton, {
-          background: '#ffffff',
-          border: '1px solid #cbd5e1',
+          background: palette.raisedBg,
+          border: `1px solid ${palette.itemBorder}`,
           borderRadius: '4px',
-          color: '#ef4444',
+          color: palette.dangerText,
           cursor: 'pointer',
           fontSize: '12px',
           fontWeight: '600',
@@ -2627,10 +2734,11 @@
   function createFeatureSettingsGroup(groupId, features) {
     const groupMeta = getSettingsGroupMeta(groupId);
     const group = document.createElement('section');
+    const palette = getSettingsPalette();
     group.dataset.sub2apiSettingsGroup = groupId;
     group.setAttribute('data-sub2api-settings-group', groupId);
     setStyles(group, {
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '10px',
@@ -2653,7 +2761,7 @@
     const title = document.createElement('span');
     title.textContent = groupMeta.title;
     setStyles(title, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontSize: '14px',
       fontWeight: '800',
     });
@@ -2661,7 +2769,7 @@
     const hint = document.createElement('span');
     hint.textContent = groupMeta.description;
     setStyles(hint, {
-      color: '#64748b',
+      color: palette.mutedText,
       fontSize: '12px',
       lineHeight: '1.4',
     });
@@ -2689,17 +2797,26 @@
     }
 
     const state = getSettingsState();
+    const panelTheme = getSettingsPanelTheme();
+    const palette = SETTINGS_THEME_PALETTES[panelTheme];
+    const scrollContainer = settingsPanelRoot.querySelector('[data-sub2api-settings-scroll="true"]');
+    const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    settingsPanelRoot.dataset.sub2apiSettingsTheme = panelTheme;
+    setStyles(settingsPanelRoot, {
+      background: palette.overlay,
+      colorScheme: panelTheme,
+    });
     settingsPanelRoot.textContent = '';
     applySettingsRootDataset(state);
 
     const panel = document.createElement('section');
     setStyles(panel, {
-      background: '#ffffff',
-      border: '1px solid rgba(148, 163, 184, 0.35)',
+      background: palette.panelBg,
+      border: `1px solid ${palette.cardBorder}`,
       borderRadius: '8px',
-      boxShadow: '0 24px 80px rgba(15, 23, 42, 0.22)',
+      boxShadow: palette.panelShadow,
       boxSizing: 'border-box',
-      color: '#0f172a',
+      color: palette.panelText,
       display: 'grid',
       font: '14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       gap: '14px',
@@ -2719,13 +2836,13 @@
     const titleWrap = document.createElement('div');
     titleWrap.appendChild(
       createSettingsText('Sub2API Helper 设置', {
-        color: '#0f172a',
+        color: palette.panelText,
         fontSize: '16px',
         fontWeight: '800',
       }),
     );
     const addressText = createSettingsText(getSettingsAddressText(), {
-        color: '#64748b',
+        color: palette.mutedText,
         fontSize: '12px',
         marginTop: '2px',
         overflowWrap: 'anywhere',
@@ -2734,7 +2851,7 @@
     titleWrap.appendChild(addressText);
     titleWrap.appendChild(
       createSettingsText(`脚本版本: ${SCRIPT_VERSION}`, {
-        color: '#64748b',
+        color: palette.mutedText,
         fontSize: '12px',
         marginTop: '2px',
       }),
@@ -2747,10 +2864,10 @@
     closeButton.setAttribute('aria-label', '关闭设置');
     setStyles(closeButton, {
       alignItems: 'center',
-      background: '#f8fafc',
-      border: '1px solid rgba(148, 163, 184, 0.45)',
+      background: palette.idleBg,
+      border: `1px solid ${palette.controlBorder}`,
       borderRadius: '8px',
-      color: '#334155',
+      color: palette.controlText,
       cursor: 'pointer',
       display: 'inline-flex',
       fontSize: '18px',
@@ -2769,22 +2886,22 @@
     const status = document.createElement('div');
     status.dataset.sub2apiSettingsStatusCard = 'true';
     setStyles(status, {
-      background: state.effectiveEnabled ? '#ecfdf5' : '#f8fafc',
-      border: `1px solid ${state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'}`,
+      background: state.effectiveEnabled ? palette.okBg : palette.idleBg,
+      border: `1px solid ${state.effectiveEnabled ? palette.okBorder : palette.idleBorder}`,
       borderRadius: '8px',
       display: 'grid',
       gap: '4px',
       padding: '12px',
     });
     const pageStatusText = createSettingsText(`当前页面: ${state.isCurrentOriginExcluded ? '已排除网站' : (state.isSub2apiPage ? 'Sub2API 页面' : '非 Sub2API 页面')}`, {
-      color: '#0f172a',
+      color: palette.panelText,
       fontWeight: '700',
     });
     pageStatusText.dataset.sub2apiSettingsPageStatus = 'true';
     status.appendChild(pageStatusText);
 
     const effectStatusText = createSettingsText(`修改功能: ${getSettingsStatusText(state)}`, {
-      color: state.effectiveEnabled ? '#047857' : '#64748b',
+      color: state.effectiveEnabled ? palette.okText : palette.mutedText,
       fontWeight: '700',
     });
     effectStatusText.dataset.sub2apiSettingsEffectStatus = 'true';
@@ -2793,7 +2910,7 @@
     const originSwitchRow = document.createElement('div');
     setStyles(originSwitchRow, {
       alignItems: 'center',
-      borderTop: '1px solid ' + (state.effectiveEnabled ? '#bbf7d0' : '#e2e8f0'),
+      borderTop: '1px solid ' + (state.effectiveEnabled ? palette.okBorder : palette.idleBorder),
       display: 'flex',
       justifyContent: 'space-between',
       marginTop: '4px',
@@ -2803,7 +2920,7 @@
     const originSwitchLabel = document.createElement('span');
     originSwitchLabel.textContent = '在此网站启用脚本';
     setStyles(originSwitchLabel, {
-      color: '#334155',
+      color: palette.controlText,
       fontSize: '13px',
       fontWeight: '600',
     });
@@ -2831,6 +2948,7 @@
     status.appendChild(originSwitchRow);
 
     const featureGroups = document.createElement('div');
+    featureGroups.setAttribute('data-sub2api-settings-scroll', 'true');
     setStyles(featureGroups, {
       display: 'grid',
       gap: '10px',
@@ -2865,9 +2983,14 @@
     panel.appendChild(status);
     panel.appendChild(featureGroups);
     settingsPanelRoot.appendChild(panel);
+
+    if (scrollTop) {
+      featureGroups.scrollTop = scrollTop;
+    }
   }
 
   function closeSettingsPanel() {
+    removeSettingsPanelThemeWatcher();
     settingsPanelRoot?.remove();
     settingsPanelRoot = null;
   }
@@ -2882,7 +3005,6 @@
     settingsPanelRoot.dataset.sub2apiSettingsRoot = 'true';
     setStyles(settingsPanelRoot, {
       alignItems: 'center',
-      background: 'rgba(15, 23, 42, 0.36)',
       boxSizing: 'border-box',
       display: 'flex',
       inset: '0',
@@ -2899,6 +3021,7 @@
 
     document.body.appendChild(settingsPanelRoot);
     refreshSettingsPanel();
+    installSettingsPanelThemeWatcher();
   }
 
   function registerSettingsMenu() {
