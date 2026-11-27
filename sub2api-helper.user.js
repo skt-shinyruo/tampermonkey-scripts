@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.65
+// @version      0.22.66
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.65';
+  const SCRIPT_VERSION = '0.22.66';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const STORAGE_READ_CACHE_MS = 2000;
@@ -329,6 +329,7 @@
   let settingsPanelRoot = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
+  let activationWatcherObserver = null;
   let activationRetryInFlight = false;
   let activationRetryToken = 0;
   let helperActivated = false;
@@ -5701,6 +5702,7 @@
   let accountHitRateTrackedCache = null;
   let accountHitRateYesterdayCache = null;
   let accountHitRatePrunedDate = '';
+  let accountHitRateStyleElement = null;
 
   function isAccountHitRateEnabled() {
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
@@ -6211,13 +6213,6 @@
     badge.setAttribute('type', 'button');
     badge.setAttribute(ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE, day);
     badge.setAttribute('data-sub2api-account-hit-rate-id', String(accountId));
-    setStyles(badge, {
-      background: 'transparent',
-      border: '0',
-      cursor: 'pointer',
-      font: 'inherit',
-      padding: '0',
-    });
 
     let hoverTimer = null;
     badge.addEventListener('mouseenter', () => {
@@ -6261,15 +6256,6 @@
     toggle.setAttribute('type', 'button');
     toggle.setAttribute(ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE, 'true');
     toggle.setAttribute('data-sub2api-account-hit-rate-track-id', String(accountId));
-    setStyles(toggle, {
-      background: 'transparent',
-      border: '0',
-      cursor: 'pointer',
-      height: '1em',
-      lineHeight: '1',
-      padding: '0',
-      width: '1em',
-    });
 
     if (typeof document.createElementNS === 'function') {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -6438,22 +6424,6 @@
 
     if (container.getAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE) !== 'true') {
       container.setAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE, 'true');
-      setStyles(container, {
-        columnGap: '0.75em',
-        display: 'grid',
-        gridTemplateColumns: 'auto auto',
-        justifyContent: 'start',
-        rowGap: '0.15em',
-      });
-    }
-
-    for (const child of [...container.children]) {
-      if (child.getAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE) === 'true') {
-        continue;
-      }
-      if (child.style.marginTop !== '0') {
-        child.style.marginTop = '0';
-      }
     }
 
     applyAccountHitRateShortLabels(container);
@@ -6465,29 +6435,74 @@
     }
 
     container.removeAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE);
-    setStyles(container, {
-      columnGap: '',
-      display: '',
-      gridTemplateColumns: '',
-      justifyContent: '',
-      rowGap: '',
-    });
-    for (const child of [...container.children]) {
-      setStyles(child, { marginTop: '' });
-    }
     resetAccountHitRateShortLabels(container);
+  }
+
+  function ensureAccountHitRateStyleElement() {
+    if (accountHitRateStyleElement?.isConnected) {
+      return accountHitRateStyleElement;
+    }
+
+    const existing = document.querySelector('[data-sub2api-account-hit-rate-style="true"]');
+    if (existing) {
+      accountHitRateStyleElement = existing;
+      return accountHitRateStyleElement;
+    }
+
+    const style = document.createElement('style');
+    style.setAttribute('data-sub2api-account-hit-rate-style', 'true');
+    style.textContent = `
+[data-sub2api-account-hit-rate] {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+[data-sub2api-account-hit-rate-row="true"] {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  margin-top: 4px !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] {
+  column-gap: 0.75em !important;
+  display: grid !important;
+  grid-template-columns: auto auto !important;
+  justify-content: start !important;
+  row-gap: 0.15em !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] > * {
+  margin-top: 0 !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] > [data-sub2api-account-hit-rate-row="true"] {
+  grid-column: 1 / -1 !important;
+  margin-top: 0 !important;
+}
+
+[data-sub2api-account-hit-rate-track="true"] {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  height: 1em;
+  line-height: 1;
+  padding: 0;
+  width: 1em;
+}
+`;
+    (document.head || document.documentElement).appendChild(style);
+    accountHitRateStyleElement = style;
+    return accountHitRateStyleElement;
   }
 
   function createAccountHitRateLine(accountId) {
     const line = document.createElement('div');
     line.setAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE, 'true');
-    line.className = 'flex items-center gap-1 text-xs';
-    setStyles(line, {
-      alignItems: 'center',
-      display: 'flex',
-      gap: '4px',
-      gridColumn: '1 / -1',
-    });
+    line.className = 'text-xs';
 
     const label = document.createElement('span');
     label.setAttribute('data-sub2api-account-hit-rate-label', 'true');
@@ -6576,14 +6591,6 @@
     }
   }
 
-  function setAccountHitRateLineStyle(line, styles) {
-    for (const [property, value] of Object.entries(styles)) {
-      if (line.style[property] !== value) {
-        line.style[property] = value;
-      }
-    }
-  }
-
   function renderAccountHitRateRowElement(row, columnIndex, dates) {
     const accountId = Number(row.getAttribute('data-row-id'));
     if (!Number.isSafeInteger(accountId) || accountId <= 0) {
@@ -6613,13 +6620,11 @@
             lateContainer.appendChild(line);
           }
           applyAccountHitRateGrid(lateContainer);
-          setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
         } else {
           const mount = cell.querySelector('div') || cell;
           if (line.parentElement !== mount) {
             mount.appendChild(line);
           }
-          setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
         }
       }
 
@@ -6639,9 +6644,6 @@
 
     if (statsContainer) {
       applyAccountHitRateGrid(statsContainer);
-      setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
-    } else {
-      setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
     }
 
     renderAccountHitRateLine(line, getAccountHitRateRenderModel(accountId, dates));
@@ -6708,6 +6710,8 @@
     if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
       return;
     }
+
+    ensureAccountHitRateStyleElement();
 
     const tableBody = getAccountHitRateTableBody();
     if (!tableBody) {
@@ -7343,9 +7347,10 @@
     sidebarWidthResizeWatcherInstalled = true;
   }
 
-  const PAGE_SIZE_WATCHER_MIN_INTERVAL_MS = 100;
-  let pageSizeWatcherLastRunAt = 0;
+  const PAGE_SIZE_WATCHER_DEBOUNCE_MS = 100;
+  const PAGE_SIZE_WATCHER_MAX_WAIT_MS = 300;
   let pageSizeWatcherTimer = null;
+  let pageSizeWatcherBurstStartedAt = 0;
   let pageSizeWatcherRunning = false;
   let pageSizeWatcherDirty = false;
 
@@ -7356,8 +7361,8 @@
     }
 
     pageSizeWatcherRunning = true;
-    pageSizeWatcherLastRunAt = Date.now();
     try {
+      installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
@@ -7376,7 +7381,6 @@
       }
     } finally {
       pageSizeWatcherRunning = false;
-      pageSizeWatcherLastRunAt = Date.now();
       if (pageSizeWatcherDirty) {
         pageSizeWatcherDirty = false;
         schedulePageSizeWatcher();
@@ -7389,20 +7393,26 @@
   }
 
   function schedulePageSizeWatcher() {
+    const now = Date.now();
+    if (!pageSizeWatcherBurstStartedAt) {
+      pageSizeWatcherBurstStartedAt = now;
+    }
+
+    const remainingMaxWait = PAGE_SIZE_WATCHER_MAX_WAIT_MS
+      - (now - pageSizeWatcherBurstStartedAt);
+    const waitMs = Math.max(
+      0,
+      Math.min(PAGE_SIZE_WATCHER_DEBOUNCE_MS, remainingMaxWait),
+    );
+
     if (pageSizeWatcherTimer) {
-      return;
+      window.clearTimeout(pageSizeWatcherTimer);
     }
-
-    const elapsed = Date.now() - pageSizeWatcherLastRunAt;
-    if (elapsed >= PAGE_SIZE_WATCHER_MIN_INTERVAL_MS) {
-      startPageSizeWatcherRun();
-      return;
-    }
-
     pageSizeWatcherTimer = window.setTimeout(() => {
       pageSizeWatcherTimer = null;
+      pageSizeWatcherBurstStartedAt = 0;
       startPageSizeWatcherRun();
-    }, PAGE_SIZE_WATCHER_MIN_INTERVAL_MS - elapsed);
+    }, waitMs);
   }
 
   function installPageSizeWatcher() {
@@ -7411,7 +7421,6 @@
     }
 
     const observer = new MutationObserver(() => {
-      installSettingsLauncherButton();
       schedulePageSizeWatcher();
     });
     observer.observe(document.documentElement, {
@@ -7468,6 +7477,10 @@
     }
 
     helperActivated = true;
+    if (activationWatcherObserver) {
+      activationWatcherObserver.disconnect();
+      activationWatcherObserver = null;
+    }
     document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
     installClickHooks();
     installAutoRefreshMenuCloseHook();
@@ -7523,10 +7536,10 @@
       return;
     }
 
-    const observer = new MutationObserver(() => {
+    activationWatcherObserver = new MutationObserver(() => {
       tryActivateSub2apiHelper();
     });
-    observer.observe(document.documentElement, {
+    activationWatcherObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });
