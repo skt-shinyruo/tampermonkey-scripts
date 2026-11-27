@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Sub2API Helper
 // @namespace    https://github.com/skt-shinyruo/tampermonkey-scripts
-// @version      0.22.64
+// @version      0.22.65
 // @description  为 Sub2API 管理端提供深色、浅色、系统主题模式和侧边栏收起状态记忆；为账号管理页、分组管理页和用户管理页增加每页数量记忆；为账号管理页增加使用记录快捷入口和缓存命中率展示；为使用记录页增加日期范围、粒度、每页记忆与自动刷新倒计时，并为仪表盘增加时间范围和粒度记忆。
 // @match        *://*/*
 // @updateURL    https://raw.githubusercontent.com/skt-shinyruo/tampermonkey-scripts/build/sub2api-helper.user.js
@@ -16,7 +16,7 @@
 (function () {
   'use strict';
 
-  const SCRIPT_VERSION = '0.22.64';
+  const SCRIPT_VERSION = '0.22.65';
   const STORAGE_NAMESPACE = 'sub2api-helper';
   const STORAGE_MISSING = {};
   const STORAGE_READ_CACHE_MS = 2000;
@@ -1110,12 +1110,23 @@
     }
 
     ensureSidebarWidthStyleElement();
-    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
-    sidebar.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+    const widthValue = `${effectiveWidthPx}px`;
     const layoutContent = getSidebarLayoutContentElement(sidebar);
+    if (
+      sidebar.dataset.sub2apiSidebarWidthApplied === 'true'
+      && sidebar.style.getPropertyValue('--sub2api-helper-sidebar-width') === widthValue
+      && layoutContent
+      && layoutContent.dataset.sub2apiSidebarLayoutWidthApplied === 'true'
+      && layoutContent.style.getPropertyValue('--sub2api-helper-sidebar-width') === widthValue
+    ) {
+      return true;
+    }
+
+    sidebar.dataset.sub2apiSidebarWidthApplied = 'true';
+    sidebar.style.setProperty('--sub2api-helper-sidebar-width', widthValue);
     if (layoutContent) {
       layoutContent.dataset.sub2apiSidebarLayoutWidthApplied = 'true';
-      layoutContent.style.setProperty('--sub2api-helper-sidebar-width', `${effectiveWidthPx}px`);
+      layoutContent.style.setProperty('--sub2api-helper-sidebar-width', widthValue);
     } else {
       removeSidebarLayoutWidthOverride();
     }
@@ -5039,11 +5050,17 @@
       return;
     }
 
-    container.setAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE, 'true');
-    setStyles(container, {
-      paddingLeft: `${ACCOUNT_USAGE_ACTION_GUTTER_EM}em`,
-      position: 'relative',
-    });
+    if (container.getAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE) !== 'true') {
+      container.setAttribute(ACCOUNT_USAGE_GUTTER_ATTRIBUTE, 'true');
+    }
+
+    const paddingLeft = `${ACCOUNT_USAGE_ACTION_GUTTER_EM}em`;
+    if (container.style.paddingLeft !== paddingLeft) {
+      container.style.paddingLeft = paddingLeft;
+    }
+    if (container.style.position !== 'relative') {
+      container.style.position = 'relative';
+    }
   }
 
   function resetAccountUsageGutter(container) {
@@ -5109,6 +5126,25 @@
     }, ACCOUNT_USAGE_LINK_INJECTION_DELAY_MS);
   }
 
+  function isAccountUsageLinkRelevantRecord(record) {
+    if (record.type === 'attributes') {
+      return record.attributeName === 'data-row-id' && record.target?.tagName === 'TR';
+    }
+
+    if (record.target?.closest?.('[data-sub2api-account-hit-rate-row="true"], [data-sub2api-account-hit-rate-grid="true"]')) {
+      return false;
+    }
+
+    if (record.target?.closest?.('tr')) {
+      return true;
+    }
+
+    return [...(record.addedNodes || [])].some((node) => (
+      typeof node?.tagName === 'string'
+      && (node.tagName === 'TR' || Boolean(node.querySelector?.('tr')))
+    ));
+  }
+
   function installAccountUsageLinks() {
     if (!isAdminAccountsPage() || !isAccountUsageShortcutEnabled()) {
       cleanupAccountUsageLinks();
@@ -5120,8 +5156,10 @@
       return;
     }
 
-    accountUsageLinkObserver = new MutationObserver(() => {
-      scheduleAccountUsageLinkInjection();
+    accountUsageLinkObserver = new MutationObserver((records) => {
+      if (records.length === 0 || records.some(isAccountUsageLinkRelevantRecord)) {
+        scheduleAccountUsageLinkInjection();
+      }
     });
     accountUsageLinkObserver.observe(document.documentElement, {
       attributeFilter: ['data-row-id'],
@@ -5641,7 +5679,6 @@
   const ACCOUNT_HIT_RATE_JITTER_MIN_MS = 1000;
   const ACCOUNT_HIT_RATE_JITTER_MAX_MS = 2000;
   const ACCOUNT_HIT_RATE_HOVER_DELAY_MS = 150;
-  const ACCOUNT_HIT_RATE_INJECTION_DELAY_MS = 50;
   const ACCOUNT_HIT_RATE_FAILURE_THRESHOLD = 2;
   const ACCOUNT_HIT_RATE_QUERY_CACHE_LIMIT = 200;
   const ACCOUNT_HIT_RATE_DAY_LABELS = { yesterday: '昨', today: '今' };
@@ -5650,8 +5687,6 @@
   const accountHitRateTodayEntries = new Map();
   const accountHitRateInFlight = new Map();
 
-  let accountHitRateInjectionTimer = null;
-  let accountHitRateInjectionPending = false;
   let accountHitRateNotice = null;
   let accountHitRateTicker = null;
   let accountHitRateSchedulerBusy = false;
@@ -5665,6 +5700,7 @@
   let accountHitRateResolvedTimeZone = null;
   let accountHitRateTrackedCache = null;
   let accountHitRateYesterdayCache = null;
+  let accountHitRatePrunedDate = '';
 
   function isAccountHitRateEnabled() {
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
@@ -5841,6 +5877,10 @@
   }
 
   function pruneAccountHitRateTodayEntries(todayDate) {
+    if (accountHitRatePrunedDate === todayDate) {
+      return;
+    }
+    accountHitRatePrunedDate = todayDate;
     for (const [accountId, entry] of [...accountHitRateTodayEntries.entries()]) {
       if (!entry || entry.date !== todayDate) {
         accountHitRateTodayEntries.delete(accountId);
@@ -6266,14 +6306,31 @@
       restartAccountHitRateScheduler();
 
       refreshSettingsPanel();
-      scheduleAccountHitRateInjection();
+      injectAccountHitRateRows();
     });
 
     return toggle;
   }
 
+  function getAccountHitRateTable() {
+    const main = document.querySelector('main');
+    return (main && main.querySelector('table')) || document.querySelector('table');
+  }
+
   function getAccountHitRateHeaderRow() {
-    for (const row of document.querySelectorAll('tr')) {
+    const table = getAccountHitRateTable();
+    if (!table) {
+      return null;
+    }
+
+    const headRow = table.tHead?.rows?.[0];
+    if (headRow) {
+      return headRow;
+    }
+
+    // Fallback for hosts that render a thead element without the tHead
+    // accessor. The real accounts table always takes the O(1) path above.
+    for (const row of table.querySelectorAll('tr')) {
       if (row.parentElement && row.parentElement.tagName === 'THEAD') {
         return row;
       }
@@ -6282,8 +6339,7 @@
   }
 
   function getAccountHitRateTableBody() {
-    const main = document.querySelector('main');
-    const table = (main && main.querySelector('table')) || document.querySelector('table');
+    const table = getAccountHitRateTable();
     return table ? table.querySelector('tbody') : null;
   }
 
@@ -6513,10 +6569,9 @@
     }
 
     const dates = resolveAccountHitRateDates();
-    for (const row of document.querySelectorAll('tr')) {
-      if (Number(row.getAttribute('data-row-id')) !== Number(accountId)) {
-        continue;
-      }
+    const normalizedId = Number(accountId);
+    const row = document.querySelector(`tr[data-row-id="${normalizedId}"]`);
+    if (row) {
       renderAccountHitRateRowElement(row, index, dates);
     }
   }
@@ -6603,8 +6658,59 @@
     }
   }
 
-  function injectAccountHitRateRows() {
+  function isAccountHitRateOwnedNode(node) {
+    if (!node || typeof node.tagName !== 'string') {
+      return false;
+    }
+    return Boolean(
+      node.getAttribute?.(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE)
+      || node.getAttribute?.(ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE)
+      || node.getAttribute?.(ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE),
+    );
+  }
+
+  function collectAccountHitRateRowsFromRecords(records) {
+    const rows = new Set();
+    for (const record of records) {
+      if (record.target?.closest?.(`[${ACCOUNT_HIT_RATE_ROW_ATTRIBUTE}="true"]`)) {
+        continue;
+      }
+
+      const addedNodes = record.addedNodes ? [...record.addedNodes] : [];
+      if (addedNodes.length && addedNodes.every(isAccountHitRateOwnedNode)) {
+        continue;
+      }
+
+      const targetRow = record.target?.closest?.('tr');
+      if (targetRow?.getAttribute?.('data-row-id')) {
+        rows.add(targetRow);
+      }
+
+      for (const node of addedNodes) {
+        if (!node || typeof node.tagName !== 'string' || isAccountHitRateOwnedNode(node)) {
+          continue;
+        }
+        if (node.tagName === 'TR' && node.getAttribute?.('data-row-id')) {
+          rows.add(node);
+          continue;
+        }
+        for (const nested of node.querySelectorAll?.('tr') || []) {
+          if (nested.getAttribute?.('data-row-id')) {
+            rows.add(nested);
+          }
+        }
+      }
+    }
+    return rows;
+  }
+
+  function injectAccountHitRateRows(records) {
     if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
+      return;
+    }
+
+    const tableBody = getAccountHitRateTableBody();
+    if (!tableBody) {
       return;
     }
 
@@ -6624,7 +6730,13 @@
       pruneAccountHitRateTodayEntries(dates.today);
     }
 
-    for (const row of document.querySelectorAll('tr')) {
+    // Full passes happen on install, visibility resume, and explicit refresh.
+    // Mutation-driven passes only touch the rows named by the records.
+    const rows = Array.isArray(records) && records.length > 0
+      ? [...collectAccountHitRateRowsFromRecords(records)]
+      : document.querySelectorAll('tr');
+
+    for (const row of rows) {
       const accountId = Number(row.getAttribute('data-row-id'));
       if (Number.isSafeInteger(accountId) && accountId > 0) {
         renderAccountHitRateRowElement(row, index, dates);
@@ -6648,19 +6760,6 @@
     if (isPageVisible()) {
       ensureAccountHitRateTicker();
     }
-  }
-
-  function scheduleAccountHitRateInjection() {
-    if (accountHitRateInjectionPending) {
-      return;
-    }
-
-    accountHitRateInjectionPending = true;
-    accountHitRateInjectionTimer = window.setTimeout(() => {
-      accountHitRateInjectionPending = false;
-      accountHitRateInjectionTimer = null;
-      injectAccountHitRateRows();
-    }, ACCOUNT_HIT_RATE_INJECTION_DELAY_MS);
   }
 
   function createAccountHitRateNotice() {
@@ -6849,7 +6948,7 @@
         return;
       }
       // Passes were skipped while the page was hidden; catch the injection up.
-      scheduleAccountHitRateInjection();
+      injectAccountHitRateRows();
       resumeIfPending();
     });
 
@@ -6863,7 +6962,6 @@
     }
 
     installAccountHitRateVisibilityWatcher();
-    scheduleAccountHitRateInjection();
 
     const tableBody = getAccountHitRateTableBody();
     if (!tableBody) {
@@ -6876,8 +6974,18 @@
     if (accountHitRateObserver) {
       accountHitRateObserver.disconnect();
     } else {
-      accountHitRateObserver = new MutationObserver(() => {
-        scheduleAccountHitRateInjection();
+      // Run in the mutation turn, not on a timer: the virtualized accounts
+      // table paints and measures a new row before a timer fires, and the
+      // later height change (stats grid + hit rate line) makes it correct
+      // scrollTop on every mount, which jumps while scrolling up. Only the
+      // rows named by the mutation records are rendered, and the observer
+      // drops the records produced by its own writes, so this stays cheap.
+      accountHitRateObserver = new MutationObserver((records) => {
+        try {
+          injectAccountHitRateRows(records);
+        } finally {
+          accountHitRateObserver?.takeRecords?.();
+        }
       });
     }
     accountHitRateObserver.observe(tableBody, {
@@ -6887,6 +6995,7 @@
       subtree: true,
     });
     accountHitRateObservedTableBody = tableBody;
+    injectAccountHitRateRows();
   }
 
   function cleanupAccountHitRate() {
@@ -6898,11 +7007,7 @@
       accountHitRateObserver = null;
     }
     accountHitRateObservedTableBody = null;
-    if (accountHitRateInjectionTimer) {
-      window.clearTimeout(accountHitRateInjectionTimer);
-      accountHitRateInjectionTimer = null;
-    }
-    accountHitRateInjectionPending = false;
+    accountHitRatePrunedDate = '';
 
     clearAccountHitRateRows();
   }
@@ -7238,13 +7343,21 @@
     sidebarWidthResizeWatcherInstalled = true;
   }
 
-  function installPageSizeWatcher() {
-    if (pageSizeWatcherInstalled) {
+  const PAGE_SIZE_WATCHER_MIN_INTERVAL_MS = 100;
+  let pageSizeWatcherLastRunAt = 0;
+  let pageSizeWatcherTimer = null;
+  let pageSizeWatcherRunning = false;
+  let pageSizeWatcherDirty = false;
+
+  async function runPageSizeWatcher() {
+    if (pageSizeWatcherRunning) {
+      pageSizeWatcherDirty = true;
       return;
     }
 
-    const observer = new MutationObserver(async () => {
-      installSettingsLauncherButton();
+    pageSizeWatcherRunning = true;
+    pageSizeWatcherLastRunAt = Date.now();
+    try {
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
@@ -7258,6 +7371,48 @@
       }
       handleGranularityValueChange();
       scheduleUsageTableEnhancement();
+      if (isAdminAccountsPage()) {
+        installAccountHitRateLinks();
+      }
+    } finally {
+      pageSizeWatcherRunning = false;
+      pageSizeWatcherLastRunAt = Date.now();
+      if (pageSizeWatcherDirty) {
+        pageSizeWatcherDirty = false;
+        schedulePageSizeWatcher();
+      }
+    }
+  }
+
+  function startPageSizeWatcherRun() {
+    runPageSizeWatcher().catch(() => {});
+  }
+
+  function schedulePageSizeWatcher() {
+    if (pageSizeWatcherTimer) {
+      return;
+    }
+
+    const elapsed = Date.now() - pageSizeWatcherLastRunAt;
+    if (elapsed >= PAGE_SIZE_WATCHER_MIN_INTERVAL_MS) {
+      startPageSizeWatcherRun();
+      return;
+    }
+
+    pageSizeWatcherTimer = window.setTimeout(() => {
+      pageSizeWatcherTimer = null;
+      startPageSizeWatcherRun();
+    }, PAGE_SIZE_WATCHER_MIN_INTERVAL_MS - elapsed);
+  }
+
+  function installPageSizeWatcher() {
+    if (pageSizeWatcherInstalled) {
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      installSettingsLauncherButton();
+      schedulePageSizeWatcher();
     });
     observer.observe(document.documentElement, {
       childList: true,
