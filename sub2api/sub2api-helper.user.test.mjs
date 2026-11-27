@@ -5926,9 +5926,15 @@ test('admin accounts renders today and yesterday hit rates from one trend reques
   const line = account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]');
   assert.ok(line);
   assert.equal(line.parentElement, account.todayStatsContainer);
-  assert.equal(line.style.gridColumn, '1 / -1');
-  assert.equal(account.todayStatsContainer.style.display, 'grid');
-  assert.equal(account.todayStatsContainer.style.gridTemplateColumns, 'auto auto');
+  assert.equal(
+    account.todayStatsContainer.getAttribute('data-sub2api-account-hit-rate-grid'),
+    'true',
+  );
+  const style = environment.document.querySelector('[data-sub2api-account-hit-rate-style="true"]');
+  assert.ok(style);
+  assert.match(style.textContent, /\[data-sub2api-account-hit-rate\] \{/);
+  assert.match(style.textContent, /display: grid !important;/);
+  assert.match(style.textContent, /grid-column: 1 \/ -1 !important;/);
 
   const statLabels = [...account.todayStatsContainer.children]
     .filter((child) => child.getAttribute('data-sub2api-account-hit-rate-row') !== 'true')
@@ -6392,7 +6398,10 @@ test('admin accounts hit rate restores upstream labels and layout when the featu
   environment.runMutationObservers();
   await flushMicrotasks(200);
 
-  assert.equal(account.todayStatsContainer.style.display, 'grid');
+  assert.equal(
+    account.todayStatsContainer.getAttribute('data-sub2api-account-hit-rate-grid'),
+    'true',
+  );
   assert.equal(account.todayStatsContainer.children[2].children[0].textContent, '账号:');
 
   environment.getMenuCommand('Sub2API Helper 设置')();
@@ -6406,7 +6415,6 @@ test('admin accounts hit rate restores upstream labels and layout when the featu
   await flushMicrotasks(200);
 
   assert.equal(account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate]'), null);
-  assert.equal(account.todayStatsContainer.style.display, '');
   assert.equal(account.todayStatsContainer.getAttribute('data-sub2api-account-hit-rate-grid'), null);
   assert.equal(account.todayStatsContainer.children[2].children[0].textContent, '账号计费:');
   assert.equal(account.todayStatsContainer.children[3].children[0].textContent, '用户扣费:');
@@ -6924,8 +6932,7 @@ test('admin accounts hit rate follows the grid when today stats arrive later', a
     account.todayStatsCell.querySelector('[data-sub2api-account-hit-rate-row="true"]').parentElement === container,
     'the line must move into the grid once the stats container appears',
   );
-  assert.equal(container.style.display, 'grid');
-  assert.equal(container.style.gridTemplateColumns, 'auto auto');
+  assert.equal(container.getAttribute('data-sub2api-account-hit-rate-grid'), 'true');
   assert.equal(container.children[2].children[0].textContent, '账号:');
 });
 

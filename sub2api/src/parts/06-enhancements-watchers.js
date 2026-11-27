@@ -330,9 +330,10 @@
     sidebarWidthResizeWatcherInstalled = true;
   }
 
-  const PAGE_SIZE_WATCHER_MIN_INTERVAL_MS = 100;
-  let pageSizeWatcherLastRunAt = 0;
+  const PAGE_SIZE_WATCHER_DEBOUNCE_MS = 100;
+  const PAGE_SIZE_WATCHER_MAX_WAIT_MS = 300;
   let pageSizeWatcherTimer = null;
+  let pageSizeWatcherBurstStartedAt = 0;
   let pageSizeWatcherRunning = false;
   let pageSizeWatcherDirty = false;
 
@@ -343,8 +344,8 @@
     }
 
     pageSizeWatcherRunning = true;
-    pageSizeWatcherLastRunAt = Date.now();
     try {
+      installSettingsLauncherButton();
       cleanupDisabledFeatures();
       restoreSavedSidebarState();
       applySavedSidebarWidth();
@@ -363,7 +364,6 @@
       }
     } finally {
       pageSizeWatcherRunning = false;
-      pageSizeWatcherLastRunAt = Date.now();
       if (pageSizeWatcherDirty) {
         pageSizeWatcherDirty = false;
         schedulePageSizeWatcher();
@@ -376,20 +376,26 @@
   }
 
   function schedulePageSizeWatcher() {
+    const now = Date.now();
+    if (!pageSizeWatcherBurstStartedAt) {
+      pageSizeWatcherBurstStartedAt = now;
+    }
+
+    const remainingMaxWait = PAGE_SIZE_WATCHER_MAX_WAIT_MS
+      - (now - pageSizeWatcherBurstStartedAt);
+    const waitMs = Math.max(
+      0,
+      Math.min(PAGE_SIZE_WATCHER_DEBOUNCE_MS, remainingMaxWait),
+    );
+
     if (pageSizeWatcherTimer) {
-      return;
+      window.clearTimeout(pageSizeWatcherTimer);
     }
-
-    const elapsed = Date.now() - pageSizeWatcherLastRunAt;
-    if (elapsed >= PAGE_SIZE_WATCHER_MIN_INTERVAL_MS) {
-      startPageSizeWatcherRun();
-      return;
-    }
-
     pageSizeWatcherTimer = window.setTimeout(() => {
       pageSizeWatcherTimer = null;
+      pageSizeWatcherBurstStartedAt = 0;
       startPageSizeWatcherRun();
-    }, PAGE_SIZE_WATCHER_MIN_INTERVAL_MS - elapsed);
+    }, waitMs);
   }
 
   function installPageSizeWatcher() {
@@ -398,7 +404,6 @@
     }
 
     const observer = new MutationObserver(() => {
-      installSettingsLauncherButton();
       schedulePageSizeWatcher();
     });
     observer.observe(document.documentElement, {
@@ -455,6 +460,10 @@
     }
 
     helperActivated = true;
+    if (activationWatcherObserver) {
+      activationWatcherObserver.disconnect();
+      activationWatcherObserver = null;
+    }
     document.documentElement.dataset.sub2apiHelperVersion = SCRIPT_VERSION;
     installClickHooks();
     installAutoRefreshMenuCloseHook();
@@ -510,10 +519,10 @@
       return;
     }
 
-    const observer = new MutationObserver(() => {
+    activationWatcherObserver = new MutationObserver(() => {
       tryActivateSub2apiHelper();
     });
-    observer.observe(document.documentElement, {
+    activationWatcherObserver.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });

@@ -311,6 +311,7 @@
   let settingsPanelRoot = null;
   let urlWatcherInstalled = false;
   let activationWatcherInstalled = false;
+  let activationWatcherObserver = null;
   let activationRetryInFlight = false;
   let activationRetryToken = 0;
   let helperActivated = false;

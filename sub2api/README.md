@@ -162,7 +162,8 @@ node --check sub2api/build-userscript.mjs
 - 昨天是已结束的自然日，结果按 `账号ID + 日期` 持久化，同一天不再重查；昨天已缓存时请求区间收缩为仅今天，扫描量减半。代价是迟到日志不会被修正，这是刻意的取舍。
 - 今天的结果只放内存，并按解析出的日期戳记；跨过 0 点后旧值自动作废、显示 `–`，等下一次错峰刷新或悬停再查。
 - 默认参数仍然保守：监控账户数量不限，但错峰刷新保证任意时刻至多一个请求在途——首轮在 `min(间隔, N×1.5s)` 窗口内随机铺开，稳态每账号每间隔一次，两次请求至少间隔 1-2 秒，间隔下限 30 分钟；单账户连续 2 次查询失败即熔断该账户（点击徽标重试恢复），401/403 只弹纯展示通知条。放宽这些常量前需要先确认目标服务器的实际负载。
-- 命中率挂在「今日统计」列内，通过给上游的 `space-y-0.5` 容器加 `display:grid; grid-template-columns:auto auto` 让原有四项两两并排，命中率行用 `grid-column: 1 / -1` 独占第三行。不要移动或重新父级化上游的四个统计节点——它们由 Vue 管理，「用户扣费」还是 `v-if`，重新父级化会在节点出现/消失时错位。
+- 命中率挂在「今日统计」列内，通过给上游的 `space-y-0.5` 容器加 `data-sub2api-account-hit-rate-grid` 属性，由命中率样式表把 `display` 等设为 grid，让原有四项两两并排；命中率行用 `grid-column: 1 / -1` 独占第三行。不要移动或重新父级化上游的四个统计节点——它们由 Vue 管理，「用户扣费」还是 `v-if`，重新父级化会在节点出现/消失时错位。
+- 命中率行、badge、星标按钮和 grid 容器的静态样式必须放在一次注入的 `<style>` 中，用属性选择器作用；不要在每行创建时写十几条 inline style。网格属性要用 `!important` 覆盖上游 `space-y` 和可能的 inline `display`，重置时只移除 `data-sub2api-account-hit-rate-grid` 属性即可恢复上游布局。
 - 该列在列设置里默认隐藏（`DEFAULT_HIDDEN_COLUMNS` 含 `today_stats`）。列不存在时必须移除注入并停止轮询，打开列后由 MutationObserver 自动恢复。
 - 命中率错峰调度只在 `/admin/accounts` 且页面可见时生效；切到其他管理页、后台标签页或非 Sub2API 站点必须停表。`installAccountHitRateLinks()` 会被 `applyPageEnhancements()` 与 MutationObserver 反复调用，必须幂等，不能每调用一次就启动新一轮查询。
 - 缓存命中率复用 `calculateUsageCacheHitRatePercent()`，分母为 0 时必须返回 `null`（渲染成 `–`），不能渲染成 `0%`。
@@ -172,5 +173,6 @@ node --check sub2api/build-userscript.mjs
 - 命中率回归测试至少覆盖：一次请求同时渲染今天与昨天、昨天缓存后只查今天、昨天缓存跨日失效、某天无记录、失败保留旧值、跨午夜作废今天、监控账户持久化（无上限）、单账户连续 2 次失败熔断与点击重试恢复、手动成功清零计数、隐藏页停表、列隐藏时不注入也不调度、重复注入不重复请求、未变行零写入、格式化器只构造一次、无数据转有数据时行迁入网格、四档配色分级、错峰首轮随机铺开与最小请求间距、前台恢复按间距逐个排干、auth 失败纯展示通知条。
 - 命中率的 observer 只监听账号表 `tbody`，不再监听整个 `documentElement`；SPA 替换表格节点后，`installAccountHitRateLinks()` 必须比较已观察节点并重新挂载，否则滚动时行变更不会触发注入。页面共用的每页数量按钮查找走缓存，失效判断要沿 `parentElement` 检查整条祖先链的 `isConnected`（只查按钮自身会在上游只移除容器时留下陈旧按钮）。
 - 命中率注入必须在产生该行的同一个 mutation turn 内完成，不能退回到 `setTimeout` 延迟。账号表超过 50 行时是虚拟滚动 + `ResizeObserver` 动态测高；延迟注入会先让浏览器按旧布局绘制并测量，再改行高（把 stats 栈改成 grid 并加一行，实测行高 97px → 85px），虚拟器随后为每个新挂载行校正 `scrollTop`，向上滚动时会回拨（实测 9 次、168px）。observer 回调只渲染 records 指向的行，并在每轮结束后 `takeRecords()` 丢弃自身写入；完整 `tr` 扫描只用于安装、可见性恢复和显式刷新。回归测试要在不推进定时器的前提下断言「行被移除后调用一次 observer，行立即回来」，并覆盖自身 mutation 不触发重绘、无关行不被触碰。
-- `installPageSizeWatcher` 的 cleanup/restore 套件必须合并执行：设置按钮仍然即时安装，但 `restoreSavedSidebarState`、`restoreSavedPageSize`、筛选条件恢复、`installAccountHitRateLinks` 等重活最多每 100ms 跑一轮，运行中到达的 mutation 只标记 dirty 并在结束后补跑，避免滚动时每个 mutation 都跑整套恢复。
+- `installPageSizeWatcher` 的 cleanup/restore 套件必须合并执行：设置按钮补装、`restoreSavedSidebarState`、`restoreSavedPageSize`、筛选条件恢复、`installAccountHitRateLinks` 等一起采用 trailing debounce——连续 mutation 停止 100ms 后才跑；连续活跃时最多 300ms 强制跑一轮。运行中到达的 mutation 只标记 dirty 并在结束后补跑，避免滚动时每个 mutation 都跑整套恢复。
+- 首次激活后必须断开 activation observer：后续 SPA 页面切换由 URL watcher 负责，否则滚动产生的每个 mutation 都会再跑一次激活判断。
 - 侧边栏宽度和账号名称 gutter 的样式写入必须先比较当前值；值没变时不要重复 `setProperty` / `setAttribute`，否则每次 page-size watcher 或 usage-link pass 都会触发样式重算。

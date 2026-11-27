@@ -36,6 +36,7 @@
   let accountHitRateTrackedCache = null;
   let accountHitRateYesterdayCache = null;
   let accountHitRatePrunedDate = '';
+  let accountHitRateStyleElement = null;
 
   function isAccountHitRateEnabled() {
     return isFeatureEnabled(FEATURE_IDS.ADMIN_ACCOUNTS_HIT_RATE);
@@ -546,13 +547,6 @@
     badge.setAttribute('type', 'button');
     badge.setAttribute(ACCOUNT_HIT_RATE_BADGE_ATTRIBUTE, day);
     badge.setAttribute('data-sub2api-account-hit-rate-id', String(accountId));
-    setStyles(badge, {
-      background: 'transparent',
-      border: '0',
-      cursor: 'pointer',
-      font: 'inherit',
-      padding: '0',
-    });
 
     let hoverTimer = null;
     badge.addEventListener('mouseenter', () => {
@@ -596,15 +590,6 @@
     toggle.setAttribute('type', 'button');
     toggle.setAttribute(ACCOUNT_HIT_RATE_TRACK_ATTRIBUTE, 'true');
     toggle.setAttribute('data-sub2api-account-hit-rate-track-id', String(accountId));
-    setStyles(toggle, {
-      background: 'transparent',
-      border: '0',
-      cursor: 'pointer',
-      height: '1em',
-      lineHeight: '1',
-      padding: '0',
-      width: '1em',
-    });
 
     if (typeof document.createElementNS === 'function') {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -773,22 +758,6 @@
 
     if (container.getAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE) !== 'true') {
       container.setAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE, 'true');
-      setStyles(container, {
-        columnGap: '0.75em',
-        display: 'grid',
-        gridTemplateColumns: 'auto auto',
-        justifyContent: 'start',
-        rowGap: '0.15em',
-      });
-    }
-
-    for (const child of [...container.children]) {
-      if (child.getAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE) === 'true') {
-        continue;
-      }
-      if (child.style.marginTop !== '0') {
-        child.style.marginTop = '0';
-      }
     }
 
     applyAccountHitRateShortLabels(container);
@@ -800,29 +769,74 @@
     }
 
     container.removeAttribute(ACCOUNT_HIT_RATE_GRID_ATTRIBUTE);
-    setStyles(container, {
-      columnGap: '',
-      display: '',
-      gridTemplateColumns: '',
-      justifyContent: '',
-      rowGap: '',
-    });
-    for (const child of [...container.children]) {
-      setStyles(child, { marginTop: '' });
-    }
     resetAccountHitRateShortLabels(container);
+  }
+
+  function ensureAccountHitRateStyleElement() {
+    if (accountHitRateStyleElement?.isConnected) {
+      return accountHitRateStyleElement;
+    }
+
+    const existing = document.querySelector('[data-sub2api-account-hit-rate-style="true"]');
+    if (existing) {
+      accountHitRateStyleElement = existing;
+      return accountHitRateStyleElement;
+    }
+
+    const style = document.createElement('style');
+    style.setAttribute('data-sub2api-account-hit-rate-style', 'true');
+    style.textContent = `
+[data-sub2api-account-hit-rate] {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+[data-sub2api-account-hit-rate-row="true"] {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  margin-top: 4px !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] {
+  column-gap: 0.75em !important;
+  display: grid !important;
+  grid-template-columns: auto auto !important;
+  justify-content: start !important;
+  row-gap: 0.15em !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] > * {
+  margin-top: 0 !important;
+}
+
+[data-sub2api-account-hit-rate-grid="true"] > [data-sub2api-account-hit-rate-row="true"] {
+  grid-column: 1 / -1 !important;
+  margin-top: 0 !important;
+}
+
+[data-sub2api-account-hit-rate-track="true"] {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  height: 1em;
+  line-height: 1;
+  padding: 0;
+  width: 1em;
+}
+`;
+    (document.head || document.documentElement).appendChild(style);
+    accountHitRateStyleElement = style;
+    return accountHitRateStyleElement;
   }
 
   function createAccountHitRateLine(accountId) {
     const line = document.createElement('div');
     line.setAttribute(ACCOUNT_HIT_RATE_ROW_ATTRIBUTE, 'true');
-    line.className = 'flex items-center gap-1 text-xs';
-    setStyles(line, {
-      alignItems: 'center',
-      display: 'flex',
-      gap: '4px',
-      gridColumn: '1 / -1',
-    });
+    line.className = 'text-xs';
 
     const label = document.createElement('span');
     label.setAttribute('data-sub2api-account-hit-rate-label', 'true');
@@ -911,14 +925,6 @@
     }
   }
 
-  function setAccountHitRateLineStyle(line, styles) {
-    for (const [property, value] of Object.entries(styles)) {
-      if (line.style[property] !== value) {
-        line.style[property] = value;
-      }
-    }
-  }
-
   function renderAccountHitRateRowElement(row, columnIndex, dates) {
     const accountId = Number(row.getAttribute('data-row-id'));
     if (!Number.isSafeInteger(accountId) || accountId <= 0) {
@@ -948,13 +954,11 @@
             lateContainer.appendChild(line);
           }
           applyAccountHitRateGrid(lateContainer);
-          setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
         } else {
           const mount = cell.querySelector('div') || cell;
           if (line.parentElement !== mount) {
             mount.appendChild(line);
           }
-          setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
         }
       }
 
@@ -974,9 +978,6 @@
 
     if (statsContainer) {
       applyAccountHitRateGrid(statsContainer);
-      setAccountHitRateLineStyle(line, { gridColumn: '1 / -1', marginTop: '0' });
-    } else {
-      setAccountHitRateLineStyle(line, { gridColumn: '', marginTop: '4px' });
     }
 
     renderAccountHitRateLine(line, getAccountHitRateRenderModel(accountId, dates));
@@ -1043,6 +1044,8 @@
     if (!isAdminAccountsPage() || !isAccountHitRateEnabled() || !isPageVisible()) {
       return;
     }
+
+    ensureAccountHitRateStyleElement();
 
     const tableBody = getAccountHitRateTableBody();
     if (!tableBody) {
